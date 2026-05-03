@@ -185,19 +185,44 @@ Future<void> _initFcmIfSupported() async {
   await FcmMarketingPush.instance.init();
 }
 
+Future<void> _safeStartupTask(
+  String name,
+  Future<void> Function() task,
+) async {
+  try {
+    await task().timeout(const Duration(seconds: 8));
+    debugPrint('✅ [$name] initialized');
+  } catch (e, st) {
+    // لا نخلي الخدمات الاختيارية مثل الإشعارات/FCM تمنع فتح التطبيق.
+    debugPrint('⚠️ [$name] startup skipped: $e');
+    debugPrint('$st');
+  }
+}
+
+Future<void> _startOptionalServicesAfterFirstFrame() async {
+  await _safeStartupTask('Notifications', _initNotificationsIfSupported);
+
+  // NotificationSyncService.start() داخل _initNotificationsIfSupported يشغّل FCM عند الحاجة.
+  // نخليه هنا مطفأ لتجنب التكرار، وإذا فصلته لاحقًا فعّل السطر التالي فقط.
+  // await _safeStartupTask('FCM', _initFcmIfSupported);
+}
+
 void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
 
-    // 1. تشغيل الـ Env و Firebase
+    // 1. تشغيل الـ Env بشكل اختياري وآمن.
+    // مهم: لا تستخدم dotenv.env إذا فشل تحميل .env، لأن هذا يسبب NotInitializedError.
+    bool envLoaded = false;
     try {
       await dotenv.load(fileName: ".env");
-    } catch (_) {
-      if (kDebugMode) {
-        debugPrint(
-          "⚠️ ملف .env غير موجود — سيتم استخدام الإعدادات الافتراضية (بدون أسرار داخل التطبيق).",
-        );
-      }
+      envLoaded = true;
+      debugPrint('✅ .env loaded');
+    } catch (e) {
+      debugPrint(
+        "⚠️ ملف .env غير موجود أو غير قابل للقراءة — سيتم استخدام الإعدادات الافتراضية.",
+      );
+      if (kDebugMode) debugPrint('dotenv load skipped: $e');
     }
 
     await Firebase.initializeApp(
@@ -205,7 +230,8 @@ void main() {
     );
 
     // 2. تفعيل App Check
-    final recaptchaKey = dotenv.env['RECAPTCHA_SITE_KEY'] ?? '';
+    final recaptchaKey =
+        envLoaded ? (dotenv.env['RECAPTCHA_SITE_KEY'] ?? '') : '';
     await setupAppCheck(recaptchaSiteKey: recaptchaKey);
 
     // ✅ ملاحظة تشخيصية: إذا استمر التعليق، عطل السطر أدناه لفحص السيرفر مباشرة
@@ -214,12 +240,8 @@ void main() {
     await _printEnvDiagnostics();
     await initializeDateFormatting('ar', null);
 
-    // 3. تهيئة الإعدادات
+    // 3. تهيئة الإعدادات الأساسية فقط قبل runApp
     await SafePrefs.fixKnownMismatches();
-
-    // 4. الإشعارات و FCM
-    await _initNotificationsIfSupported();
-    await _initFcmIfSupported();
 
     final prefs = await SharedPreferences.getInstance();
     final isDarkMode = prefs.getBool('darkMode') ?? false;
@@ -238,7 +260,8 @@ void main() {
             ChangeNotifierProvider(create: (_) => DietProvider()),
             ChangeNotifierProvider(create: (_) => GoalProvider()),
             Provider(
-                create: (_) => RecipeRepository(FirebaseFirestore.instance)),
+              create: (_) => RecipeRepository(FirebaseFirestore.instance),
+            ),
             ChangeNotifierProvider(
               create: (c) => RecipeProvider(c.read<RecipeRepository>()),
             ),
@@ -247,6 +270,11 @@ void main() {
         ),
       ),
     );
+
+    // 4. شغّل الخدمات الاختيارية بعد ظهور أول واجهة حتى لا تسبب شاشة بيضاء عند الإقلاع.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_startOptionalServicesAfterFirstFrame());
+    });
   }, (Object error, StackTrace stack) {
     debugPrint('❌ UNCAUGHT ERROR: $error');
     debugPrint('$stack');
