@@ -460,13 +460,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       await DailyHealthTips.showTodayIfNeeded(context);
     });
 loadPredefinedFoods();
-
-    // لا نطلب صلاحيات Health/Steps تلقائيًا عند فتح الهوم.
-    // هذا كان من أكثر الأسباب المحتملة للكرش عند بداية التشغيل، خصوصًا على iOS
-    // إذا كانت صلاحيات HealthKit ناقصة أو الجهاز لا يدعمها.
-    // يظل بإمكانك استدعاء fetchHealthData() من زر أو إعداد لاحقًا.
-    // fetchHealthData();
-
+    fetchHealthData();
     Future.microtask(() => _checkAndUpdateDailyStreak());
   }
 

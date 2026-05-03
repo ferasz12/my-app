@@ -32,11 +32,9 @@ class NotificationSyncService {
     if (_started) return;
     _started = true;
 
-    // ✅ تهيئة إشعارات العروض عبر FCM بطريقة آمنة.
-    // لا نترك Future بدون معالجة، لأن أي خطأ Native أثناء البداية ممكن يسقط التطبيق.
-    unawaited(
-      FcmMarketingPush.instance.init().catchError((_) {}),
-    );
+    // ✅ تهيئة إشعارات العروض عبر FCM (لا يؤثر على نظام الإشعارات المحلي القديم)
+    // ستعمل مع Firebase Messaging + Topics (wazen_all / wazen_marketing)
+    FcmMarketingPush.instance.init();
 
     // استمع لتغير حالة الدخول
     _authSub = FirebaseAuth.instance.authStateChanges().listen((u) {

@@ -206,9 +206,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           body: SafeArea(
             top: false,
             bottom: false,
-            // نعرض الصفحة الحالية فقط بدل بناء كل الصفحات مرة واحدة عند فتح التطبيق.
-            // هذا يخفف الضغط على Firestore/Health/Streams ويقلل الكرش في بداية التشغيل.
-            child: _screens[_selectedIndex],
+            // ✅ استخدام IndexedStack يمنع إعادة بناء/تفكيكツ
+            child: IndexedStack(index: _selectedIndex, children: _screens),
           ),
           bottomNavigationBar: _GlassAdaptiveNavBar(
             currentIndex: _selectedIndex,
