@@ -108,8 +108,10 @@ Future<void> setupAppCheck({required String recaptchaSiteKey}) async {
       );
     } else if (_isApple) {
       await FirebaseAppCheck.instance.activate(
+        // في TestFlight/App Store استخدم DeviceCheck لأنه أكثر استقرارًا كبداية.
+        // App Attest يحتاج إعدادات أدق وقد يسبب تعليق/فشل تحقق إذا غير مفعّل بالكامل في Firebase.
         appleProvider:
-            kReleaseMode ? AppleProvider.appAttest : AppleProvider.debug,
+            kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
       );
     } else {
       debugPrint(
@@ -214,6 +216,10 @@ void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
 
+    // مهم: أي خطأ قبل runApp كان ممكن يسبب شاشة بيضاء في TestFlight.
+    // لذلك نخلي التهيئة داخل try/catch ونظهر شاشة خطأ بدل التعليق.
+    try {
+
     // 1. تشغيل الـ Env و Firebase
     try {
       await dotenv.load(fileName: ".env");
@@ -276,10 +282,73 @@ void main() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_startOptionalServicesAfterFirstFrame());
     });
+    } catch (e, st) {
+      debugPrint('❌ STARTUP ERROR قبل تشغيل الواجهة: $e');
+      debugPrint('$st');
+      runApp(_StartupErrorApp(error: e.toString()));
+    }
   }, (Object error, StackTrace stack) {
     debugPrint('❌ UNCAUGHT ERROR: $error');
     debugPrint('$stack');
   });
+}
+
+
+class _StartupErrorApp extends StatelessWidget {
+  final String error;
+  const _StartupErrorApp({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: const Color(0xFFF4FAF8),
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      size: 54,
+                      color: Color(0xFF0B7D75),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'تعذر فتح وازن',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'حدث خطأ أثناء تهيئة التطبيق. الرجاء إغلاق التطبيق وفتحه مرة أخرى، وإذا استمرت المشكلة تواصل مع الدعم.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, height: 1.5),
+                    ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 16),
+                      SelectableText(
+                        error,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class CalorieApp extends StatelessWidget {
