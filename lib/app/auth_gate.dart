@@ -31,6 +31,7 @@ class _AuthGateState extends State<AuthGate> {
   StreamSubscription<User?>? _authSub;
   Widget _child = const SplashScreen();
   bool _deciding = false;
+  User? _pendingUser;
   int _ver = 0;
 
   /// Cache آخر حالة حظر لتقليل الوميض عند تبديل الشجرة.
@@ -62,62 +63,118 @@ class _AuthGateState extends State<AuthGate> {
     setState(() => _child = w);
   }
 
+  Future<T?> _withStartupTimeout<T>(
+    String name,
+    Future<T> Function() task, {
+    Duration timeout = const Duration(seconds: 8),
+    T? fallback,
+  }) async {
+    try {
+      return await task().timeout(timeout);
+    } on TimeoutException catch (e) {
+      if (kDebugMode) debugPrint('[AuthGate] $name timeout: $e');
+      return fallback;
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[AuthGate] $name failed: $e');
+        debugPrint('$st');
+      }
+      return fallback;
+    }
+  }
+
   Future<void> _decideFor(User? user) async {
-    if (_deciding) return;
+    // إذا تغيرت حالة تسجيل الدخول أثناء الفحص، لا نهملها.
+    // نخزن آخر مستخدم ونرجع لها بعد انتهاء الفحص الحالي.
+    if (_deciding) {
+      _pendingUser = user;
+      return;
+    }
+
     _deciding = true;
     final me = ++_ver;
 
     try {
       // 1) غير مسجّل → Welcome
       if (user == null || user.isAnonymous) {
-        // ✅ مهم: تنظيف مفاتيح الجلسة حتى لا تبقى بيانات حساب سابق
-        await SessionManager.clearSessionKeys();
+        await _withStartupTimeout<void>(
+          'clearSessionKeys',
+          () => SessionManager.clearSessionKeys(),
+          timeout: const Duration(seconds: 4),
+        );
         if (_same(me)) _set(const WelcomeScreen());
         return;
       }
-      // ✅ مزامنة currentUid/currentEmail (حتى لو كانت موجودة من حساب سابق)
-      final bool accountChanged = await SessionManager.didAccountChange(user);
-      await SessionManager.syncFromFirebaseUser(user);
+
+      // 2) مزامنة الجلسة، لكن لا نخليها تعلق الشاشة.
+      final bool accountChanged =
+          await _withStartupTimeout<bool>(
+                'didAccountChange',
+                () => SessionManager.didAccountChange(user),
+                timeout: const Duration(seconds: 5),
+                fallback: false,
+              ) ??
+              false;
+
+      await _withStartupTimeout<void>(
+        'syncFromFirebaseUser',
+        () => SessionManager.syncFromFirebaseUser(user),
+        timeout: const Duration(seconds: 5),
+      );
+
       if (accountChanged) {
-        // ننظف كاش Firestore لتقليل احتمالية ظهور بيانات حساب سابق
-        await SessionManager.clearFirestoreCacheSafe();
+        await _withStartupTimeout<void>(
+          'clearFirestoreCacheSafe',
+          () => SessionManager.clearFirestoreCacheSafe(),
+          timeout: const Duration(seconds: 5),
+        );
       }
 
+      // 3) تحقق الجلسة. لو التحقق علق، لا نترك التطبيق على شاشة بيضاء.
+      final ok =
+          await _withStartupTimeout<bool>(
+                'isSessionValid',
+                () => _isSessionValid(user),
+                timeout: const Duration(seconds: 6),
+                fallback: true,
+              ) ??
+              true;
 
-
-      // 2) تحقق صارم من صلاحية الجلسة
-      final ok = await _isSessionValid(user);
       if (!ok) {
-        try {
-          await SessionManager.fullSignOut();
-        } catch (_) {}
+        await _withStartupTimeout<void>(
+          'fullSignOut',
+          () => SessionManager.fullSignOut(),
+          timeout: const Duration(seconds: 5),
+        );
         if (_same(me)) _set(const WelcomeScreen());
         return;
       }
 
-      // 3) بريد غير مفعّل → التحقق (فقط لحسابات البريد/كلمة المرور)
-      final usesPasswordProvider = user.providerData.any((p) => p.providerId == 'password');
+      // 4) بريد غير مفعّل → التحقق (فقط لحسابات البريد/كلمة المرور)
+      final usesPasswordProvider =
+          user.providerData.any((p) => p.providerId == 'password');
       if (usesPasswordProvider && !user.emailVerified) {
         if (_same(me)) _set(_VerifyEmailInline(email: user.email ?? ''));
         return;
       }
 
-      // 3.5) ضمان وجود وثيقة المستخدم الأساسية users/{uid} (Legacy root)
-      // مهم جدًا لأن بعض القواعد تمنع كتابة أي شيء قبل وجود الوثيقة الأساسية.
-      try {
-        await const LegacyUserRepository()
-            .ensureLegacyUserDocExists()
-            .timeout(const Duration(seconds: 20));
-      } catch (e) {
-        if (kDebugMode) debugPrint('[AuthGate] ensureLegacyUserDocExists failed: $e');
-      }
+      // 5) ضمان وثيقة المستخدم، بدون تعليق طويل.
+      await _withStartupTimeout<void>(
+        'ensureLegacyUserDocExists',
+        () => const LegacyUserRepository().ensureLegacyUserDocExists(),
+        timeout: const Duration(seconds: 8),
+      );
 
-      // 4) حالة الأونبوردنغ (✅ cache أولاً ثم server، مع منع "الرجوع للخلف")
-      final st = await const LegacyUserRepository().loadOnboardingStatus(uid: user.uid);
+      // 6) حالة الأونبوردنغ.
+      // إذا Firestore/AppCheck علقوا، ندخل المستخدم للرئيسية بدل شاشة بيضاء.
+      final st = await _withStartupTimeout(
+        'loadOnboardingStatus',
+        () => const LegacyUserRepository().loadOnboardingStatus(uid: user.uid),
+        timeout: const Duration(seconds: 8),
+      );
 
-      // نحدد الوجهة (أونبوردنغ أو الرئيسية)
       Widget target;
-      if (st.done) {
+      if (st == null || st.done) {
         target = const MainNavigationScreen();
       } else {
         switch (st.step) {
@@ -131,7 +188,6 @@ class _AuthGateState extends State<AuthGate> {
             target = const SetGoalPage();
             break;
           case 3:
-            // ✅ صفحة تحفيزية بعد تحديد هدف الوزن (رسم مسار الوزن)
             target = const GoalProgressOnboardingPage();
             break;
           case 4:
@@ -142,17 +198,14 @@ class _AuthGateState extends State<AuthGate> {
         }
       }
 
-      // ✅ صار التطبيق مجاني بشكل أساسي، والميزات المحددة فقط هي اللي تقفل بالاشتراك.
-      if (_same(me)) {
-        _set(target);
+      if (_same(me)) _set(target);
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[AuthGate] decide error: $e');
+        debugPrint('$st');
       }
-      return;
 
-      } catch (e) {
-      if (kDebugMode) debugPrint('[AuthGate] decide error: $e');
-
-      // ✅ وضع بدون إنترنت: لا ترجع المستخدم لشاشة الترحيب ولا تطلب تسجيل دخول من جديد.
-      // إذا كان المستخدم موجودًا، نسمح بالدخول ونترك الميزات التي تحتاج شبكة تفشل بشكل طبيعي.
+      // لا نترك المستخدم على Splash/شاشة بيضاء.
       if (user != null && !user.isAnonymous) {
         if (_same(me)) _set(const MainNavigationScreen());
       } else {
@@ -160,6 +213,12 @@ class _AuthGateState extends State<AuthGate> {
       }
     } finally {
       _deciding = false;
+
+      final pending = _pendingUser;
+      _pendingUser = null;
+      if (pending != null && mounted) {
+        unawaited(_decideFor(pending));
+      }
     }
   }
 
@@ -239,6 +298,11 @@ class _UserBanGate extends StatelessWidget {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: ref.snapshots(includeMetadataChanges: true),
       builder: (context, snap) {
+        if (snap.hasError) {
+          if (kDebugMode) debugPrint('[AuthGate] ban stream error: ${snap.error}');
+          return child;
+        }
+
         bool banned = initialBanned ?? false;
 
         final data = snap.data?.data();
