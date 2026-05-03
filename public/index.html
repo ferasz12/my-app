@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>روابط وازن</title>
+  <meta name="description" content="كل روابط تطبيق وازن الرسمية في صفحة واحدة." />
+
+  <!-- أيقونة الموقع / صورة تطبيق وازن في تبويب المتصفح ونتائج المشاركة -->
+  <link rel="icon" type="image/png" href="/wazen_logo.png?v=20260503" />
+  <link rel="shortcut icon" type="image/png" href="/wazen_logo.png?v=20260503" />
+  <link rel="apple-touch-icon" href="/wazen_logo.png?v=20260503" />
+  <meta name="msapplication-TileColor" content="#016C66" />
+  <meta name="msapplication-TileImage" content="/wazen_logo.png?v=20260503" />
+
+  <meta property="og:title" content="روابط وازن" />
+  <meta property="og:description" content="كل روابط تطبيق وازن الرسمية في صفحة واحدة." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://wazenfapp.web.app/" />
+  <meta property="og:image" content="https://wazenfapp.web.app/wazen_logo.png?v=20260503" />
+  <meta property="og:image:alt" content="شعار تطبيق وازن" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="روابط وازن" />
+  <meta name="twitter:description" content="كل روابط تطبيق وازن الرسمية في صفحة واحدة." />
+  <meta name="twitter:image" content="https://wazenfapp.web.app/wazen_logo.png?v=20260503" />
+
+  <style>
+    :root{
+      --brand:#016C66;
+      --brandDark:#004642;
+      --brandLight:#017C75;
+      --text:#F7FFFE;
+      --muted:rgba(247,255,254,.78);
+      --card:rgba(255,255,255,.10);
+      --stroke:rgba(255,255,255,.18);
+      --btn:rgba(255,255,255,.12);
+      --btnHover:rgba(255,255,255,.18);
+      --shadow: 0 22px 90px rgba(0,0,0,.35);
+      --radius: 22px;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans Arabic","Noto Sans",sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(900px 650px at 15% 10%, rgba(255,255,255,.16), transparent 55%),
+        radial-gradient(900px 700px at 85% 30%, rgba(0,0,0,.18), transparent 60%),
+        linear-gradient(180deg, var(--brand), var(--brandDark));
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:28px;
+    }
+
+    .page{
+      width:100%;
+      max-width:540px;
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:12px;
+      min-height:62px;
+      padding:10px 16px;
+      background:rgba(255,255,255,.11);
+      border:1px solid rgba(255,255,255,.18);
+      border-radius:18px;
+      box-shadow:0 14px 40px rgba(0,0,0,.22);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+
+    .topbar-logo{
+      width:38px;
+      height:38px;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.12);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      box-shadow:0 8px 20px rgba(0,0,0,.18);
+      flex-shrink:0;
+    }
+
+    .topbar-logo img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    .topbar-title{
+      font-size:17px;
+      font-weight:800;
+      letter-spacing:.2px;
+      text-align:center;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--stroke);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      overflow:hidden;
+      position:relative;
+    }
+
+    .card:before{
+      content:"";
+      position:absolute;
+      inset:-120px;
+      background:
+        radial-gradient(closest-side, rgba(255,255,255,.18), transparent 62%),
+        radial-gradient(closest-side, rgba(0,0,0,.12), transparent 62%);
+      transform: rotate(10deg);
+      pointer-events:none;
+      opacity:.55;
+    }
+
+    header{padding:26px 22px 14px; text-align:center; position:relative;}
+
+    .logo{
+      width:86px; height:86px;
+      margin:0 auto 12px;
+      border-radius:26px;
+      background: rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.18);
+      display:flex; align-items:center; justify-content:center;
+      box-shadow: 0 14px 28px rgba(0,0,0,.28);
+      overflow:hidden;
+    }
+
+    .logo img{width:100%; height:100%; object-fit:cover; display:block;}
+
+    h1{margin:0; font-size:22px; letter-spacing:.2px}
+    p{margin:8px 0 0; color:var(--muted); font-size:14.5px; line-height:1.7}
+
+    .list{padding:14px 16px 18px; display:grid; gap:10px; position:relative;}
+
+    a.btn{
+      text-decoration:none;
+      color:var(--text);
+      background:var(--btn);
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:18px;
+      padding:14px 14px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      transition:.18s ease;
+    }
+
+    a.btn:hover{background:var(--btnHover); transform: translateY(-1px)}
+
+    .left{display:flex; align-items:center; gap:12px}
+
+    .icon{
+      width:40px; height:40px;
+      border-radius:14px;
+      background: rgba(0,0,0,.10);
+      display:flex; align-items:center; justify-content:center;
+      border:1px solid rgba(255,255,255,.14);
+      font-weight:800;
+    }
+
+    .label{font-weight:720; font-size:15px}
+    .hint{color:var(--muted); font-size:13px}
+
+    footer{padding:0 22px 20px; text-align:center; color:var(--muted); font-size:12.5px; position:relative;}
+
+    .row2{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
+    @media (max-width:420px){ .row2{grid-template-columns:1fr} }
+
+    .tiny{opacity:.9}
+
+    .btn.special{
+      border-color: rgba(255,255,255,.36);
+      background: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.10));
+      box-shadow: 0 18px 70px rgba(0,0,0,.25);
+    }
+    .btn.special .icon{
+      background: rgba(255,255,255,.16);
+    }
+
+    a.btn.disabled{
+      opacity: .78;
+      cursor: default;
+      pointer-events: none;
+      transform: none !important;
+    }
+    a.btn.disabled:hover{
+      background: var(--btn);
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <section class="topbar">
+      <div class="topbar-logo">
+        <img src="/wazen_logo.png?v=20260503" alt="شعار وازن" />
+      </div>
+      <div class="topbar-title">روابط وازن</div>
+    </section>
+
+    <section class="card">
+      <header>
+        <div class="logo"><img src="/wazen_logo.png?v=20260503" alt="شعار وازن" /></div>
+        <h1>روابط تطبيق وازن</h1>
+        <p>كل حساباتنا الرسمية وروابط التحميل في صفحة واحدة.</p>
+      </header>
+
+      <div class="list">
+        <div class="row2">
+          <a class="btn special" href="https://apps.apple.com/sa/app/%D9%88%D8%A7%D8%B2%D9%86/id6757410841" target="_blank" rel="noopener" style="grid-column: 1 / -1;">
+            <div class="left">
+              <div class="icon"></div>
+              <div>
+                <div class="label">App Store</div>
+                <div class="hint">تحميل للآيفون</div>
+              </div>
+            </div>
+            <div class="tiny">↗</div>
+          </a>
+        </div>
+
+        <a class="btn special" href="/ticket" rel="noopener">
+          <div class="left">
+            <div class="icon">🎫</div>
+            <div>
+              <div class="label">إنشاء تذكرة دعم</div>
+              <div class="hint">اكتب مشكلتك وتوصل مباشرة للوحة الدعم</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="/features" rel="noopener">
+          <div class="left">
+            <div class="icon">✨</div>
+            <div>
+              <div class="label">مميزات تطبيق وازن</div>
+              <div class="hint">كل مزايا وازن في صفحة واحدة</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="/privacy" rel="noopener">
+          <div class="left">
+            <div class="icon">🔒</div>
+            <div>
+              <div class="label">سياسة الخصوصية</div>
+              <div class="hint">Privacy Policy</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://www.instagram.com/wazen_app?igsh=MWo2aGRydTNhczNkZQ%3D%3D&utm_source=qr" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">IG</div>
+            <div>
+              <div class="label">Instagram</div>
+              <div class="hint">@wazen_app</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://x.com/wazenapp?s=11" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">X</div>
+            <div>
+              <div class="label">X</div>
+              <div class="hint">@wazenapp</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://www.tiktok.com/@wazenapp?_r=1&_t=ZS-93AQqi2lX9w" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">TT</div>
+            <div>
+              <div class="label">TikTok</div>
+              <div class="hint">@wazenapp</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://www.youtube.com/@wazenapp?si=Gvsjq_nSnQ4A22_-" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">YT</div>
+            <div>
+              <div class="label">wazenapp</div>
+              <div class="hint">قناتنا</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn disabled" href="#" aria-disabled="true">
+          <div class="left">
+            <div class="icon">WA</div>
+            <div>
+              <div class="label">WhatsApp</div>
+              <div class="hint">سيتم إضافة رقم جديد خاص بدعم التطبيق قريبًا</div>
+            </div>
+          </div>
+          <div class="tiny">⏳</div>
+        </a>
+
+        <a class="btn" href="mailto:support@wazensapp.com">
+          <div class="left">
+            <div class="icon">@</div>
+            <div>
+              <div class="label">البريد</div>
+              <div class="hint">support@wazensapp.com</div>
+            </div>
+          </div>
+          <div class="tiny">✉</div>
+        </a>
+      </div>
+
+      <footer>
+        © <span id="y"></span> وازن — روابط رسمية فقط.
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#016C66" />
+  <title>إنشاء تذكرة دعم — وازن</title>
+  <meta name="description" content="ارفع تذكرة دعم لتطبيق وازن وسيتم متابعتها من فريق الدعم." />
+  <link rel="icon" type="image/png" href="/wazen_logo.png?v=20260503" />
+  <link rel="apple-touch-icon" href="/wazen_logo.png?v=20260503" />
+  <style>
+    :root{
+      --brand:#016C66;--brandDark:#004642;--brand2:#19DDD0;--text:#F7FFFE;--muted:rgba(247,255,254,.75);
+      --panel:rgba(255,255,255,.10);--line:rgba(255,255,255,.16);--danger:#FFB4B4;--ok:#9CF8CF;--warn:#FFD990;
+      --shadow:0 26px 90px rgba(0,0,0,.38);--radius:26px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans Arabic","Noto Sans",sans-serif;
+      color:var(--text);background:radial-gradient(900px 650px at 10% 0%,rgba(25,221,208,.20),transparent 58%),radial-gradient(900px 700px at 92% 20%,rgba(0,0,0,.22),transparent 60%),linear-gradient(180deg,var(--brand),var(--brandDark));
+      display:flex;align-items:center;justify-content:center;padding:24px;
+    }
+    .page{width:min(720px,100%);display:grid;gap:14px}.topbar,.card{border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:var(--shadow)}
+    .topbar{border-radius:20px;padding:12px 16px;display:flex;align-items:center;gap:12px}.logo{width:44px;height:44px;border-radius:15px;overflow:hidden;border:1px solid var(--line);background:rgba(255,255,255,.10);flex:0 0 auto}.logo img{width:100%;height:100%;object-fit:cover}.topbar b{font-size:17px}.topbar span{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+    .card{border-radius:var(--radius);overflow:hidden}.hero{padding:24px 22px 16px;text-align:center;border-bottom:1px solid rgba(255,255,255,.10);position:relative}.hero h1{margin:0;font-size:26px;font-weight:900}.hero p{margin:8px auto 0;color:var(--muted);line-height:1.75;max-width:560px;font-size:14.5px}.body{padding:20px;display:grid;gap:14px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:7px}label{font-size:13px;font-weight:800;color:var(--muted)}
+    input,textarea,select{width:100%;border:1px solid var(--line);border-radius:17px;background:rgba(0,0,0,.14);color:var(--text);outline:none;padding:14px;font-size:15px;font-family:inherit}textarea{min-height:142px;resize:vertical;line-height:1.7}input:focus,textarea:focus,select:focus{border-color:rgba(25,221,208,.55);box-shadow:0 0 0 4px rgba(25,221,208,.10)}option{color:#061613}.btn{border:1px solid rgba(255,255,255,.20);border-radius:18px;background:linear-gradient(135deg,#019186,var(--brand));color:white;padding:14px 16px;font-size:15px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;transition:.15s ease}.btn:hover{transform:translateY(-1px);filter:brightness(1.05)}.btn:disabled{opacity:.60;cursor:not-allowed;transform:none}.btn.ghost{background:rgba(255,255,255,.10)}.actions{display:flex;gap:10px;flex-wrap:wrap}.actions .btn{flex:1;min-width:170px}.msg{display:none;border:1px solid var(--line);border-radius:18px;padding:13px 14px;background:rgba(0,0,0,.16);color:var(--muted);line-height:1.75;font-size:14px}.msg.show{display:block}.msg.ok{border-color:rgba(156,248,207,.35);color:var(--ok)}.msg.err{border-color:rgba(255,180,180,.35);color:var(--danger)}.msg.warn{border-color:rgba(255,217,144,.35);color:var(--warn)}.hint{color:var(--muted);font-size:12.5px;line-height:1.7}.hidden{position:absolute;right:-9999px;opacity:0}.ticketNo{direction:ltr;text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:22px;font-weight:900;letter-spacing:.5px;background:rgba(255,255,255,.10);border:1px dashed rgba(255,255,255,.28);border-radius:18px;padding:14px;margin-top:8px}.footer{text-align:center;color:var(--muted);font-size:12.5px;padding:0 8px 2px}.back{color:inherit;text-decoration:none}.required{color:var(--warn)}
+    @media(max-width:620px){body{padding:16px}.grid2{grid-template-columns:1fr}.hero h1{font-size:23px}.body{padding:16px}.topbar{align-items:flex-start}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="topbar">
+      <div class="logo"><img src="/wazen_logo.png?v=20260503" alt="شعار وازن"></div>
+      <div><b>دعم وازن</b><span>إنشاء تذكرة ومتابعتها من فريق الدعم</span></div>
+    </section>
+
+    <section class="card">
+      <div class="hero">
+        <h1>إنشاء تذكرة دعم</h1>
+        <p>اكتب بيانات حسابك والمشكلة بالتفصيل. ستظهر التذكرة مباشرة في لوحة دعم وازن ليتم التعامل معها وتغيير حالتها إلى قيد المعالجة أو مغلقة.</p>
+      </div>
+      <form id="ticketForm" class="body" autocomplete="on">
+        <input id="company" class="hidden" tabindex="-1" autocomplete="off" aria-hidden="true" />
+        <div class="grid2">
+          <div class="field">
+            <label for="name">الاسم <span class="required">*</span></label>
+            <input id="name" maxlength="80" placeholder="مثال: فراس" required />
+          </div>
+          <div class="field">
+            <label for="account">اسم الحساب / اليوزر</label>
+            <input id="account" maxlength="80" placeholder="مثال: @username أو اسم الحساب داخل وازن" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <label for="email">البريد الإلكتروني <span class="required">*</span></label>
+            <input id="email" type="email" maxlength="120" placeholder="example@email.com" required />
+          </div>
+          <div class="field">
+            <label for="phone">رقم الجوال اختياري</label>
+            <input id="phone" inputmode="tel" maxlength="30" placeholder="05xxxxxxxx" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <label for="category">نوع المشكلة <span class="required">*</span></label>
+            <select id="category" required>
+              <option value="subscription">اشتراك أو دفع</option>
+              <option value="login">تسجيل دخول أو حساب</option>
+              <option value="food_analysis">تحليل الطعام</option>
+              <option value="bugs">مشكلة تقنية في التطبيق</option>
+              <option value="suggestion">اقتراح أو طلب ميزة</option>
+              <option value="other">أخرى</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="priority">الأولوية</label>
+            <select id="priority">
+              <option value="normal">عادية</option>
+              <option value="high">عالية</option>
+              <option value="low">منخفضة</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="subject">عنوان مختصر للمشكلة <span class="required">*</span></label>
+          <input id="subject" maxlength="120" placeholder="مثال: اشتراكي لم يتفعل بعد الدفع" required />
+        </div>
+
+        <div class="field">
+          <label for="message">تفاصيل المشكلة <span class="required">*</span></label>
+          <textarea id="message" maxlength="2000" placeholder="اكتب المشكلة كاملة: وش صار؟ متى صار؟ هل ظهرت رسالة خطأ؟ وإذا عندك رقم عملية أو بريد الحساب اكتبه هنا." required></textarea>
+          <div class="hint">لا تكتب كلمة المرور أو أي بيانات حساسة. يكفي البريد أو اسم الحساب ووصف المشكلة.</div>
+        </div>
+
+        <div id="msg" class="msg"></div>
+
+        <div class="actions">
+          <button id="submitBtn" class="btn" type="submit">إرسال التذكرة</button>
+          <a class="btn ghost back" href="/">الرجوع لروابط وازن</a>
+        </div>
+      </form>
+    </section>
+
+    <div class="footer">© <span id="y"></span> وازن — سيتم التعامل مع تذكرتك من فريق الدعم.</div>
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+
+    const firebaseConfig = {
+      apiKey: 'AIzaSyD9y9FED7L-s0unONweN-5LhmwEdipXYUo',
+      authDomain: 'wazenfapp.firebaseapp.com',
+      projectId: 'wazenfapp',
+      storageBucket: 'wazenfapp.appspot.com',
+      messagingSenderId: '209409669834',
+      appId: '1:209409669834:web:9e33eba07509ee28a29233'
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const FieldValue = firebase.firestore.FieldValue;
+    const $ = (id) => document.getElementById(id);
+
+    function show(text, type = 'warn', ticketNo = '') {
+      const el = $('msg');
+      el.className = 'msg show ' + type;
+      el.innerHTML = ticketNo
+        ? `${text}<div class="ticketNo">${ticketNo}</div><div class="hint" style="text-align:center;margin-top:8px">احتفظ برقم التذكرة للمتابعة مع الدعم.</div>`
+        : text;
+    }
+
+    function clean(v) { return String(v || '').trim(); }
+    function ticketNumber() {
+      const a = Date.now().toString(36).toUpperCase();
+      const b = Math.random().toString(36).slice(2, 6).toUpperCase();
+      return `WZ-${a}-${b}`;
+    }
+
+    $('ticketForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (clean($('company').value)) return; // honeypot بسيط للسبام
+
+      const last = Number(localStorage.getItem('wazen_ticket_last') || '0');
+      if (Date.now() - last < 45_000) {
+        show('تم إرسال طلب قريبًا. انتظر أقل من دقيقة قبل إرسال تذكرة جديدة.', 'warn');
+        return;
+      }
+
+      const payload = {
+        customerName: clean($('name').value),
+        accountName: clean($('account').value),
+        email: clean($('email').value).toLowerCase(),
+        phone: clean($('phone').value),
+        category: clean($('category').value),
+        priority: clean($('priority').value) || 'normal',
+        subject: clean($('subject').value),
+        message: clean($('message').value),
+        status: 'open',
+        source: 'links_ticket_page',
+        publicTicketId: ticketNumber(),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        handledBy: null,
+        adminReply: ''
+      };
+
+      if (!payload.customerName || !payload.email || !payload.subject || !payload.message) {
+        show('عبّئ الاسم والبريد والعنوان وتفاصيل المشكلة.', 'warn');
+        return;
+      }
+      if (payload.message.length < 12) {
+        show('اكتب تفاصيل أكثر عن المشكلة عشان يقدر الدعم يتعامل معها بسرعة.', 'warn');
+        return;
+      }
+
+      $('submitBtn').disabled = true;
+      show('جاري إرسال التذكرة...', 'warn');
+      try {
+        await db.collection('supportTickets').add(payload);
+        localStorage.setItem('wazen_ticket_last', String(Date.now()));
+        $('ticketForm').reset();
+        show('تم إنشاء التذكرة بنجاح، ووصلت الآن إلى لوحة الدعم.', 'ok', payload.publicTicketId);
+      } catch (err) {
+        console.error(err);
+        show('تعذر إرسال التذكرة. تأكد أن قواعد Firestore الخاصة بالتذاكر منشورة، ثم جرّب مرة أخرى.', 'err');
+      } finally {
+        $('submitBtn').disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

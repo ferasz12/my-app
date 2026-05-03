@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>تأكيد الدفع — وازن</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root{--brand:#016C66;--brand3:#00B8AD;--bg:#051513;--white:#F7FFFE;--muted:rgba(247,255,254,.72);--stroke:rgba(255,255,255,.14);--ok:#87f2c3;--danger:#ffb3b3;--shadow:0 28px 95px rgba(0,0,0,.42);--radius:30px}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;font-family:"Tajawal",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,"Noto Sans Arabic",sans-serif;color:var(--white);background:radial-gradient(900px 620px at 12% 8%, rgba(0,184,173,.20), transparent 60%),radial-gradient(900px 720px at 90% 18%, rgba(1,108,102,.30), transparent 62%),linear-gradient(180deg,#04110f 0%, #07201d 48%, #081917 100%);display:grid;place-items:center;padding:18px}
+    .card{width:min(720px,100%);position:relative;overflow:hidden;border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.055));border:1px solid var(--stroke);box-shadow:var(--shadow);backdrop-filter:blur(16px);padding:26px}
+    .card::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,var(--brand),var(--brand3),var(--brand))}
+    .logo{width:70px;height:70px;border-radius:22px;overflow:hidden;border:1px solid var(--stroke);background:rgba(255,255,255,.08);margin-bottom:16px}.logo img{width:100%;height:100%;object-fit:cover;display:block}
+    h1{margin:0 0 10px;font-size:clamp(26px,5vw,42px);line-height:1.18}.lead{margin:0 0 18px;color:var(--muted);line-height:1.9}.status{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);border-radius:22px;padding:16px;margin-top:14px;line-height:1.9}.ok{color:var(--ok);border-color:rgba(135,242,195,.25);background:rgba(135,242,195,.08)}.err{color:var(--danger);border-color:rgba(255,179,179,.25);background:rgba(255,179,179,.08)}.muted{color:var(--muted);font-size:13px;line-height:1.9}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.btn{border:0;border-radius:17px;padding:13px 16px;text-decoration:none;font:inherit;font-weight:900;cursor:pointer;color:#05201d;background:linear-gradient(135deg,#8FF4C9,#00B8AD)}.btn.secondary{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.14);color:var(--white)}
+  </style>
+</head>
+<body>
+  <section class="card">
+    <div class="logo"><img src="/wazen_logo.png" alt="وازن" onerror="this.style.display='none'"></div>
+    <h1 id="title">جاري تأكيد الدفع...</h1>
+    <p class="lead" id="lead">نراجع العملية مع بوابة الدفع ثم نفعّل الاشتراك في حساب وازن.</p>
+    <div id="statusBox" class="status">يرجى عدم إغلاق الصفحة حتى تظهر النتيجة.</div>
+    <div class="actions">
+      <a class="btn" href="/pay/">الرجوع لصفحة الدفع</a>
+      <a class="btn secondary" href="/">روابط وازن</a>
+    </div>
+    <p class="muted">إذا تم خصم المبلغ ولم يظهر التفعيل، احتفظ برقم العملية الظاهر في رابط الصفحة وتواصل مع دعم وازن.</p>
+  </section>
+
+  <script>
+    const PROJECT_ID = 'wazenfapp';
+    const REGION = 'europe-west1';
+    const API_BASE = `https://${REGION}-${PROJECT_ID}.cloudfunctions.net`;
+    const verifyUrl = `${API_BASE}/verifyWebPayment`;
+    const params = new URLSearchParams(location.search);
+    const paymentId = params.get('id') || params.get('payment_id') || sessionStorage.getItem('wazen_last_payment_id') || '';
+    const sessionId = params.get('session_id') || sessionStorage.getItem('wazen_last_payment_session') || '';
+    const title = document.getElementById('title');
+    const lead = document.getElementById('lead');
+    const box = document.getElementById('statusBox');
+
+    function setState(ok, heading, text){
+      title.textContent = heading;
+      lead.textContent = ok ? 'تمت العملية بنجاح. افتح تطبيق وازن وتأكد من حالة الاشتراك.' : 'لم نستطع تأكيد العملية تلقائيًا.';
+      box.textContent = text;
+      box.className = `status ${ok ? 'ok' : 'err'}`;
+    }
+
+    async function verify(){
+      if(!paymentId || !sessionId){
+        setState(false, 'بيانات الدفع ناقصة', 'لم يصل رقم العملية أو جلسة الدفع. ارجع لصفحة الدفع وحاول مرة أخرى.');
+        return;
+      }
+      try{
+        const resp = await fetch(verifyUrl, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({paymentId, sessionId})
+        });
+        const data = await resp.json();
+        if(!resp.ok || !data.ok) throw new Error(data.message || 'verification failed');
+        setState(true, 'تم تفعيل اشتراكك بنجاح', `الخطة: ${data.plan || '-'} — ينتهي الاشتراك: ${data.expiry ? new Date(data.expiry).toLocaleString('ar-SA') : 'تم التفعيل'}`);
+      }catch(e){
+        setState(false, 'تعذر تأكيد الدفع', 'إذا تم خصم المبلغ، تواصل مع دعم وازن وارسل رقم العملية: ' + paymentId);
+      }
+    }
+    verify();
+  </script>
+</body>
+</html>

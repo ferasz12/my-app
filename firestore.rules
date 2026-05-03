@@ -1,0 +1,649 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==================================================
+    // Basics
+    // ==================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isDocOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ==================================================
+    // Bootstrap Owner فقط
+    // لا تحتاج تضيف UID الأدمن هنا. رتبة الأدمن تؤخذ من users/{uid}.role
+    // ==================================================
+    function isHardOwner() {
+      return isSignedIn() && request.auth.uid in [
+        "7CYI66sIq3UbOHwq2qi85bpFL7x2" // UID المالك الأساسي
+      ];
+    }
+
+    function rolePath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function safeLower(v) {
+      return (v is string) ? v.lower() : null;
+    }
+
+    function validRole(r) {
+      return r in ["owner", "admin", "support", "user"];
+    }
+
+    // اختياري للمستقبل إذا استخدمت Custom Claims
+    function tokenRole() {
+      return (isSignedIn() && (request.auth.token.role is string))
+        ? request.auth.token.role.lower()
+        : null;
+    }
+
+    // الرتبة النهائية:
+    // 1) Owner الهارد للحماية من فقدان الصلاحية
+    // 2) Custom Claims إن وجدت
+    // 3) users/{uid}.role من قاعدة البيانات
+    // 4) user افتراضيًا
+    function callerRole() {
+      return isHardOwner() ? "owner"
+        : (
+            tokenRole() != null && validRole(tokenRole())
+          )
+          ? tokenRole()
+          : (
+              exists(rolePath(request.auth.uid)) &&
+              (get(rolePath(request.auth.uid)).data.role is string) &&
+              validRole(get(rolePath(request.auth.uid)).data.role.lower())
+            )
+            ? get(rolePath(request.auth.uid)).data.role.lower()
+            : "user";
+    }
+
+    function isOwner() {
+      return isSignedIn() && callerRole() == "owner";
+    }
+
+    function isAdmin() {
+      return isSignedIn() && callerRole() == "admin";
+    }
+
+    function isSupport() {
+      return isSignedIn() && callerRole() == "support";
+    }
+
+    function isAdminOrOwner() {
+      return isSignedIn() && (isOwner() || isAdmin());
+    }
+
+    function isStaff() {
+      return isSignedIn() && (isOwner() || isAdmin() || isSupport());
+    }
+
+    // ==================================================
+    // Role helpers
+    // ==================================================
+    function affectedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function isChangingRole() {
+      return affectedKeys().hasAny(["role"]);
+    }
+
+    function requestedRole() {
+      return request.resource.data.keys().hasAny(["role"])
+        ? safeLower(request.resource.data.role)
+        : null;
+    }
+
+    function currentDocRole() {
+      return (resource.data.role is string) ? resource.data.role.lower() : "user";
+    }
+
+    function roleIsValidOrMissingOnCreate() {
+      return !request.resource.data.keys().hasAny(["role"])
+        || (requestedRole() != null && validRole(requestedRole()));
+    }
+
+    function selfCreateUserDocOk(uid) {
+      return isDocOwner(uid)
+        && roleIsValidOrMissingOnCreate()
+        && (!request.resource.data.keys().hasAny(["role"]) || requestedRole() == "user")
+        && !request.resource.data.keys().hasAny([
+          "ownerGrant",
+          "isBanned",
+          "bannedUntil",
+          "recipesSuspendedUntil",
+          "adminNotes",
+          "supportNotes"
+        ]);
+    }
+
+    function ownerCreateUserDocOk() {
+      return isOwner() && roleIsValidOrMissingOnCreate();
+    }
+
+    function selfUpdateBlockedFields() {
+      return affectedKeys().hasAny([
+        "role",
+        "ownerGrant",
+        "isBanned",
+        "bannedUntil",
+        "recipesSuspendedUntil",
+        "adminNotes",
+        "supportNotes"
+      ]);
+    }
+
+    function adminBlockedUserFields() {
+      return affectedKeys().hasAny([
+        "role",
+        "ownerGrant",
+        "subscription",
+        "appAccountToken"
+      ]);
+    }
+
+    function supportAllowedUserEdits() {
+      return affectedKeys().hasOnly([
+        "isBanned",
+        "bannedUntil",
+        "recipesSuspendedUntil",
+        "points_total",
+        "pointsTotal",
+        "points",
+        "stats",
+        "updatedAt"
+      ]);
+    }
+
+    function targetIsOwner() {
+      return currentDocRole() == "owner";
+    }
+
+    function targetIsOwnerOrAdmin() {
+      return currentDocRole() in ["owner", "admin"];
+    }
+
+    function ownerCanUpdateUserDoc() {
+      return isOwner()
+        && (
+          !isChangingRole()
+          || (
+            request.resource.data.keys().hasAny(["role"]) &&
+            requestedRole() != null &&
+            validRole(requestedRole())
+          )
+          || !request.resource.data.keys().hasAny(["role"])
+        );
+    }
+
+    function adminCanUpdateUserDoc() {
+      return isAdmin()
+        && !targetIsOwner()
+        && !adminBlockedUserFields();
+    }
+
+    function supportCanUpdateUserDoc() {
+      return isSupport()
+        && !targetIsOwnerOrAdmin()
+        && supportAllowedUserEdits();
+    }
+
+    // ==================================================
+    // Common ownership helpers
+    // ==================================================
+    function createHasOwnerField() {
+      return isSignedIn() && (
+        (request.resource.data.keys().hasAny(["uid"]) && request.resource.data.uid == request.auth.uid) ||
+        (request.resource.data.keys().hasAny(["userId"]) && request.resource.data.userId == request.auth.uid) ||
+        (request.resource.data.keys().hasAny(["ownerUid"]) && request.resource.data.ownerUid == request.auth.uid) ||
+        (request.resource.data.keys().hasAny(["authorUid"]) && request.resource.data.authorUid == request.auth.uid) ||
+        (request.resource.data.keys().hasAny(["submittedBy"]) && request.resource.data.submittedBy == request.auth.uid) ||
+        (request.resource.data.keys().hasAny(["createdBy"]) && request.resource.data.createdBy == request.auth.uid) ||
+        (request.resource.data.keys().hasAny(["deletedBy"]) && request.resource.data.deletedBy == request.auth.uid)
+      );
+    }
+
+    function resourceHasOwnerField() {
+      return isSignedIn() && (
+        (resource.data.keys().hasAny(["uid"]) && resource.data.uid == request.auth.uid) ||
+        (resource.data.keys().hasAny(["userId"]) && resource.data.userId == request.auth.uid) ||
+        (resource.data.keys().hasAny(["ownerUid"]) && resource.data.ownerUid == request.auth.uid) ||
+        (resource.data.keys().hasAny(["authorUid"]) && resource.data.authorUid == request.auth.uid) ||
+        (resource.data.keys().hasAny(["submittedBy"]) && resource.data.submittedBy == request.auth.uid) ||
+        (resource.data.keys().hasAny(["createdBy"]) && resource.data.createdBy == request.auth.uid) ||
+        (resource.data.keys().hasAny(["deletedBy"]) && resource.data.deletedBy == request.auth.uid)
+      );
+    }
+
+    function _intOrZero(v) {
+      return (v is int) ? v : 0;
+    }
+
+    function isLikeCountDeltaUpdate() {
+      let changed = affectedKeys();
+      let allowedKeys = changed.hasOnly(["likeCount"])
+        || changed.hasOnly(["likeCount", "updatedAt"]);
+      let prev = _intOrZero(resource.data.likeCount);
+      let next = request.resource.data.likeCount;
+
+      return allowedKeys
+        && (next is int)
+        && next >= 0
+        && (next == prev + 1 || next == prev - 1);
+    }
+
+    // ==================================================
+    // users
+    // ==================================================
+    match /users/{uid} {
+      // يحتاجه التطبيق للبحث، المجتمع، لوحة الأدمن، المدرب، والبروفايلات.
+      allow read: if isSignedIn();
+
+      allow create: if selfCreateUserDocOk(uid) || ownerCreateUserDocOk();
+
+      allow update: if
+        (isDocOwner(uid) && !selfUpdateBlockedFields())
+        || ownerCanUpdateUserDoc()
+        || adminCanUpdateUserDoc()
+        || supportCanUpdateUserDoc();
+
+      allow delete: if
+        isDocOwner(uid)
+        || (isAdminOrOwner() && !targetIsOwner());
+
+      // جميع بيانات المستخدم الفرعية: days, meals, weights, water, goals, meta,
+      // achievements, point_events, fcmTokens, favoriteRecipes, security_events, ...
+      match /{anyPath=**} {
+        allow read, write: if isDocOwner(uid) || isStaff();
+      }
+    }
+
+    // ==================================================
+    // usernames
+    // ==================================================
+    match /usernames/{handle} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && (
+          resource.data.ownerUid == request.auth.uid
+          || (request.resource.data.keys().hasAny(["ownerUid"]) && request.resource.data.ownerUid == request.auth.uid)
+          || isStaff()
+        );
+
+      allow delete: if isSignedIn()
+        && ((resource.data.keys().hasAny(["ownerUid"]) && resource.data.ownerUid == request.auth.uid) || isStaff());
+    }
+
+    // ==================================================
+    // users_by_email
+    // ==================================================
+    match /users_by_email/{key} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
+
+    // ==================================================
+    // recipes
+    // ==================================================
+    match /recipes/{recipeId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || isStaff()
+          || isLikeCountDeltaUpdate()
+        );
+
+      allow delete: if isSignedIn()
+        && (resource.data.userId == request.auth.uid || isStaff());
+
+      match /likes/{uid} {
+        allow read: if isSignedIn();
+
+        allow create: if isDocOwner(uid)
+          && (
+            request.resource.data.keys().hasOnly(["createdAt"])
+            || (
+              request.resource.data.keys().hasOnly(["createdAt", "userId"]) &&
+              request.resource.data.userId == request.auth.uid
+            )
+          );
+
+        allow update: if false;
+        allow delete: if isDocOwner(uid) || isStaff();
+      }
+    }
+
+    match /deletedRecipes/{recipeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && (request.resource.data.deletedBy == request.auth.uid || isStaff());
+      allow update, delete: if isStaff();
+    }
+
+    // ==================================================
+    // posts + comments + likes
+    // ==================================================
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && (
+          request.resource.data.authorUid == request.auth.uid
+          || request.resource.data.userId == request.auth.uid
+          || request.resource.data.uid == request.auth.uid
+        );
+
+      allow update, delete: if isSignedIn()
+        && (
+          resource.data.authorUid == request.auth.uid
+          || resource.data.userId == request.auth.uid
+          || resource.data.uid == request.auth.uid
+          || isStaff()
+        );
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && (
+            request.resource.data.authorUid == request.auth.uid
+            || request.resource.data.userId == request.auth.uid
+            || request.resource.data.uid == request.auth.uid
+          );
+        allow update, delete: if isSignedIn()
+          && (
+            resource.data.authorUid == request.auth.uid
+            || resource.data.userId == request.auth.uid
+            || resource.data.uid == request.auth.uid
+            || isStaff()
+          );
+      }
+
+      match /likes/{uid} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isDocOwner(uid) || isStaff();
+      }
+    }
+
+    // ==================================================
+    // appConfig
+    // ==================================================
+    match /appConfig/announcement {
+      allow read: if isSignedIn();
+      allow create, delete: if isOwner();
+      allow update: if isOwner()
+        || (isAdmin() && (resource.data.keys().hasAny(["allowAdminEdit"]) && resource.data.allowAdminEdit == true));
+    }
+
+    // هذا هو مستند الإجماليات/العدد الكلي، يكون للمالك فقط.
+    match /appConfig/owner_metrics {
+      allow read, write: if isOwner();
+    }
+
+    // تحكم المالك في مزايا البريميوم.
+    match /appConfig/owner_controls {
+      allow read: if isSignedIn();
+      allow write: if isOwner();
+    }
+
+    // أي إعدادات appConfig ثانية: قراءة للمسجلين، كتابة للمالك فقط.
+    match /appConfig/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner();
+    }
+
+
+    // ==================================================
+    // supportTickets - تذاكر الدعم من صفحة روابط وازن ولوحة الدعم
+    // ==================================================
+    function ticketPriorityOk(p) {
+      return p in ["low", "normal", "high"];
+    }
+
+    function ticketStatusOk(s) {
+      return s in ["open", "in_progress", "closed"];
+    }
+
+    function publicSupportTicketCreateOk() {
+      return request.resource.data.keys().hasOnly([
+          "customerName",
+          "accountName",
+          "email",
+          "phone",
+          "category",
+          "priority",
+          "subject",
+          "message",
+          "status",
+          "source",
+          "publicTicketId",
+          "createdAt",
+          "updatedAt",
+          "handledBy",
+          "adminReply"
+        ])
+        && (request.resource.data.customerName is string)
+        && request.resource.data.customerName.size() >= 2
+        && request.resource.data.customerName.size() <= 80
+        && (request.resource.data.accountName is string)
+        && request.resource.data.accountName.size() <= 80
+        && (request.resource.data.email is string)
+        && request.resource.data.email.size() >= 5
+        && request.resource.data.email.size() <= 120
+        && (request.resource.data.phone is string)
+        && request.resource.data.phone.size() <= 30
+        && (request.resource.data.category is string)
+        && request.resource.data.category in ["subscription", "login", "food_analysis", "bugs", "suggestion", "other"]
+        && (request.resource.data.priority is string)
+        && ticketPriorityOk(request.resource.data.priority)
+        && (request.resource.data.subject is string)
+        && request.resource.data.subject.size() >= 3
+        && request.resource.data.subject.size() <= 120
+        && (request.resource.data.message is string)
+        && request.resource.data.message.size() >= 12
+        && request.resource.data.message.size() <= 2000
+        && request.resource.data.status == "open"
+        && request.resource.data.source == "links_ticket_page"
+        && (request.resource.data.publicTicketId is string)
+        && request.resource.data.publicTicketId.size() <= 40
+        && (request.resource.data.createdAt is timestamp)
+        && (request.resource.data.updatedAt is timestamp)
+        && request.resource.data.handledBy == null
+        && request.resource.data.adminReply == "";
+    }
+
+    function ticketBelongsToSignedInUser() {
+      return isSignedIn()
+        && (
+          (resource.data.keys().hasAny(["userId"]) && resource.data.userId == request.auth.uid)
+          || (
+            (request.auth.token.email is string)
+            && resource.data.keys().hasAny(["email"])
+            && resource.data.email == request.auth.token.email.lower()
+          )
+        );
+    }
+
+    match /supportTickets/{ticketId} {
+      // العميل من صفحة /ticket يقدر ينشئ تذكرة فقط بدون تسجيل دخول وبدون قراءة بيانات غيره.
+      allow create: if isStaff() || publicSupportTicketCreateOk();
+
+      // القراءة والإدارة للطاقم. المستخدم المسجل يقدر يقرأ تذكرته إذا كان userId أو email مطابق.
+      allow read: if isStaff() || ticketBelongsToSignedInUser();
+
+      // تغيير الحالة، الرد، الإغلاق، التعديل، والحذف للطاقم فقط.
+      allow update, delete: if isStaff();
+    }
+
+    // ==================================================
+    // notifications
+    // ==================================================
+    match /notifications/{uid}/inbox/{nid} {
+      allow read, update, delete: if isDocOwner(uid) || isStaff();
+      allow create: if isDocOwner(uid) || isStaff();
+    }
+
+    match /app_broadcasts/{broadcastId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    // ==================================================
+    // food database / submissions
+    // ==================================================
+    match /food_submissions/{submissionId} {
+      allow create: if isSignedIn()
+        && request.resource.data.submittedBy == request.auth.uid;
+
+      allow read: if isStaff()
+        || (isSignedIn() && resource.data.submittedBy == request.auth.uid);
+
+      allow update, delete: if isStaff();
+    }
+
+    match /foods/{foodId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
+
+    match /barcodes/{barcodeId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isStaff();
+    }
+
+    // ==================================================
+    // restaurants + meals
+    // ==================================================
+    match /restaurants/{restaurantId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+
+      match /meals/{mealId} {
+        allow read: if isSignedIn();
+        allow write: if isStaff();
+      }
+    }
+
+    // ==================================================
+    // chats
+    // ==================================================
+    match /chats/{chatId} {
+      allow read, create, update, delete: if isSignedIn();
+
+      match /messages/{messageId} {
+        allow read, create, update, delete: if isSignedIn();
+      }
+    }
+
+    // ==================================================
+    // reports
+    // ==================================================
+    match /reports/{rid} {
+      allow read, write: if isStaff();
+    }
+
+    // ==================================================
+    // coupons داخل التطبيق
+    // ==================================================
+    match /coupons/{code} {
+      allow read: if isSignedIn();
+      allow write: if isOwner();
+    }
+
+    // ==================================================
+    // Web payment collections
+    // غالبًا الدوال السحابية تكتبها وتقرأها كـ Admin SDK.
+    // ==================================================
+    match /web_payment_coupons/{docId} {
+      allow read, write: if isOwner();
+    }
+
+    match /web_payment_sessions/{docId} {
+      allow read, write: if isOwner();
+    }
+
+    match /web_payments/{docId} {
+      allow read, write: if isOwner();
+    }
+
+    match /usage_limits/{docId} {
+      allow read, write: if isOwner();
+    }
+
+    match /launch_attendees/{docId} {
+      allow read, write: if isOwner();
+    }
+
+    // ==================================================
+    // security_events
+    // ==================================================
+    match /security_events/{eventId} {
+      allow create: if isSignedIn()
+        && (
+          request.resource.data.uid == request.auth.uid
+          || request.resource.data.userId == request.auth.uid
+          || isStaff()
+        );
+      allow read, update, delete: if isStaff()
+        || (isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid));
+    }
+
+    // ==================================================
+    // Legacy top-level user-owned collections
+    // كانت موجودة في حذف الحساب وبعض الكود القديم.
+    // ==================================================
+    match /{colName}/{docId} {
+      allow read: if colName in [
+        "intakes",
+        "meals",
+        "weights",
+        "water",
+        "goals",
+        "subscriptions",
+        "logs"
+      ] && (resourceHasOwnerField() || isStaff());
+
+      allow create: if colName in [
+        "intakes",
+        "meals",
+        "weights",
+        "water",
+        "goals",
+        "subscriptions",
+        "logs"
+      ] && (createHasOwnerField() || isStaff());
+
+      allow update, delete: if colName in [
+        "intakes",
+        "meals",
+        "weights",
+        "water",
+        "goals",
+        "subscriptions",
+        "logs"
+      ] && (resourceHasOwnerField() || isStaff());
+    }
+
+    // ==================================================
+    // Default fallback
+    // ملاحظة: لا تجعلها allow write/read للجميع؛ لأنها تكسر حماية الأدوار والإجماليات.
+    // ==================================================
+    match /{anyPath=**} {
+      allow read, write: if isOwner();
+    }
+  }
+}

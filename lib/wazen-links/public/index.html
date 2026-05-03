@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>روابط وازن</title>
+  <meta name="description" content="كل روابط تطبيق وازن الرسمية في صفحة واحدة." />
+
+  <!-- (اختياري) عند الاستضافة عدّل og:image إلى رابط صورة شعارك على الويب -->
+  <meta property="og:title" content="روابط وازن" />
+  <meta property="og:description" content="كل روابط تطبيق وازن الرسمية في صفحة واحدة." />
+  <meta property="og:type" content="website" />
+
+  <style>
+    :root{
+      /* لون التطبيق بالضبط (مأخوذ من خلفية الشعار) */
+      --brand:#016C66;
+      --brandDark:#004642;
+      --brandLight:#017C75;
+
+      --text:#F7FFFE;
+      --muted:rgba(247,255,254,.78);
+      --card:rgba(255,255,255,.10);
+      --stroke:rgba(255,255,255,.18);
+      --btn:rgba(255,255,255,.12);
+      --btnHover:rgba(255,255,255,.18);
+      --shadow: 0 22px 90px rgba(0,0,0,.35);
+      --radius: 22px;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans Arabic","Noto Sans",sans-serif;
+      color:var(--text);
+
+      /* خلفية بنفس لون التطبيق مع لمعة خفيفة */
+      background:
+        radial-gradient(900px 650px at 15% 10%, rgba(255,255,255,.16), transparent 55%),
+        radial-gradient(900px 700px at 85% 30%, rgba(0,0,0,.18), transparent 60%),
+        linear-gradient(180deg, var(--brand), var(--brandDark));
+
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:28px;
+    }
+
+    .wrap{width:100%; max-width:540px;}
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--stroke);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      overflow:hidden;
+      position:relative;
+    }
+
+    .card:before{
+      content:"";
+      position:absolute;
+      inset:-120px;
+      background:
+        radial-gradient(closest-side, rgba(255,255,255,.18), transparent 62%),
+        radial-gradient(closest-side, rgba(0,0,0,.12), transparent 62%);
+      transform: rotate(10deg);
+      pointer-events:none;
+      opacity:.55;
+    }
+
+    header{padding:26px 22px 14px; text-align:center; position:relative;}
+
+    .logo{
+      width:86px; height:86px;
+      margin:0 auto 12px;
+      border-radius:26px;
+      background: rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.18);
+      display:flex; align-items:center; justify-content:center;
+      box-shadow: 0 14px 28px rgba(0,0,0,.28);
+      overflow:hidden;
+    }
+
+    .logo img{width:100%; height:100%; object-fit:cover; display:block;}
+
+    h1{margin:0; font-size:22px; letter-spacing:.2px}
+    p{margin:8px 0 0; color:var(--muted); font-size:14.5px; line-height:1.7}
+
+    .list{padding:14px 16px 18px; display:grid; gap:10px; position:relative;}
+
+    a.btn{
+      text-decoration:none;
+      color:var(--text);
+      background:var(--btn);
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:18px;
+      padding:14px 14px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      transition:.18s ease;
+    }
+
+    a.btn:hover{background:var(--btnHover); transform: translateY(-1px)}
+
+    .left{display:flex; align-items:center; gap:12px}
+
+    .icon{
+      width:40px; height:40px;
+      border-radius:14px;
+      background: rgba(0,0,0,.10);
+      display:flex; align-items:center; justify-content:center;
+      border:1px solid rgba(255,255,255,.14);
+      font-weight:800;
+    }
+
+    .label{font-weight:720; font-size:15px}
+    .hint{color:var(--muted); font-size:13px}
+
+    footer{padding:0 22px 20px; text-align:center; color:var(--muted); font-size:12.5px; position:relative;}
+
+    .row2{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
+    @media (max-width:420px){ .row2{grid-template-columns:1fr} }
+
+    .tiny{opacity:.9}
+  </style>
+</head>
+
+<body>
+  <main class="wrap">
+    <section class="card">
+      <header>
+        <!-- الشعار: نفس اللي أرسلته -->
+        <div class="logo"><img src="wazen_logo.png" alt="شعار وازن" /></div>
+        <h1>روابط تطبيق وازن</h1>
+        <p>كل حساباتنا الرسمية وروابط التحميل في صفحة واحدة.</p>
+      </header>
+
+      <div class="list">
+        <!-- عدّل الروابط تحت حسب حساباتك -->
+        <div class="row2">
+          <a class="btn" href="https://apps.apple.com/" target="_blank" rel="noopener">
+            <div class="left">
+              <div class="icon"></div>
+              <div>
+                <div class="label">App Store</div>
+                <div class="hint">تحميل للآيفون</div>
+              </div>
+            </div>
+            <div class="tiny">↗</div>
+          </a>
+
+          <a class="btn" href="https://play.google.com/" target="_blank" rel="noopener">
+            <div class="left">
+              <div class="icon">▶</div>
+              <div>
+                <div class="label">Google Play</div>
+                <div class="hint">تحميل للأندرويد</div>
+              </div>
+            </div>
+            <div class="tiny">↗</div>
+          </a>
+        </div>
+
+        <a class="btn" href="https://instagram.com/USERNAME" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">IG</div>
+            <div>
+              <div class="label">Instagram</div>
+              <div class="hint">@USERNAME</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://x.com/USERNAME" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">X</div>
+            <div>
+              <div class="label">X</div>
+              <div class="hint">@USERNAME</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://tiktok.com/@USERNAME" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">TT</div>
+            <div>
+              <div class="label">TikTok</div>
+              <div class="hint">@USERNAME</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://snapchat.com/add/USERNAME" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">SC</div>
+            <div>
+              <div class="label">Snapchat</div>
+              <div class="hint">@USERNAME</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://youtube.com/@USERNAME" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">YT</div>
+            <div>
+              <div class="label">YouTube</div>
+              <div class="hint">قناتنا</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="https://wa.me/966500000000" target="_blank" rel="noopener">
+          <div class="left">
+            <div class="icon">WA</div>
+            <div>
+              <div class="label">WhatsApp</div>
+              <div class="hint">تواصل سريع</div>
+            </div>
+          </div>
+          <div class="tiny">↗</div>
+        </a>
+
+        <a class="btn" href="mailto:support@wazen.app">
+          <div class="left">
+            <div class="icon">@</div>
+            <div>
+              <div class="label">البريد</div>
+              <div class="hint">support@wazen.app</div>
+            </div>
+          </div>
+          <div class="tiny">✉</div>
+        </a>
+      </div>
+
+      <footer>
+        © <span id="y"></span> وازن — روابط رسمية فقط.
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

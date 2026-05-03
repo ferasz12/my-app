@@ -1,0 +1,4031 @@
+// lib/screens/home_screen.dart
+// (Daily rollover + daily snapshots + day index internal + auto Kcal from macros)
+// ✅ نظام النقاط (AchievementsStore) — مطالبة نهاية اليوم:
+//   - إكمال السعرات اليوم ≥ 95% من الهدف + الماكروز قريبة (±20%) ⇒ +5 نقاط
+//   - شرب ماء ≥ 3 لتر ⇒ +10 نقاط
+// تُخزَّن "مكافآت معلّقة"، وتُعرض ورقة المطالبة (Claim) آخر الليل لنفس اليوم.
+// ولو ما فتح التطبيق آخر الليل، تظهر صباح اليوم التالي كـ fallback.
+
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../widgets/points_earned_toast.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:health/health.dart';
+
+
+import 'package:flutter/foundation.dart';
+// Firebase
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../repos/points_repo.dart';
+
+// Data layer (Firestore mirror)
+import '../data/app_repository.dart';
+
+// Screens
+import 'food_camera_screen.dart';
+
+import 'food_ai_screen.dart';
+import 'barcode_scanner_page.dart';
+import 'gemini_chat_screen.dart';
+import 'calories_history_screen.dart';
+import 'regimen_screen.dart' show DietBus; // ⬅️ نستخدم DietBus.addMeal
+import '../services/barcode_service.dart' show FoodMacro;
+// تدفّق القائمة الجاهزة (يحوي FoodItem, SelectedFood, showReadyListPicker)
+import 'ready_foods_flow.dart';
+
+// التخزين اليومي للاستهلاك
+import '../services/tracker_store.dart';
+
+// الماء
+import '../water/water_store.dart';
+import '../water/water_pages.dart';
+
+// نصيحة اليوم
+import 'package:my_app/core/daily_health_tips.dart';
+
+// ✅ استدعاء مخزن الإنجازات (يُستخدم للـ total فقط)
+import 'achievements_page.dart' show AchievementsStore;
+
+// ✅ تنظيف المفاتيح التي خُزّنت بنوع خاطئ
+import '../shared/safe_prefs.dart';
+import 'package:my_app/achievements/achievements_with_leaderboard.dart';
+
+import '../features/meal_analysis/meal_analysis.dart';
+//import '../achievements/achievements_with_leaderboard.dart' show AchievementsPage;
+import '../services/meal_text_callable.dart';
+import '../features/announcement/global_announcement_banner.dart';
+// ===== Points awarding: immediate sync to Firestore (with guest fallback) =====
+class _PointsClient {
+  static final _auth = FirebaseAuth.instance;
+  static final _fs = FirebaseFirestore.instance;
+
+  static Future<int> award({
+    required String eventKey,
+    required int points,
+    Map<String, dynamic>? meta,
+    String? dedupeKey,
+  }) async {
+    // تاريخ اليوم
+    final now = DateTime.now();
+    final ymd = now.toIso8601String().split('T').first;
+
+    // وضع الضيف (بدون uid): تخزين محلي لعمل الواجهة أثناء التطوير
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final dayKey = 'guest_day_${ymd}_awardedPoints';
+      final totalKey = 'guest_points_total';
+
+      final curDay = prefs.getInt(dayKey) ?? 0;
+      await prefs.setInt(dayKey, curDay + points);
+
+      final curTotal = prefs.getInt(totalKey) ?? 0;
+      await prefs.setInt(totalKey, curTotal + points);
+
+      return points;
+    }
+
+    // Firestore paths
+    final userRef = _fs.collection('users').doc(uid);
+    final dayRef  = userRef.collection('days').doc(ymd);
+    final evRef   = userRef.collection('point_events')
+      .doc('${ymd}_${eventKey}_${dedupeKey ?? '1'}');
+
+    return await _fs.runTransaction<int>((tx) async {
+      // منع التكرار
+      final evSnap = await tx.get(evRef);
+      if (evSnap.exists) {
+        final d = evSnap.data() as Map<String, dynamic>?;
+        return (d?['points'] as num?)?.toInt() ?? 0;
+      }
+
+      // قراءة نقاط اليوم الحالية
+      final daySnap = await tx.get(dayRef);
+      final baseDay = (daySnap.data() as Map<String, dynamic>?) ?? {};
+      final baseRewards = (baseDay['rewards'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final current = (baseRewards['awardedPoints'] as num?)?.toInt() ?? 0;
+
+      // سجل حدث النقاط
+      tx.set(evRef, {
+        'event': eventKey,
+        'uid': uid,
+        'ymd': ymd,
+        'points': points,
+        'meta': meta ?? const {},
+        'createdAt': Timestamp.now(),
+      });
+
+      // حدّث نقاط اليوم
+      final newTotal = current + points;
+      final updatedRewards = Map<String, dynamic>.from(baseRewards)
+        ..['awardedPoints'] = newTotal;
+
+      tx.set(dayRef, {
+        'rewards': updatedRewards,
+        'updatedAt': Timestamp.now(),
+      }, SetOptions(merge: true));
+
+      // زيادات التوتال
+      tx.set(userRef.collection('achievements').doc('totals'), {
+        'points_total': FieldValue.increment(points),
+        'updatedAt': Timestamp.now(),
+      }, SetOptions(merge: true));
+      return points;
+    });
+  }
+}
+
+
+
+// ===== نوع مساعد لعرض عناصر قائمة التجميع الفورية =====
+class _InstantClaimItem {
+  final String title;
+  final int points;
+  const _InstantClaimItem({required this.title, required this.points});
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
+
+  // ===== Toast UI for points (Home) =====
+  void _showPointsToast(int points, {String? reason, IconData icon = Icons.star_rounded}) {
+    if (!mounted) return;
+    try {
+      PointsEarnedToast.show(
+        context,
+        points: points,
+        title: 'كسبت نقاط 🎉',
+        message: reason ?? 'أضفنا $points نقطة إلى رصيدك',
+        icon: icon,
+        withConfetti: true,
+      );
+    } catch (_) {}
+  }
+
+
+
+  // ====== Guard: show claim UI once per date (persists per day) ======
+  Future<bool> _shouldShowClaimUI({required String forDate}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'claim_ui_shown_' + forDate; // e.g., 2025-10-01
+      final shown = prefs.getBool(key) ?? false;
+      return !shown;
+    } catch (_) {
+      return true; // fail-open to allow first showing
+    }
+  }
+
+  Future<void> _markClaimUIShown({required String forDate}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'claim_ui_shown_' + forDate;
+      await prefs.setBool(key, true);
+    } catch (_) {}
+  }
+
+
+
+  // ===== Points helpers (safe, no UI changes) =====
+  Future<void> _awardWaterPoints(double before, double after) async {
+  try {
+    final crossed = (before < 3.0) && (after >= 3.0);
+    if (crossed) {
+      final ymd = DateTime.now().toIso8601String().split('T').first;
+      await _awardOnce(
+        eventKey: 'water_3l',
+        points: 5,
+        dedupeKey: ymd,
+        meta: {'message': 'شربت 3 لتر ماء اليوم (+5)'},
+      );
+    }
+  } catch (_) {}
+}
+
+
+
+  /// إلحاق مكافأة معلّقة لليوم الحالي (مع إزالة التكرارات بالـ id)
+  Future<void> _appendPendingToday(Map<String, dynamic> reward) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'unknown_user';
+    final ymd = DateTime.now().toIso8601String().split('T').first;
+    final pendingKey = 'pending_rewards_${email}_$ymd';
+    List<Map<String, dynamic>> list = [];
+    try {
+      final raw = prefs.getString(pendingKey);
+      if (raw != null) {
+        final dec = json.decode(raw);
+        if (dec is List) list = List<Map<String, dynamic>>.from(dec);
+      }
+    } catch (_) {}
+    // إزالة أي عنصر سابق بنفس الـ id
+    final id = (reward['id'] ?? '').toString();
+    if (id.isNotEmpty) {
+      list = [for (final r in list) if ((r['id'] ?? '') != id) r];
+    }
+    list.add(reward);
+    await prefs.setString(pendingKey, json.encode(list));
+    // مرآة لفايرستور (إن توفرت AppRepository)
+    try { await AppRepository.putPendingRewards(ymd: ymd, pending: list); } catch (_) {}
+  }
+
+
+
+  Future<void> _awardMealPoints(int mealIndex, int preTotalItems, int preSlotCount) async {
+    try {
+      // نقطة واحدة عند أول إضافة في كل وجبة (فطور/غداء/عشاء)
+      final bool firstInSlot = preSlotCount == 0;
+      if (firstInSlot) {
+        final slot = mealIndex == 0 ? 'breakfast' : (mealIndex == 1 ? 'lunch' : 'dinner');
+        await _awardOnce(eventKey: 'meal_slot_$slot', points: 1, dedupeKey: null, meta: {
+          "message": "كسبت نقطة واحدة: أول وجبة لك اليوم — (${slot == 'breakfast' ? 'فطور' : slot == 'lunch' ? 'غداء' : 'عشاء'}) (+1)",
+        }, showUI: false);
+}
+    } catch (_) {}
+}
+
+  // أهداف اليوم
+  double caloriesNeeded = 0.0;
+  double protein = 0.0;
+  double fat = 0.0;
+  double carbs = 0.0;
+
+  // إجمالي النقاط (للاستعمال الداخلي فقط عند الحاجة) — لا نعرضه في الهوم
+  int userPoints = 0;
+
+  // ✅ نقاط اليوم (المطلوبة لعرض الهوم)
+  int todayPoints = 0;
+  // ✅ عدد أيام الستريك الحالية
+  int _streakCount = 0;
+  String? _streakLastDate;
+
+
+// حالة المكافآت المحلية (fallback) لليوم
+bool _resolvedLocalToday = false;
+int _pendingLocalToday = 0;
+
+
+  // نشاط Apple/Google Health
+  int steps = 0;
+  int burned = 0;
+
+  // health ^13.x
+  final Health health = Health();
+
+  // الماء اليوم
+  double todayWaterLiters = 0.0;
+
+  // الوجبات لليوم الحالي فقط — تُصفّر عند دخول يوم جديد فقط
+  List<Map<String, dynamic>> meals = [
+    {'name': '🍳 الفطور', 'items': <Map<String, dynamic>>[]},
+    {'name': '🍽️ الغداء', 'items': <Map<String, dynamic>>[]},
+    {'name': '🌙 العشاء', 'items': <Map<String, dynamic>>[]},
+  ];
+
+  // مجاميع اليوم
+  double totalCalories = 0.0;
+  double totalProtein = 0.0;
+  double totalCarbs = 0.0;
+  double totalFat = 0.0;
+
+  // أطعمتك من assets + نسخة محوّلة لـ FoodItem
+  List<Map<String, dynamic>> predefinedFoods = [];
+  List<FoodItem> readyFoods = [];
+
+  // منع إعادة التوجيه والـ guard مرّات كثيرة
+  // فهرس “سجل الأيام” (نحدّثه داخليًا فقط)
+  final Map<String, double> _dailyTotals = {}; // date -> kcal
+  List<String> _dailyDates = [];
+
+  // تتبّع تاريخ الشاشة
+  String _lastSeenDate = DateTime.now().toIso8601String().split('T').first;
+  String? _activeMealsStoredDate;
+
+  // مفاتيح PageStorage لمنع تعارض الأنواع
+  static const _listKey = PageStorageKey<String>('home_list');
+
+  // ===== إعدادات مكافآت اليوم =====
+  static const double _kCalorieCompletionRatio = 0.95; // 95% من الهدف
+  static const double _kWaterBonusLiters = 3.0;        // 3 لتر
+  static const int _kCaloriesBonusPoints = 5;          // +5 نقاط
+  static const int _kWaterBonusPoints = 10;            // +10 نقاط
+  static const int _kClaimCutoffHour = 23;          // الساعة 23 = 11PM
+
+  static const double _kMacroCloseTolerance = 0.20;    // ±20% قرب من الهدف
+// ===== فحص ومنح مكافآت اليوم الكبرى فورًا (سعرات/ماكروز + ماء) =====
+Future<void> _maybeAwardDailyBonusesNow() async {
+  final prefs = await SharedPreferences.getInstance();
+  final email = prefs.getString('currentEmail') ?? FirebaseAuth.instance.currentUser?.email ?? 'unknown_user';
+  final ymd = DateTime.now().toIso8601String().split('T').first;
+
+  Map<String, dynamic> totals = {};
+  try { final raw = prefs.getString('kcal_daytotals_${email}_$ymd'); if (raw != null) totals = json.decode(raw); } catch (_) {}
+  final double sumK = _toD(totals['k']);
+  final double sumP = _toD(totals['p']);
+  final double sumC = _toD(totals['c']);
+  final double sumF = _toD(totals['f']);
+
+  Map<String, dynamic> history = {};
+  try { final rawHist = prefs.getString('dailyNutritionHistory_$email'); if (rawHist != null) history = json.decode(rawHist); } catch (_) {}
+  final m = history[ymd] as Map?;
+  final double tK = _toD(m?['calories']);
+  final double tP = _toD(m?['protein']);
+  final double tC = _toD(m?['carbs']);
+  final double tF = _toD(m?['fat']);
+
+  final String? waterStr = prefs.getString('water_total_${email}_$ymd');
+  final double waterLiters = waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
+
+  final reachedCalories = (tK > 0) && (sumK >= (tK * _kCalorieCompletionRatio));
+  final closeMacros = _macrosClose(targetP: tP, targetC: tC, targetF: tF, sumP: sumP, sumC: sumC, sumF: sumF);
+  if (reachedCalories && closeMacros) {
+    await _awardOnce(eventKey: 'daily_kcal_bonus', points: _kCaloriesBonusPoints, dedupeKey: ymd, showUI: false);
+}
+
+  if (waterLiters >= _kWaterBonusLiters) {
+    await _awardOnce(eventKey: 'daily_water_bonus', points: _kWaterBonusPoints, dedupeKey: ymd, showUI: false);
+}
+}
+
+  // لإظهار ورقة المطالبة مرة واحدة
+  bool _claimSheetShown = false;
+
+  // سِيد بسيط لتحفيز الأنيميشن عند تغيّر القيم
+  int _animSeed = 0;
+
+  // اشتراكات
+  StreamSubscription? _achSub;       // (اختياري) لو حبيت تتابع الإجمالي
+  StreamSubscription? _dayPointsSub; // نقاط اليوم (الهوم يعرضها)
+
+  // ===== هامش سفلي ذكي يمنع تغطية المحتوى بالشريط/الـFAB =====
+  double _homeBottomPadding(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    const navH = kBottomNavigationBarHeight; // ≈56
+    const gap = 20.0; // مسافة تنفّس بسيطة
+    return mq.padding.bottom + navH + gap;
+  }
+
+// ===== Helpers آمنة لأنواع SharedPreferences =====
+  bool _prefBool(SharedPreferences prefs, String key) {
+    final raw = prefs.get(key);
+    return raw is bool ? raw : false;
+  }
+
+  double _toD(dynamic v) =>
+      (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+
+  // ===== تحميل مُرتّب يمنع تصفير غير مقصود =====
+  Future<void> _initialLoad() async {
+    await SafePrefs.fixKnownMismatches();
+
+    await _ensurePrefsEmail();        // 👈 تثبيت currentEmail أولاً
+    await _migrateLegacyMacrosToPerUser();
+    await refreshTargets();
+    await _ensureTodaySnapshot();
+    await _rollToNewDayIfNeeded();
+    await _refreshDailyLogIndex();
+    await _loadTodayWater();
+    await loadMeals();                // يحسب المجموع ويزامن
+    await _maybeAwardDailyBonusesNow();
+    await _loadAndShowPoints();
+
+    // عرض ورقة المطالبة (إن وُجدت مكافآت معلّقة)
+    // [immediate-award] claim sheet disabled
+    // [immediate-award] claim sheet disabled
+  }
+
+  @override
+  void initState() {
+    super.initState();
+            Future.microtask(() => _maybeAwardDailyBonusesNow());
+WidgetsBinding.instance.addPostFrameCallback((_) { unawaited(_recomputeLocalPendingToday()); });
+    WidgetsBinding.instance.addObserver(this);
+
+    // ✅ استماع لحظي لإجمالي النقاط (غير معروض هنا لكن مفيد لو احتجناه)
+    _achSub = AchievementsStore.watchMe().listen((m) {
+      final pts = (m['points_total'] as num?)?.toInt() ?? 0;
+      if (mounted) setState(() => userPoints = pts);
+    });
+
+    // ✅ الاستماع لنقاط اليوم
+    _attachTodayPointsListener();
+
+    Future.microtask(_initialLoad);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await DailyHealthTips.showTodayIfNeeded(context);
+    });
+loadPredefinedFoods();
+    fetchHealthData();
+    Future.microtask(() => _checkAndUpdateDailyStreak());
+  }
+
+  @override
+  void dispose() {
+    _dayPointsSub?.cancel();
+    _achSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+  // ===== ربط نقاط اليوم من Firestore =====
+  void _attachTodayPointsListener() async {
+  _dayPointsSub?.cancel();
+
+  final ymd = DateTime.now().toIso8601String().split('T').first;
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+
+  // وضع الضيف: قراءة من SharedPreferences
+  if (uid == null) {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pts = prefs.getInt('guest_day_${ymd}_awardedPoints') ?? 0;
+      if (mounted) setState(() => todayPoints = pts);
+    } catch (_) {}
+    return;
+  }
+
+  final ref = FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('days')
+      .doc(ymd);
+
+  _dayPointsSub = ref.snapshots().listen((snap) {
+    final data = snap.data();
+    final rewards = (data?['rewards'] as Map?) ?? const {};
+    final pts = (rewards['awardedPoints'] as num?)?.toInt() ?? 0;
+    if (mounted) setState(() => todayPoints = pts);
+  }, onError: (_) {});
+}
+
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final today = DateTime.now().toIso8601String().split('T').first;
+      if (today != _lastSeenDate) {
+        _lastSeenDate = today;
+        _attachTodayPointsListener(); // لو تغيّر اليوم، اربط وثيقة اليوم الجديدة
+      }
+      _rollToNewDayIfNeeded()
+          .then((_) async {
+            await _maybeShowClaimSheetForTonight();
+            await _maybeShowClaimSheetForYesterday();
+          });
+
+      unawaited(_checkAndUpdateDailyStreak());
+      refreshTargets();
+      _ensureTodaySnapshot();
+      _loadTodayWater().then((_) { _snapshotTodayForEOD(); _maybeAwardDailyBonusesNow(); });
+      _syncTodayEntriesAndTotals().then((_) { _snapshotTodayForEOD(); _maybeAwardDailyBonusesNow(); }).then((_) => _snapshotTodayForEOD());
+      _refreshDailyLogIndex();
+
+      DailyHealthTips.showTodayIfNeeded(context);
+    }
+  }
+
+  // ===== Helpers =====
+
+  Future<bool> _hasLocalMacros() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'local';
+    final k = prefs.getDouble('caloriesNeeded_$email');
+    final p = prefs.getDouble('protein_$email');
+    final c = prefs.getDouble('carbs_$email');
+    final f = prefs.getDouble('fat_$email');
+    return k != null && p != null && c != null && f != null;
+  }
+
+  // ====== تأكيد وجود currentEmail بالشيرد ======
+  Future<void> _ensurePrefsEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? email = prefs.getString('currentEmail');
+    final fbEmail = FirebaseAuth.instance.currentUser?.email;
+    if ((email == null || email == 'unknown_user') && fbEmail != null) {
+      await prefs.setString('currentEmail', fbEmail);
+      await prefs.setBool('isLoggedIn', true);
+    }
+  }
+
+  // ====== حارس الأونبوردنغ (مرن) ======
+
+// ====== Apple/Google Health (اختياري) ======
+  Future<void> fetchHealthData() async {
+    final List<HealthDataType> types = <HealthDataType>[
+      HealthDataType.STEPS,
+      HealthDataType.ACTIVE_ENERGY_BURNED,
+    ];
+    final DateTime now = DateTime.now();
+    final DateTime start = DateTime(now.year, now.month, now.day);
+
+    try {
+      try {
+        final cfg = (health as dynamic).configure();
+        if (cfg is Future) await cfg;
+      } catch (_) {}
+
+      final bool granted = await health.requestAuthorization(types);
+      if (!granted) return;
+
+      final List<HealthDataPoint> healthData =
+          await health.getHealthDataFromTypes(
+        types: types,
+        startTime: start,
+        endTime: now,
+      );
+
+      int totalSteps = 0;
+      double totalBurned = 0.0;
+
+      for (final HealthDataPoint point in healthData) {
+        if (point.type == HealthDataType.STEPS) {
+          totalSteps += (point.value as num).toInt();
+        } else if (point.type == HealthDataType.ACTIVE_ENERGY_BURNED) {
+          totalBurned += (point.value as num).toDouble();
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        steps = totalSteps;
+        burned = totalBurned.toInt();
+      });
+
+      // خزن نشاط اليوم محليًا + فايرستور
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('currentEmail') ?? 'unknown_user';
+      final ymd = DateTime.now().toIso8601String().split('T').first;
+      await prefs.setString(
+        'activity_${ymd}_$email',
+        jsonEncode({'steps': steps, 'burned': burned}),
+      );
+
+      // 🔗 مرآة لفايرستور
+      await AppRepository.writeActivity(ymd: ymd, steps: steps, burned: burned);
+    } catch (e) {
+      debugPrint('fetchHealthData error: $e');
+    }
+  }
+
+  // ====== ماء اليوم + تخزين لقطة اليوم ======
+  Future<void> _loadTodayWater() async {
+    final v = await WaterStore.todayLiters();
+    if (!mounted) return;
+    setState(() => todayWaterLiters = v);
+    await _snapshotTodayForEOD();
+
+    // 🔗 مرآة لفايرستور
+    final ymd = DateTime.now().toIso8601String().split('T').first;
+    await AppRepository.writeWaterLiters(ymd: ymd, liters: todayWaterLiters);
+  }
+
+  // نخزن الماء لليوم الحالي كي نستخدمه عند تقييم نهاية اليوم
+  Future<void> _snapshotTodayForEOD() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('currentEmail') ??
+          FirebaseAuth.instance.currentUser?.email ??
+          'unknown_user';
+      final ymd = DateTime.now().toIso8601String().split('T').first;
+      await prefs.setString('water_total_${email}_$ymd',
+          (todayWaterLiters).toStringAsFixed(6));
+    } catch (_) {}
+  }
+  // ====== ترحيل قديم -> المفاتيح الموحّدة لكل مستخدم ======
+  Future<void> _migrateLegacyMacrosToPerUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email;
+    if (email == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+
+    final hasNew = prefs.getDouble('protein_$email') != null ||
+        prefs.getDouble('carbs_$email') != null ||
+        prefs.getDouble('fat_$email') != null;
+
+    if (hasNew) return;
+
+    final legacyProtein = prefs.getDouble('protein');
+    final legacyCarbs = prefs.getDouble('carbs');
+    final legacyFat = prefs.getDouble('fat');
+    final legacyCals = prefs.getDouble('caloriesNeeded');
+
+    if (legacyProtein != null) {
+      await prefs.setDouble('protein_$email', legacyProtein);
+    }
+    if (legacyCarbs != null) {
+      await prefs.setDouble('carbs_$email', legacyCarbs);
+    }
+    if (legacyFat != null) {
+      await prefs.setDouble('fat_$email', legacyFat);
+    }
+    if (legacyCals != null) {
+      await prefs.setDouble('caloriesNeeded_$email', legacyCals);
+    }
+  }
+
+  // ====== تحميل الأهداف (SharedPrefs أولاً + Firestore عند الحاجة) ======
+  Future<void> refreshTargets() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email;
+
+    if (email == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+
+    double? k = prefs.getDouble('caloriesNeeded_$email');
+    double? p = prefs.getDouble('protein_$email');
+    double? c = prefs.getDouble('carbs_$email');
+    double? f = prefs.getDouble('fat_$email');
+
+    if (k == null || p == null || c == null || f == null) {
+      final fetched = await _tryFetchTargetsFromFirestore();
+      if (fetched != null) {
+        k = fetched['k'];
+        p = fetched['p'];
+        c = fetched['c'];
+        f = fetched['f'];
+
+        await prefs.setDouble('caloriesNeeded_$email', k!);
+        await prefs.setDouble('protein_$email', p!);
+        await prefs.setDouble('carbs_$email', c!);
+        await prefs.setDouble('fat_$email', f!);
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      caloriesNeeded = k ?? 2000.0;
+      protein = p ?? 100.0;
+      fat = f ?? 60.0;
+      carbs = c ?? 300.0;
+    });
+  }
+
+  Future<Map<String, double>?> _tryFetchTargetsFromFirestore() async {
+    try {
+      final u = FirebaseAuth.instance.currentUser;
+      if (u == null) return null;
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(u.uid).get();
+      final data = doc.data();
+      if (data == null) return null;
+
+      final metrics = data['metrics'];
+      if (metrics is! Map) return null;
+
+      final k = metrics['caloriesNeeded'] ?? metrics['kcal'];
+      final p = metrics['protein'];
+      final c = metrics['carbs'];
+      final f = metrics['fat'];
+
+      if (k is num && p is num && c is num && f is num) {
+        return {
+          'k': k.toDouble(),
+          'p': p.toDouble(),
+          'c': c.toDouble(),
+          'f': f.toDouble(),
+        };
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ====== النقاط (تحميل إجمالي فقط، العرض في الهوم اليومي) ======
+  Future<void> _loadAndShowPoints() async {
+    final pts = await AchievementsStore.getPoints();
+    if (!mounted) return;
+    setState(() => userPoints = pts);
+  }
+
+  // ====== إنشاء لقطة اليوم (أهداف اليوم تحفظ في dailyNutritionHistory) ======
+  Future<void> _ensureTodaySnapshot() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'unknown_user';
+
+    final today = DateTime.now().toIso8601String().split('T').first;
+    final last = prefs.getString('lastSnapshotDate_$email');
+    if (last == today) return;
+
+    final k = prefs.getDouble('caloriesNeeded_$email') ?? caloriesNeeded;
+    final p = prefs.getDouble('protein_$email') ?? protein;
+    final c = prefs.getDouble('carbs_$email') ?? carbs;
+    final f = prefs.getDouble('fat_$email') ?? fat;
+
+    final rawHistory = prefs.getString('dailyNutritionHistory_$email');
+    Map<String, dynamic> history = {};
+    if (rawHistory != null) {
+      try {
+        history = json.decode(rawHistory);
+      } catch (_) {
+        history = {};
+      }
+    }
+
+    history[today] ??= {'calories': k, 'protein': p, 'carbs': c, 'fat': f};
+
+    await prefs.setString('dailyNutritionHistory_$email', json.encode(history));
+    await prefs.setString('lastSnapshotDate_$email', today);
+
+    for (final key in [
+      'consumed_cal_$email',
+      'consumed_pro_$email',
+      'consumed_carb_$email',
+      'consumed_fat_$email',
+    ]) {
+      await prefs.remove(key);
+    }
+  }
+
+  // ====== لفّ اليوم + توليد مكافآت أمس ======
+  Future<void> _rollToNewDayIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'local';
+    final today = DateTime.now().toIso8601String().split('T').first;
+
+    final lastMealsDate = prefs.getString('activeMealsDate_$email');
+
+    if (lastMealsDate == null) {
+      await prefs.setString('activeMealsDate_$email', today);
+      _activeMealsStoredDate = today;
+      return;
+    }
+
+    if (lastMealsDate != today) {
+      // قبل ما نصفر، قوّم مكافآت اليوم السابق
+      await _queueEndOfDayRewardsFor(lastMealsDate);
+
+      setState(() {
+        meals = [
+          {'name': '🍳 الفطور', 'items': <Map<String, dynamic>>[]},
+          {'name': '🍽️ الغداء', 'items': <Map<String, dynamic>>[]},
+          {'name': '🌙 العشاء', 'items': <Map<String, dynamic>>[]},
+        ];
+        totalCalories = 0.0;
+        totalProtein = 0.0;
+        totalCarbs = 0.0;
+        totalFat = 0.0;
+      });
+
+      await saveMeals();
+      await prefs.setString('activeMealsDate_$email', today);
+      _activeMealsStoredDate = today;
+
+      await _ensureTodaySnapshot();
+      await _syncTodayEntriesAndTotals();
+      _attachTodayPointsListener(); // اليوم تغيّر
+      await _checkAndUpdateDailyStreak(showSnack: true);
+    } else {
+      _activeMealsStoredDate = today;
+    }
+  }
+
+  // ====== حساب قرب الماكروز ======
+  bool _macrosClose({
+    required double targetP,
+    required double targetC,
+    required double targetF,
+    required double sumP,
+    required double sumC,
+    required double sumF,
+  }) {
+    bool closeOne(double goal, double val) {
+      if (goal <= 0) return true; // تجاهل هدف صفر
+      final diff = (val - goal).abs() / goal;
+      return diff <= _kMacroCloseTolerance;
+    }
+
+    return closeOne(targetP, sumP) &&
+        closeOne(targetC, sumC) &&
+        closeOne(targetF, sumF);
+  }
+  // ====== توليد مكافآت معلّقة ليوم معيّن ======
+  Future<void> _queueEndOfDayRewardsFor(String ymd) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'unknown_user';
+
+    final claimedKey = 'rewards_resolved_${email}_$ymd';
+    if (_prefBool(prefs, claimedKey)) return; // سبق معالجتها (جمع/رفض)
+
+    // إجماليات اليوم (k,p,c,f)
+    final totalsKey = 'kcal_daytotals_${email}_$ymd';
+    Map<String, dynamic> totals = {};
+    try {
+      final rawTotals = prefs.getString(totalsKey);
+      if (rawTotals != null) totals = json.decode(rawTotals);
+    } catch (_) {}
+
+    final double sumK = _toD(totals['k']);
+    final double sumP = _toD(totals['p']);
+    final double sumC = _toD(totals['c']);
+    final double sumF = _toD(totals['f']);
+
+    // أهداف اليوم
+    Map<String, dynamic> history = {};
+    try {
+      final rawHist = prefs.getString('dailyNutritionHistory_$email');
+      if (rawHist != null) history = json.decode(rawHist);
+    } catch (_) {}
+    final m = history[ymd] as Map?;
+    final double tK = _toD(m?['calories']);
+    final double tP = _toD(m?['protein']);
+    final double tC = _toD(m?['carbs']);
+    final double tF = _toD(m?['fat']);
+
+    // ماء اليوم
+    final String? waterStr = prefs.getString('water_total_${email}_$ymd');
+    final double waterLiters =
+        waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
+
+    final List<Map<String, dynamic>> pending = [];
+
+    // شرط السعرات + قرب الماكروز
+    final reachedCalories =
+        (tK > 0) && (sumK >= (tK * _kCalorieCompletionRatio));
+    final closeMacros = _macrosClose(
+      targetP: tP, targetC: tC, targetF: tF,
+      sumP: sumP, sumC: sumC, sumF: sumF,
+    );
+
+    if (reachedCalories && closeMacros) {
+      pending.add({
+        'id': 'kcal',
+        'points': _kCaloriesBonusPoints,
+        'message':
+            'أحسنت! أكملت سعراتك اليوم وكانت قريبة من الماكروز. ربحت ${_kCaloriesBonusPoints} نقاط.',
+      });
+    }
+
+    // شرط الماء
+    if (waterLiters >= _kWaterBonusLiters) {
+      pending.add({
+        'id': 'water',
+        'points': _kWaterBonusPoints,
+        'message':
+            'رائع! شربت ${_kWaterBonusLiters.toStringAsFixed(0)} لتر ماء أو أكثر. ربحت ${_kWaterBonusPoints} نقاط.',
+      });
+    }
+
+    // خزّن المكافآت المعلّقة إن وُجدت + مرآة فايرستور
+    final pendingKey = 'pending_rewards_${email}_$ymd';
+    if (pending.isNotEmpty) {
+      await prefs.setString(pendingKey, json.encode(pending));
+      // 🔗 فايرستور
+      await AppRepository.putPendingRewards(ymd: ymd, pending: pending);
+    } else {
+      // لا مكافآت: علّمها كمنتهية محليًا + حدّث فايرستور (awarded=0)
+      await prefs.setBool(claimedKey, true);
+      await AppRepository.markRewardsResolved(
+        ymd: ymd, claimed: false, awardedPoints: 0,
+      );
+    }
+  }
+
+  // ====== قراءة/حلّ مكافآت تاريخ معيّن ======
+  Future<List<Map<String, dynamic>>> _loadPendingRewardsForDate(String ymd) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'unknown_user';
+    final pendingKey = 'pending_rewards_${email}_$ymd';
+    final resolvedKey = 'rewards_resolved_${email}_$ymd';
+    if (_prefBool(prefs, resolvedKey)) return [];
+    try {
+      final raw = prefs.getString(pendingKey);
+      if (raw == null) return [];
+      final list = json.decode(raw);
+      if (list is List) {
+        return List<Map<String, dynamic>>.from(list);
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _resolveRewardsForDate(String ymd, {required bool claim}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'unknown_user';
+    final pendingKey = 'pending_rewards_${email}_$ymd';
+    final resolvedKey = 'rewards_resolved_${email}_$ymd';
+
+    int awarded = 0;
+    if (claim) {
+      final rewards = await _loadPendingRewardsForDate(ymd);
+      for (final r in rewards) {
+        final pts = (r['points'] is num) ? (r['points'] as num).toInt() : 0;
+        if (pts > 0) awarded += pts;
+      }
+      if (awarded > 0) {
+        // إجمالي النقاط (صفحة الإنجازات)
+        await AchievementsStore.addPoints(awarded);
+      }
+      // نقاط اليوم (مرآة في days/{ymd})
+      await AppRepository.markRewardsResolved(
+        ymd: ymd, claimed: true, awardedPoints: awarded,
+      );
+    } else {
+      await AppRepository.markRewardsResolved(
+        ymd: ymd, claimed: false, awardedPoints: 0,
+      );
+    }
+
+    await prefs.remove(pendingKey);
+    await prefs.setBool(resolvedKey, true);
+
+    // حدث عدّاد نقاط اليوم المحلي للعرض
+    if (DateTime.now().toIso8601String().split('T').first == ymd) {
+      setState(() => todayPoints = claim ? awarded : 0);
+    }
+  }
+
+
+
+// أعِدّ حساب رصيد المكافآت المحلي المعلّق لليوم (fallback للهيدر)
+Future<void> _recomputeLocalPendingToday() async {
+  final prefs = await SharedPreferences.getInstance();
+  final email = prefs.getString('currentEmail') ??
+      FirebaseAuth.instance.currentUser?.email ??
+      'unknown_user';
+  final ymd = DateTime.now().toIso8601String().split('T').first;
+  final pendingKey = 'pending_rewards_${email}_$ymd';
+  final resolvedKey = 'rewards_resolved_${email}_$ymd';
+
+  int sum = 0;
+  bool resolved = _prefBool(prefs, resolvedKey);
+  try {
+    final raw = prefs.getString(pendingKey);
+    if (raw != null && !resolved) {
+      final dec = json.decode(raw);
+      if (dec is List) {
+        for (final e in dec) {
+          final pts = (e is Map && e['points'] is num) ? (e['points'] as num).toInt() : 0;
+          if (pts > 0) sum += pts;
+        }
+      }
+    }
+  } catch (_) {}
+  if (!mounted) return;
+  setState(() {
+    _pendingLocalToday = sum;
+    _resolvedLocalToday = resolved;
+  });
+}
+
+// تجميع فوري من الهوم: يوسّط Firestore + يقلّص الرصيد المحلي
+Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
+  if (pendingNow <= 0) return;
+  // زد الإجمالي ذرّياً
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+  final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+  final achRef = userRef.collection('meta').doc('achievements');
+  await FirebaseFirestore.instance.runTransaction((tx) async {
+    tx.set(achRef, {
+      'points_total': FieldValue.increment(pendingNow),
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
+    tx.set(userRef, {
+      'points_total': FieldValue.increment(pendingNow),
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
+    // صفّر نقاط اليوم في وثيقة اليوم
+    final dayRef = userRef.collection('days').doc(ymd);
+    tx.set(dayRef, {
+      'rewards': {
+        'pendingPoints': 0,
+        'claimed': true,
+        'claimedAt': Timestamp.now(),
+      },
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
+  });
+
+  // علّم الرصيد المحلي كمحسوم
+  final prefs = await SharedPreferences.getInstance();
+  final email = prefs.getString('currentEmail') ??
+      FirebaseAuth.instance.currentUser?.email ??
+      'unknown_user';
+  final resolvedKey = 'rewards_resolved_${email}_$ymd';
+  await prefs.setBool(resolvedKey, true);
+
+  // حدّث واجهة الهوم سريعًا
+  if (!mounted) return;
+  setState(() {
+    _resolvedLocalToday = true;
+    _pendingLocalToday = 0;
+    todayPoints = 0;
+  });
+}
+
+  // ====== عرض ورقة المطالبة آخر الليل لنفس اليوم ======
+  Future<void> _maybeShowClaimSheetForTonight() async {
+    if (!mounted || _claimSheetShown) return;
+
+    final now = DateTime.now();
+    if (now.hour < _kClaimCutoffHour) return; // لسه ما وصلنا آخر الليل
+
+    final today = now.toIso8601String().split('T').first;
+
+    // تأكد أن اللقطات محدثة قبل التقييم
+    await _syncTodayEntriesAndTotals();
+    await _snapshotTodayForEOD();
+
+    // قيّم واستخرج/خزّن مكافآت هذا اليوم
+    await _queueEndOfDayRewardsFor(today);
+
+    final rewards = await _loadPendingRewardsForDate(today);
+    if (rewards.isEmpty) return;
+
+    _claimSheetShown = true;
+    if (!mounted) return;
+  // ====== Guard: show claim UI once per date (persists per day) ======
+  Future<bool> _shouldShowClaimUI({required String forDate}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'claim_ui_shown_' + forDate; // e.g., 2025-10-01
+      final shown = prefs.getBool(key) ?? false;
+      // If already shown today, don't nag again
+      return !shown;
+    } catch (_) {
+      return true; // fail-open to avoid blocking first show
+    }
+  }
+
+  Future<void> _markClaimUIShown({required String forDate}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'claim_ui_shown_' + forDate;
+      await prefs.setBool(key, true);
+    } catch (_) {}
+  }
+
+    if (await _shouldShowClaimUI(forDate: today)) {
+  _claimSheetShown = true;
+  if (!mounted) return;
+  _showRewardsClaimSheet(rewards, forDate: today);
+  await _markClaimUIShown(forDate: today);
+}
+}
+
+  // ====== Fallback: عرض مكافآت أمس عند فتح التطبيق ======
+  Future<void> _maybeShowClaimSheetForYesterday() async {
+    if (!mounted || _claimSheetShown) return;
+    final ymdYesterday = DateTime.now()
+        .subtract(const Duration(days: 1))
+        .toIso8601String()
+        .split('T')
+        .first;
+    final rewards = await _loadPendingRewardsForDate(ymdYesterday);
+    if (rewards.isEmpty) return;
+    if (await _shouldShowClaimUI(forDate: ymdYesterday)) {
+  _claimSheetShown = true;
+  if (!mounted) return;
+  _showRewardsClaimSheet(rewards, forDate: ymdYesterday);
+  await _markClaimUIShown(forDate: ymdYesterday);
+}
+}
+
+  void _showRewardsClaimSheet(List<Map<String, dynamic>> rewards, {required String forDate}) {
+    final cs = Theme.of(context).colorScheme;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: false,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: cs.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.all(6),
+                    child: Icon(Icons.celebration, size: 18, color: cs.primary),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('مكافآت اليوم ($forDate)',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            )),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...rewards.map((r) => Container(
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceVariant.withOpacity(.20),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cs.outlineVariant),
+                    ),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: cs.primary.withOpacity(.12),
+                        child: const Icon(Icons.stars),
+                      ),
+                      title: Text(
+                        r['message']?.toString() ?? 'مكافأة',
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                      ),
+                      subtitle: Text('النقاط: ${r['points'] ?? 0}'),
+                    ),
+                  )),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await _resolveRewardsForDate(forDate, claim: false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('تم رفض المكافآت لهذا اليوم.')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.close),
+                      label: const Text('رفض'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await _resolveRewardsForDate(forDate, claim: true);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('تم تجميع المكافآت 👏')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.savings_outlined),
+                      label: const Text('تجميع'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).whenComplete(() {
+      _claimSheetShown = false;
+    });
+  }
+  // ====== محوّل JSON -> FoodItem ======
+  List<FoodItem> mapFoodsFromJson(List<Map<String, dynamic>> src) {
+    double toD(dynamic v) =>
+        (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+
+    return src.map((m) {
+      final id = (m['id'] ?? m['code'] ?? m['name'] ?? UniqueKey().toString())
+          .toString();
+      final name = (m['name'] ?? 'عنصر').toString();
+      final category = (m['category'] ?? m['group'] ?? 'Other').toString();
+
+      var kcal100 = toD(m['kcal_per_100g'] ??
+          m['cal_per_100g'] ??
+          m['kcal100'] ??
+          m['cal']);
+      var p100 = toD(m['protein_per_100g'] ?? m['protein100'] ?? m['protein']);
+      var c100 = toD(m['carbs_per_100g'] ??
+          m['carb_per_100g'] ??
+          m['carb100'] ??
+          m['carb']);
+      var f100 = toD(m['fat_per_100g'] ?? m['fat100'] ?? m['fat']);
+
+      final gramsPerUnit = toD(m['grams_per_unit']);
+      final isPerUnit = gramsPerUnit > 0 &&
+          (kcal100 == 0 && p100 == 0 && c100 == 0 && f100 == 0);
+
+      if (isPerUnit) {
+        final kcalPerUnit =
+            toD(m['kcal'] ?? m['calories'] ?? m['cal_per_unit']);
+        final pPerUnit = toD(m['protein'] ?? m['protein_per_unit']);
+        final cPerUnit = toD(m['carb'] ?? m['carbs'] ?? m['carbs_per_unit']);
+        final fPerUnit = toD(m['fat'] ?? m['fat_per_unit']);
+
+        final factor = gramsPerUnit > 0 ? (100.0 / gramsPerUnit) : 1.0;
+        kcal100 = (kcalPerUnit * factor);
+        p100 = (pPerUnit * factor);
+        c100 = (cPerUnit * factor);
+        f100 = (fPerUnit * factor);
+      }
+
+      return FoodItem(
+        id: id,
+        name: name,
+        category: category,
+        kcalPer100g: kcal100,
+        proteinPer100g: p100,
+        carbsPer100g: c100,
+        fatPer100g: f100,
+      );
+    }).toList();
+  }
+
+  // ====== قراءة foods.json ======
+  Future<void> loadPredefinedFoods() async {
+    try {
+      final String response = await rootBundle.loadString('assets/foods.json');
+      final data = json.decode(response) as List;
+      setState(() {
+        predefinedFoods = List<Map<String, dynamic>>.from(data);
+        readyFoods = mapFoodsFromJson(predefinedFoods);
+      });
+    } catch (e) {
+      debugPrint('Failed to load assets/foods.json: $e');
+    }
+  }
+
+  // ====== حفظ/تحميل الوجبات ======
+  Future<void> saveMeals() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('meals', json.encode(meals));
+
+    // 🔗 مرآة لفايرستور
+    final ymd = DateTime.now().toIso8601String().split('T').first;
+    await AppRepository.writeMeals(ymd: ymd, meals: meals);
+  }
+
+  Future<void> loadMeals() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedMeals = prefs.getString('meals');
+    if (savedMeals != null) {
+      setState(() {
+        meals =
+            List<Map<String, dynamic>>.from(json.decode(savedMeals) as List);
+        calculateTotals();
+      });
+      await _syncTodayEntriesAndTotals();
+      await _snapshotTodayForEOD();
+    }
+  }
+
+  // ====== حساب المجاميع ======
+  void calculateTotals() {
+    totalCalories = 0.0;
+    totalProtein = 0.0;
+    totalCarbs = 0.0;
+    totalFat = 0.0;
+
+    for (final meal in meals) {
+      final items = (meal['items'] as List).cast<Map<String, dynamic>>();
+      for (final item in items) {
+        totalCalories += (item['cal'] as num).toDouble();
+        totalProtein += (item['protein'] as num).toDouble();
+        totalCarbs += (item['carb'] as num).toDouble();
+        totalFat += (item['fat'] as num).toDouble();
+      }
+    }
+  }
+
+  Map<String, double> _sumMeal(List<Map<String, dynamic>> items) {
+    double k = 0, p = 0, c = 0, f = 0;
+    for (final it in items) {
+      k += (it['cal'] as num).toDouble();
+      p += (it['protein'] as num).toDouble();
+      c += (it['carb'] as num).toDouble();
+      f += (it['fat'] as num).toDouble();
+    }
+    return {'k': k, 'p': p, 'c': c, 'f': f};
+  }
+
+  // ====== (جديد) صندوق تأكيد موحّد قبل تجاوز السعرات ======
+  Future<bool> _confirmExceedCalories(double calToAdd) async {
+    // لو ما عندنا هدف معرّف، أو لن نتجاوز — لا حاجة للتأكيد
+    if (caloriesNeeded <= 0) return true;
+    final projected = totalCalories + calToAdd;
+    if (projected <= caloriesNeeded) return true;
+
+    final cs = Theme.of(context).colorScheme;
+    final overBy = (projected - caloriesNeeded).clamp(0, double.infinity);
+
+    return await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: false,
+          showDragHandle: true,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+          ),
+          builder: (_) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.all(6),
+                        child: const Icon(Icons.warning_amber_rounded,
+                            size: 18, color: Colors.red),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'تنبيه تجاوز السعرات',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceVariant.withOpacity(.18),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: cs.outlineVariant),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'مع إضافة هذه الوجبة ستتجاوز هدف السعرات لليوم.',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.color,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 6,
+                          children: [
+                            _pill('الحالي: ${totalCalories.toStringAsFixed(0)}'),
+                            _pill('الإضافة: ${calToAdd.toStringAsFixed(0)}'),
+                            _pill('المتوقّع: ${projected.toStringAsFixed(0)}'),
+                            _pill('هدفك: ${caloriesNeeded.toStringAsFixed(0)}'),
+                            _pill('تجاوز: +${overBy.toStringAsFixed(0)}'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.pop(context, false),
+                          icon: const Icon(Icons.close),
+                          label: const Text('لا'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.pop(context, true),
+                          icon: const Icon(Icons.check),
+                          label: const Text('نعم، أضف الوجبة'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ).then((v) => v ?? false);
+  }
+
+  // شارة صغيرة للأرقام داخل الصندوق
+  Widget _pill(String text) {
+    final on = Theme.of(context).textTheme.bodyMedium?.color ?? Colors.black87;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: on.withOpacity(.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: on.withOpacity(.12)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
+  // ====== إضافة العناصر + حفظ + TrackerStore + مرآة فايرستور ======
+  Future<void> _addItemsToMealAndPersist(
+    int mealIndex,
+    List<Map<String, dynamic>> items,
+  ) async {
+    // حفظ حالة ما قبل الإضافة للنقاط
+    final int _preTotalItems = meals.fold<int>(0, (acc, m) => acc + ((m['items'] as List).length));
+    final int _preSlotCount  = (meals[mealIndex]['items'] as List).length;
+
+    await _rollToNewDayIfNeeded();
+
+    double cal = 0, p = 0, c = 0, f = 0;
+    for (final it in items) {
+      cal += (it['cal'] as num).toDouble();
+      p += (it['protein'] as num).toDouble();
+      c += (it['carb'] as num).toDouble();
+      f += (it['fat'] as num).toDouble();
+    }
+
+    // 👇 (جديد) اطلب التأكيد قبل تجاوز السعرات
+    final ok = await _confirmExceedCalories(cal);
+    if (!ok) return;
+
+    bool allow = true;
+    try {
+      final dynamic res = await DietBus.addMeal(
+        calories: cal,
+        proteinGrams: p,
+        carbsGrams: c,
+        fatGrams: f,
+        at: DateTime.now(),
+        context: context,
+      );
+      allow = (res is bool) ? res : true;
+    } catch (_) {
+      // إذا فشل DietBus لأي سبب، لا تمنع الإضافة (كان يسبب: ما يضيف الوجبات)
+      allow = true;
+    }
+
+    if (!allow) {
+      if (!mounted) return;
+      
+      return;
+    }
+
+    setState(() {
+      (meals[mealIndex]['items'] as List).addAll(items);
+      calculateTotals();
+      _animSeed++; // 🔔 يحفّز الأنيميشن
+    });
+
+    // نبضة اهتزاز خفيفة بعد الإضافة
+    HapticFeedback.selectionClick();
+
+    
+    // 🔄 احفظ وحدث المتتبّع في الخلفية لتسريع الإضافة
+    Future.microtask(() async {
+      try {
+        await saveMeals();
+        await TrackerStore.addIntake(cal: cal, protein: p, carb: c, fat: f);
+        await _syncTodayEntriesAndTotals();
+        await _refreshDailyLogIndex();
+        await _snapshotTodayForEOD();
+      } catch (e) {
+        debugPrint('[MealsPersist] background persist failed: $e');
+      }
+    });
+      
+
+    // نقاط الوجبة (استنادًا إلى الحالة قبل الإضافة)
+    await _awardMealPoints(mealIndex, _preTotalItems, _preSlotCount);
+}
+
+  // ====== نتيجة Food AI ======
+  Future<void> _handleFoodAiResult(int mealIndex, dynamic result) async {
+    try {
+      if (result == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+      final map = (result is Map) ? result : null;
+      if (map == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+
+      String name =
+          (map['label'] ?? map['name'] ?? 'صنف من الصورة').toString();
+      final serving = map['serving'];
+      if (serving != null && '$serving'.trim().isNotEmpty) {
+        name = '$name (${serving.toString()})';
+      }
+
+      final cal = _toD(map['calories'] ?? map['cal']);
+      final p = _toD(map['protein']);
+      final c = _toD(map['carbs'] ?? map['carb']);
+      final f = _toD(map['fat']);
+
+      if (cal <= 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ما وصلت بيانات صالحة من تحليل الصورة')),
+        );
+        return;
+      }
+
+      await _addItemsToMealAndPersist(mealIndex, [
+        {'name': name, 'cal': cal, 'protein': p, 'carb': c, 'fat': f}
+      ]);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content:
+                Text('تمت إضافة "$name" إلى ${meals[mealIndex]['name']}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذّر إضافة نتيجة تحليل الصورة: $e')),
+      );
+    }
+  }
+
+  // ====== ارتفاع خلايا خيارات الإضافة (متكيّف ويمنع overflow) ======
+  double _optionTileHeight(BuildContext context) {
+    final h = MediaQuery.of(context).size.height;
+    final scale = MediaQuery.textScaleFactorOf(context).clamp(1.0, 1.6);
+    final double base = h < 700 ? 128.0 : 140.0;
+    final double extra = (scale - 1.0) * 48.0;
+    return (base + extra).clamp(124.0, 188.0);
+  }
+
+  // ====== خيارات الإضافة ======
+  void addMealItem(int mealIndex) {
+    final parentContext = context;
+    final cs = Theme.of(parentContext).colorScheme;
+
+    showModalBottomSheet(
+      context: parentContext,
+      isScrollControlled: true, // ← يسمح بارتفاع كبير مع تمرير
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: SingleChildScrollView( // ← يمنع أي overflow ويتيح سكرول
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Directionality(
+              textDirection: TextDirection.rtl,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // عنوان صغير
+                  Row(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.all(6),
+                        child: Icon(Icons.add, size: 16, color: cs.primary),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('إضافة وجبة',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              )),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+
+
+                  // شبكة خيارات 2×2 بارتفاع ثابت آمن
+                  GridView(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      mainAxisExtent: _optionTileHeight(context), // ← أهم تعديل
+                    ),
+                    children: [
+                      _AddOptionCard(
+                        icon: Icons.create_rounded,
+                        color: cs.primary,
+                        title: 'إدخال يدوي',
+                        subtitle: 'أدخل السعرات والماكروز',
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          showManualEntryForm(mealIndex);
+                        },
+                      ),
+                      _AddOptionCard(
+                        icon: Icons.fastfood_rounded,
+                        color: cs.secondary,
+                        title: 'من قائمة جاهزة',
+                        subtitle: 'اختيار عناصر/وجبة محفوظة',
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          showReadyListPicker(
+                            parentContext,
+                            onAddItemsToToday: (selected) async {
+                              final items = selected.map<Map<String, dynamic>>((e) {
+                                final grams = e.grams;
+                                final cal = e.item.kcalPer100g * grams / 100.0;
+                                final p = e.item.proteinPer100g * grams / 100.0;
+                                final c = e.item.carbsPer100g * grams / 100.0;
+                                final f = e.item.fatPer100g * grams / 100.0;
+                                return {
+                                  'name': '${e.item.name} (${grams.toStringAsFixed(0)}غ)',
+                                  'cal': cal, 'protein': p, 'carb': c, 'fat': f,
+                                };
+                              }).toList();
+                              await _addItemsToMealAndPersist(mealIndex, items);
+                            },
+                            onSaveMealTemplate: (mealName, selected) async {
+                              final prefs = await SharedPreferences.getInstance();
+                              final raw = prefs.getString('meal_templates');
+                              List<Map<String, dynamic>> templates = raw != null
+                                  ? List<Map<String, dynamic>>.from(json.decode(raw))
+                                  : [];
+                              templates.add({
+                                'name': mealName,
+                                'items': selected
+                                    .map((e) => {
+                                          'id': e.item.id,
+                                          'name': e.item.name,
+                                          'grams': e.grams,
+                                          'kcal100': e.item.kcalPer100g,
+                                          'p100': e.item.proteinPer100g,
+                                          'c100': e.item.carbsPer100g,
+                                          'f100': e.item.fatPer100g,
+                                        })
+                                    .toList(),
+                              });
+                              await prefs.setString('meal_templates', json.encode(templates));
+                            },
+                            foods: readyFoods,
+                          );
+                        },
+                      ),
+                      _AddOptionCard(
+                        icon: Icons.notes_rounded,
+                        color: cs.secondary,
+                        title: 'التحليل بالنص',
+                        subtitle: 'حلّل وصفك النصي للوجبة',
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          _handleAddByText(mealIndex, parentContext);
+                        },
+                      ),
+
+                      _AddOptionCard(
+                        icon: Icons.camera_alt_rounded,
+                        color: cs.tertiary,
+                        title: 'تصوير الطعام',
+                        subtitle: 'تحليل الصورة واستخراج القيم',
+                        onTap: () async {
+  Navigator.of(sheetCtx).pop();
+  try {
+    final result = await Navigator.of(parentContext).push(
+      MaterialPageRoute(builder: (_) => const FoodCameraScreen()),
+    );
+    await _handleFoodAiResult(mealIndex, result);
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(parentContext).showSnackBar(
+      SnackBar(content: Text('تعذّر فتح الكاميرا: $e')),
+    );
+  }
+},
+
+                      ),
+                      _AddOptionCard(
+                        icon: Icons.qr_code_scanner_rounded,
+                        color: cs.error,
+                        title: 'مسح باركود المنتج',
+                        subtitle: 'جلب القيم الغذائية تلقائيًا',
+                        onTap: () async {
+                          Navigator.of(sheetCtx).pop();
+
+                          final dynamic result = await Navigator.of(parentContext).push(
+                            MaterialPageRoute(builder: (_) => const BarcodeScannerPage()),
+                          );
+
+                          if (result == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+
+                          // 1) الشكل الجديد: FoodMacro
+                          if (result is FoodMacro) {
+                            await _addItemsToMealAndPersist(mealIndex, [
+                              {
+                                'name': result.name,
+                                'cal': result.caloriesKcal,
+                                'protein': result.proteinG,
+                                'carb': result.carbsG,
+                                'fat': result.fatG,
+                              }
+                            ]);
+                            return;
+                          }
+
+                          // 2) الشكل القديم: خريطة OFF
+                          if (result is Map && result['nutriments'] != null) {
+                            final n = result['nutriments'] as Map;
+                            final name = (result['product_name'] ?? 'منتج من الباركود').toString();
+                            final cal = ((n['energy-kcal_100g'] ?? 0) as num).toDouble();
+                            final p   = ((n['proteins_100g'] ?? 0) as num).toDouble();
+                            final c   = ((n['carbohydrates_100g'] ?? 0) as num).toDouble();
+                            final f   = ((n['fat_100g'] ?? 0) as num).toDouble();
+
+                            await _addItemsToMealAndPersist(mealIndex, [
+                              {'name': name, 'cal': cal, 'protein': p, 'carb': c, 'fat': f}
+                            ]);
+                            return;
+                          }
+
+                          // 3) إدخال يدوي
+                          if (result is Map && result['barcode'] != null) {
+                            showManualEntryForm(mealIndex);
+                            return;
+                          }
+
+                          if (mounted) {
+                            ScaffoldMessenger.of(parentContext).showSnackBar(
+                              const SnackBar(content: Text('تعذّر تفسير نتيجة الباركود')),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  // ====== إدخال يدوي ======
+  void showManualEntryForm(int mealIndex) {
+    final nameController = TextEditingController();
+    final calController = TextEditingController();
+    final proteinController = TextEditingController();
+    final carbController = TextEditingController();
+    final fatController = TextEditingController();
+
+    bool autoCalc = true;
+
+    double _calcKcal() {
+      final p = double.tryParse(proteinController.text) ?? 0.0;
+      final c = double.tryParse(carbController.text) ?? 0.0;
+      final f = double.tryParse(fatController.text) ?? 0.0;
+      return (p * 4) + (c * 4) + (f * 9);
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          void recomputeIfNeeded() {
+            if (autoCalc) {
+              final kcal = _calcKcal();
+              calController.text = kcal > 0 ? kcal.toStringAsFixed(0) : '';
+            }
+          }
+
+          final cs = Theme.of(context).colorScheme;
+
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom + 16.0,
+              left: 16.0,
+              right: 16.0,
+              top: 16.0,
+            ),
+            child: SingleChildScrollView(
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: cs.primary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          child: Icon(Icons.create, size: 16, color: cs.primary),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('إدخال وجبة يدويًا',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: nameController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'اسم الوجبة (اختياري)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: autoCalc,
+                          onChanged: (v) {
+                            setModalState(() {
+                              autoCalc = v ?? true;
+                              recomputeIfNeeded();
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text('احسب السعرات تلقائيًا من الماكروز (4/4/9)'),
+                        ),
+                      ],
+                    ),
+                    TextField(
+                      controller: calController,
+                      enabled: !autoCalc,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'السعرات',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: proteinController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'بروتين (غ)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (_) => setModalState(recomputeIfNeeded),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: carbController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'كارب (غ)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (_) => setModalState(recomputeIfNeeded),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: fatController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'دهون (غ)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (_) => setModalState(recomputeIfNeeded),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          final enteredName = nameController.text.trim();
+                          final mealName =
+                              enteredName.isEmpty ? 'وجبة مخصصة' : enteredName;
+
+                          double cal =
+                              double.tryParse(calController.text) ?? 0.0;
+                          final double p =
+                              double.tryParse(proteinController.text) ?? 0.0;
+                          final double c =
+                              double.tryParse(carbController.text) ?? 0.0;
+                          final double f =
+                              double.tryParse(fatController.text) ?? 0.0;
+
+                          if (autoCalc) cal = _calcKcal();
+
+                          if (cal <= 0.0) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('يرجى إدخال بيانات صحيحة')),
+                            );
+                            return;
+                          }
+
+                          await _addItemsToMealAndPersist(mealIndex, [
+                            {
+                              'name': mealName,
+                              'cal': cal,
+                              'protein': p,
+                              'carb': c,
+                              'fat': f
+                            }
+                          ]);
+
+                          if (mounted) Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.save),
+                        label: const Text("حفظ"),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // إجراءات سريعة: كاميرا / باركود / نص
+  Future<void> _handleAddByCamera(int mealIndex, BuildContext parentContext) async {
+    try {
+      final picker = ImagePicker();
+      final XFile? pickedFile = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+      );
+      if (pickedFile == null) return;
+      if (!mounted) return;
+
+      final result = await Navigator.of(parentContext).push(
+        MaterialPageRoute(builder: (_) => FoodAiScreen(imageFile: pickedFile)),
+      );
+      await _handleFoodAiResult(mealIndex, result);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(content: Text('تعذّر فتح الكاميرا/التقاط الصورة: $e')),
+      );
+    }
+  }
+
+  Future<void> _handleAddByBarcode(int mealIndex, BuildContext parentContext) async {
+    try {
+      final dynamic result = await Navigator.of(parentContext).push(
+        MaterialPageRoute(builder: (_) => const BarcodeScannerPage()),
+      );
+      if (result == null) return;
+
+      if (result is FoodMacro) {
+        await _addItemsToMealAndPersist(mealIndex, [
+          {
+            'name': result.name,
+            'cal': result.caloriesKcal,
+            'protein': result.proteinG,
+            'carb': result.carbsG,
+            'fat': result.fatG,
+          }
+        ]);
+        return;
+      }
+
+      if (result is Map && result['nutriments'] != null) {
+        final n = result['nutriments'] as Map;
+        final name = (result['product_name'] ?? 'منتج من الباركود').toString();
+        final cal = ((n['energy-kcal_100g'] ?? 0) as num).toDouble();
+        final p   = ((n['proteins_100g'] ?? 0) as num).toDouble();
+        final c   = ((n['carbohydrates_100g'] ?? 0) as num).toDouble();
+        final f   = ((n['fat_100g'] ?? 0) as num).toDouble();
+
+        await _addItemsToMealAndPersist(mealIndex, [
+          {'name': name, 'cal': cal, 'protein': p, 'carb': c, 'fat': f}
+        ]);
+        return;
+      }
+
+      if (result is Map && result['barcode'] != null) {
+        showManualEntryForm(mealIndex);
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(parentContext).showSnackBar(
+          const SnackBar(content: Text('تعذّر تفسير نتيجة الباركود')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(parentContext).showSnackBar(
+          SnackBar(content: Text('تعذّر مسح الباركود: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleAddByText(int mealIndex, BuildContext parentContext) async {
+    try {
+      final text = await MealTextUI.prompt(parentContext);
+      if (text == null || text.trim().isEmpty) return;
+
+      final data = await MealTextAnalyzer.analyze(text.trim());
+      if (!mounted) return;
+
+      await showModalBottomSheet(
+        context: parentContext,
+        isScrollControlled: true,
+        builder: (ctx) => MealTextUI.sheetFromMap(data),
+      );
+    } catch (e) {
+      try {
+        await AnalyzeMeal.launch(parentContext);
+      } catch (_) {}
+      if (!mounted) return;
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(content: Text('تعذّر تحليل الوجبة بالنص: $e')),
+      );
+    }
+  }
+
+
+  // ====== هيدر فخم مدمج (Gradient) مع عدّاد متحرّك — يعرض نقاط اليوم ======
+  Widget _fancyHeader(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerRight,
+          end: Alignment.centerLeft,
+          colors: [
+            cs.primary.withOpacity(0.85),
+            cs.secondary.withOpacity(0.85),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Row(
+          children: [
+            const Icon(Icons.dashboard_customize, color: Colors.white, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('لوحة اليوم',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14)),
+                  Row(
+                    children: [
+                      const Text('سعراتك: ',
+                          style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      _Countup(
+                        value: totalCalories,
+                        decimals: 0,
+                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                      const Text(' / ',
+                          style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text(
+                        caloriesNeeded.toStringAsFixed(0),
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.stars, color: Colors.amber, size: 18),
+                  const SizedBox(width: 6),
+                  _Countup(
+                    value: todayPoints.toDouble(),
+                    decimals: 0,
+                    prefix: 'نقاط اليوم: ',
+                    style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ====== قسم الماكروز (Progress متحرّك + أرقام متحركة) ======
+  Widget _buildMacrosSection() {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const _SectionHeader(title: 'الماكروز', icon: Icons.restaurant_menu),
+      const SizedBox(height: 8),
+      _HomeMacrosCard(
+        calories: totalCalories,
+        caloriesGoal: caloriesNeeded,
+        protein: totalProtein,
+        carbs: totalCarbs,
+        fat: totalFat,
+        proteinGoal: protein,
+        carbsGoal: carbs,
+        fatGoal: fat,
+      ),
+
+    ],
+  );
+}
+
+  // ====== مزامنة إدخالات اليوم + المجاميع (محلي + فايرستور) ======
+  Future<void> _syncTodayEntriesAndTotals() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'unknown_user';
+    final ymd = DateTime.now().toIso8601String().split('T').first;
+
+    // entries
+    final entriesKey = 'intake_entries_${email}_$ymd';
+    final List<Map<String, dynamic>> entries = [];
+    for (final meal in meals) {
+      final items = (meal['items'] as List).cast<Map<String, dynamic>>();
+      for (final it in items) {
+        entries.add({
+          'name': it['name'],
+          'k': (it['cal'] as num).toDouble(),
+          'p': (it['protein'] as num).toDouble(),
+          'c': (it['carb'] as num).toDouble(),
+          'f': (it['fat'] as num).toDouble(),
+        });
+      }
+    }
+    await prefs.setString(entriesKey, jsonEncode(entries));
+
+    // totals
+    final totalsKey = 'kcal_daytotals_${email}_$ymd';
+    double k = 0, p = 0, c = 0, f = 0;
+    for (final meal in meals) {
+      final items = (meal['items'] as List).cast<Map<String, dynamic>>();
+      for (final it in items) {
+        k += (it['cal'] as num).toDouble();
+        p += (it['protein'] as num).toDouble();
+        c += (it['carb'] as num).toDouble();
+        f += (it['fat'] as num).toDouble();
+      }
+    }
+    final totals = {'k': k, 'p': p, 'c': c, 'f': f};
+    await prefs.setString(totalsKey, jsonEncode(totals));
+
+    // 🔗 مرآة لفايرستور (intake.entries + intake.totals)
+    await AppRepository.writeEntriesAndTotals(
+      ymd: ymd,
+      entries: entries,
+      totals: totals,
+    );
+  }
+
+  // ====== فهرس أيام "سجل السعرات" (محلي فقط للعرض السريع) ======
+  Future<void> _refreshDailyLogIndex() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'unknown_user';
+
+    final rawHistory = prefs.getString('dailyNutritionHistory_$email');
+    Map<String, dynamic> history = {};
+    if (rawHistory != null) {
+      try {
+        history = json.decode(rawHistory);
+      } catch (_) {
+        history = {};
+      }
+    }
+
+    final dates = history.keys.toList();
+    dates.sort((a, b) => b.compareTo(a)); // أحدث أولاً
+
+    for (final d in dates) {
+      final totalsKey = 'kcal_daytotals_${email}_$d';
+      double totalK = 0.0;
+
+      final rawTotals = prefs.getString(totalsKey);
+      if (rawTotals != null) {
+        try {
+          final m = json.decode(rawTotals);
+          if (m is Map && m['k'] is num) {
+            totalK = (m['k'] as num).toDouble();
+          }
+        } catch (_) {}
+      }
+
+      if (totalK == 0.0) {
+        final entriesKey = 'intake_entries_${email}_$d';
+        final raw = prefs.getString(entriesKey);
+        if (raw != null) {
+          try {
+            final list = json.decode(raw) as List;
+            for (final e in list) {
+              final kk = e is Map ? (e['k'] ?? e['cal']) : 0;
+              final kNum = (kk is num)
+                  ? kk.toDouble()
+                  : double.tryParse('$kk') ?? 0.0;
+              totalK += kNum;
+            }
+          } catch (_) {}
+        }
+      }
+
+      _dailyTotals[d] = totalK;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _dailyDates = dates; // لا نعرضه في الهوم، فقط لسجل السعرات
+    });
+  }
+  
+  void _bumpTodayPoints(int delta) { if (!mounted) return; setState(() { todayPoints = (todayPoints + delta); }); }
+// ===== ستريك الدخول اليومي =====
+  Future<void> _checkAndUpdateDailyStreak({bool showSnack = true}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('currentEmail') ??
+          FirebaseAuth.instance.currentUser?.email ??
+          'local';
+      final today = DateTime.now();
+      final ymd = today.toIso8601String().split('T').first;
+
+      final lastKey = 'streak_lastDate_' + email;
+      final countKey = 'streak_count_' + email;
+
+      final last = prefs.getString(lastKey);
+      int count = prefs.getInt(countKey) ?? 0;
+
+      if (last == ymd) {
+        // نفس اليوم، لا شيء
+        if (mounted && _streakCount != count) setState(() => _streakCount = count);
+        return;
+      }
+
+      if (last == null) {
+        // أول تسجيل
+        count = 1;
+      } else {
+        final lastDate = DateTime.tryParse(last);
+        if (lastDate == null) {
+          count = 1;
+        } else {
+          final diff = today.difference(DateUtils.dateOnly(lastDate)).inDays;
+          if (diff == 1) {
+            count = (count + 1);
+          } else if (diff >= 2) {
+            // فات يوم أو أكثر -> نعيد من جديد
+            count = 1;
+          }
+        }
+      }
+
+      await prefs.setString(lastKey, ymd);
+      await prefs.setInt(countKey, count);
+
+      if (mounted) {
+        setState(() {
+          _streakLastDate = ymd;
+          _streakCount = count;
+        });
+      }
+
+      // منح نقاط يومية بسبب الستريك (+2 نقطة) مرة واحدة لليوم
+      final meta = {'source': 'daily_streak', 'streak': count};
+      await _awardOnce(eventKey: 'daily_streak', points: 2, dedupeKey: ymd, meta: meta, showUI: false);
+if (mounted) _bumpTodayPoints(2);
+if (mounted && showSnack) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: const [
+                Icon(Icons.local_fire_department),
+                SizedBox(width: 8),
+                Expanded(child: Text('كسبت نقاط بسبب الستريك اليومي! 🔥')),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildStreakPill() {
+    final theme = Theme.of(context);
+    final int c = _streakCount;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.local_fire_department, size: 18),
+          const SizedBox(width: 4),
+          Text('$c'),
+        ],
+      ),
+    );
+  }
+// ====== UI ======
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: Row(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    const Text('الرئيسية'),
+    const SizedBox(width: 8),
+    _buildStreakPill(), // ← شارة الستريك 🔥
+  ],
+),
+
+
+        actions: [
+          
+
+IconButton(
+            tooltip: 'تحديث',
+            onPressed: () async {
+              await _ensurePrefsEmail();
+              await _rollToNewDayIfNeeded();
+              await refreshTargets();
+              await _ensureTodaySnapshot();
+              await _loadTodayWater();
+              await _syncTodayEntriesAndTotals();
+              await _refreshDailyLogIndex();
+              await _loadAndShowPoints();
+              await _maybeShowClaimSheetForTonight();
+              await _maybeShowClaimSheetForYesterday();
+              _attachTodayPointsListener(); // تأكيد الاشتراك على وثيقة اليوم
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('تم التحديث')),
+                );
+              }
+            },
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          showDialog(
+            context: context,
+            builder: (context) {
+              final nameController = TextEditingController();
+              return AlertDialog(
+                title: const Text("إضافة وجبة جديدة"),
+                content: TextField(
+                  controller: nameController,
+                  decoration:
+                      const InputDecoration(labelText: "اسم الوجبة"),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("إلغاء"),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      final name = nameController.text.trim();
+                      if (name.isNotEmpty) {
+                        setState(() {
+                          meals.add({
+                            'name': name,
+                            'items': <Map<String, dynamic>>[]
+                          });
+                          calculateTotals();
+                          _animSeed++;
+                        });
+                        await saveMeals();
+                        await _syncTodayEntriesAndTotals();
+                        await _refreshDailyLogIndex();
+                        if (mounted) Navigator.pop(context);
+                      }
+                    },
+                    child: const Text("إضافة"),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+        child: const Icon(Icons.add),
+      ),
+      body: SafeArea(
+        bottom: true,
+        child: RefreshIndicator(
+          onRefresh: () async {
+            await _ensurePrefsEmail();
+            await _rollToNewDayIfNeeded();
+            await refreshTargets();
+            await _ensureTodaySnapshot();
+            await _loadTodayWater();
+            await _syncTodayEntriesAndTotals();
+            await _refreshDailyLogIndex();
+            await _loadAndShowPoints();
+            await _maybeShowClaimSheetForTonight();
+            await _maybeShowClaimSheetForYesterday();
+            _attachTodayPointsListener();
+          },
+          child: ListView(
+            key: _listKey,
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            padding: EdgeInsets.fromLTRB(
+              12, 12, 12,
+              _homeBottomPadding(context),
+            ),
+            children: [
+              const GlobalAnnouncementBanner(),
+              const SizedBox(height: 8),
+              _fancyHeader(context),
+              const SizedBox(height: 12),
+
+              // Banner: زر تجميع فوري (Stream + fallback محلي)
+              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: () {
+                  final uid = FirebaseAuth.instance.currentUser?.uid;
+                  if (uid == null) return const Stream<DocumentSnapshot<Map<String, dynamic>>>.empty();
+                  final y = DateTime.now().toIso8601String().split('T').first;
+                  return FirebaseFirestore.instance
+                      .collection('users').doc(uid)
+                      .collection('days').doc(y)
+                      .snapshots();
+                }(),
+                builder: (context, snap) {
+                  int pendingNow = 0;
+                  bool claimed = false;
+                  if (snap.hasData) {
+                    final data = snap.data?.data();
+                    final rewards = (data?['rewards'] as Map?)?.cast<String, dynamic>();
+                    claimed = rewards?['claimed'] == true;
+                    pendingNow = (rewards?['pendingPoints'] is num)
+                        ? (rewards?['pendingPoints'] as num).toInt()
+                        : ((rewards?['awardedPoints'] is num)
+                            ? (rewards?['awardedPoints'] as num).toInt()
+                            : 0);
+                  }
+                  // fallback محلي إذا Firestore ما فيه بيانات أو 0
+                  if ((!snap.hasData || pendingNow <= 0) && !_resolvedLocalToday && _pendingLocalToday > 0) {
+                    pendingNow = _pendingLocalToday;
+                    claimed = false;
+                  }
+                  if (claimed || pendingNow <= 0) {
+                    return const SizedBox.shrink();
+                  }
+                  final cs = Theme.of(context).colorScheme;
+                  return Card(
+                    elevation: 1.0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: cs.primary.withOpacity(.12),
+                            child: const Icon(Icons.redeem),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text('لديك $pendingNow نقطة بانتظار التجميع',
+                                style: const TextStyle(fontWeight: FontWeight.w700)),
+                          ),
+                          FilledButton.icon(
+                            onPressed: () async {
+                              final y = DateTime.now().toIso8601String().split('T').first;
+                              await _claimPendingNowFromHome(pendingNow, y);
+                              unawaited(_recomputeLocalPendingToday());
+                            },
+                            icon: const Icon(Icons.check_circle),
+                            label: const Text('تجميع الآن'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+
+
+              _buildMacrosSection(),
+              const SizedBox(height: 14),
+
+              const _SectionHeader(title: 'السجلات', icon: Icons.receipt_long),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const CaloriesHistoryScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.history),
+                      label: const Text(" سجل السعرات"),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const WaterHistoryPage()),
+                        );
+                      },
+                      icon: const Icon(Icons.water_drop),
+                      label: const Text('سجل الماء'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _MiniStatCard(
+                title: 'الخطوات',
+                value: '$steps',
+                icon: Icons.directions_walk,
+                color: Colors.green,
+              ),
+              const SizedBox(height: 6),
+              _MiniStatCard(
+                title: 'المحروق',
+                value: '$burned',
+                icon: Icons.local_fire_department_outlined,
+                color: Colors.red,
+              ),
+              const SizedBox(height: 8),
+              _WaterCompact(
+                liters: todayWaterLiters,
+                onAdd: () async {
+                  final __before = todayWaterLiters;
+      await showWaterQuickAddSheet(context);
+      await _loadTodayWater();
+      final __after = todayWaterLiters;
+      await _awardWaterPoints(__before, __after);
+// سيقوم أيضًا بتحديث لقطة الماء لليوم + فايرستور
+                  setState(() => _animSeed++);
+                },
+              ),
+
+              const SizedBox(height: 18),
+
+              
+              const SizedBox(height: 18),
+
+              const _SectionHeader(title: 'وجباتي', icon: Icons.restaurant_menu),
+              const SizedBox(height: 8),
+
+              ...meals.asMap().entries.map((e) => _buildMealCard(context, e.key, e.value)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _fmt(dynamic v) => (v is num)
+      ? v.toStringAsFixed(0)
+      : double.tryParse('$v')?.toStringAsFixed(0) ?? '0';
+
+  // ====== بطاقة وجبة ======
+  Widget _buildMealCard(BuildContext context, int index, Map<String, dynamic> meal) {
+    final cs = Theme.of(context).colorScheme;
+    final items = (meal['items'] as List).cast<Map<String, dynamic>>();
+    final isDefault = ['🍳 الفطور', '🍽️ الغداء', '🌙 العشاء'].contains(meal['name'].toString());
+
+    final totals = _sumMeal(items);
+    final kcal = totals['k']!;
+    final p = totals['p']!;
+    final c = totals['c']!;
+    final f = totals['f']!;
+
+    final expKey = PageStorageKey<String>('meal_tile_${meal['name']}_$index');
+
+    return Card(
+      elevation: 0.6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: expKey,
+          initiallyExpanded: false,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          childrenPadding: const EdgeInsets.symmetric(horizontal: 8),
+          title: Row(
+            children: [
+              // اسم الوجبة + ملخص
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(meal['name'].toString(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14.5,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Text('س: ', style: TextStyle(fontSize: 11.5)),
+                        _Countup(value: kcal, decimals: 0, style: TextStyle(fontSize: 11.5, color: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(.8))),
+                        const SizedBox(width: 6),
+                        const Text('• ب: ', style: TextStyle(fontSize: 11.5)),
+                        _Countup(value: p, decimals: 0, style: const TextStyle(fontSize: 11.5, color: Colors.green)),
+                        const SizedBox(width: 6),
+                        const Text('• ك: ', style: TextStyle(fontSize: 11.5)),
+                        _Countup(value: c, decimals: 0, style: const TextStyle(fontSize: 11.5, color: Colors.orange)),
+                        const SizedBox(width: 6),
+                        const Text('• د: ', style: TextStyle(fontSize: 11.5)),
+                        _Countup(value: f, decimals: 0, style: const TextStyle(fontSize: 11.5, color: Colors.blue)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // شارة السعرات (بدون "ك.س")
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: cs.primary.withOpacity(0.15)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.local_fire_department, size: 16, color: cs.primary),
+                    const SizedBox(width: 6),
+                    _Countup(
+                      value: kcal,
+                      decimals: 0,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!isDefault) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                  tooltip: 'حذف الوجبة',
+                  onPressed: () async {
+                    setState(() {
+                      meals.removeAt(index);
+                      calculateTotals();
+                      _animSeed++;
+                    });
+                    await saveMeals();
+                    await _syncTodayEntriesAndTotals();
+                    await _refreshDailyLogIndex();
+                  },
+                ),
+              ],
+            ],
+          ),
+          children: [
+            // العناصر
+            ...items.map<Widget>((item) {
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 3),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceVariant
+                      .withOpacity(.20),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: RepaintBoundary(
+  key: ValueKey(item['id'] ?? item['name'] ?? ''),
+  child: ListTile(
+                  dense: true,
+                  minLeadingWidth: 0,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                  title: Text(
+                    item['name'].toString(),
+                    style: const TextStyle(fontSize: 13.0, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    "س: ${_fmt(item['cal'])} | ب: ${_fmt(item['protein'])} | ك: ${_fmt(item['carb'])} | د: ${_fmt(item['fat'])}",
+                    style: const TextStyle(fontSize: 11.5),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.withOpacity(0.18)),
+                    ),
+                    child: InkWell(
+                      onTap: () async {
+                        setState(() {
+                          items.remove(item);
+                          calculateTotals();
+                          _animSeed++;
+                        });
+                        await saveMeals();
+                        await _syncTodayEntriesAndTotals();
+                        await _refreshDailyLogIndex();
+                      },
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.delete_outline, color: Colors.red, size: 16),
+                          SizedBox(width: 4),
+                          Text('حذف', style: TextStyle(color: Colors.red, fontSize: 11.5)),
+                        ],
+                      ),
+                    ),
+                  ),
+                )),
+              );
+            }).toList(),
+
+            const SizedBox(height: 6),
+            // زر إضافة عنصر (مضغوط)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  textStyle: const TextStyle(fontSize: 13),
+                ),
+                onPressed: () => addMealItem(index),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text("إضافة عنصر"),
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+  }  // نهاية _buildMealCard
+
+  // ===== منح نقاط فوري + عرض نافذة تأكيد/قائمة مصغّرة =====
+  // ===== منح نقاط فوري + عرض Toast موحد =====
+  Future<void> _awardOnce({
+    required String eventKey,
+    required int points,
+    String? dedupeKey,
+    Map<String, dynamic>? meta,
+    bool showUI = true,
+  }) async {
+    try {
+      final added = await _PointsClient.award(
+        eventKey: eventKey,
+        points: points,
+        dedupeKey: dedupeKey,
+        meta: meta,
+      );
+      if (!mounted) return;
+      if (added > 0) {
+        // حدّث عدّاد اليوم الظاهر في الهيدر
+        // (no local increment) rely on Firestore listener for todayPoints;
+        // setState(() => todayPoints = (todayPoints) + added);
+        if (showUI) {
+          _showPointsToast(added, reason: meta?['message']?.toString());
+        }
+      }
+    } catch (_) {
+      // يمكن عرض Snackbar لخطأ الشبكة
+    }
+  }
+  String _prettyEventTitle(String key, int pts) {
+    switch (key) {
+      case 'meal_slot_breakfast':
+        return 'كسبت $pts نقطة: أول وجبة لك اليوم (فطور)';
+      case 'meal_slot_lunch':
+        return 'كسبت $pts نقطة: أول وجبة لك اليوم (غداء)';
+      case 'meal_slot_dinner':
+        return 'كسبت $pts نقطة: أول وجبة لك اليوم (عشاء)';
+      case 'daily_kcal_bonus':
+        return 'كسبت $pts نقطة: أكملت هدف السعرات والماكروز';
+      case 'daily_water_bonus':
+        return 'كسبت $pts نقطة: أنهيت هدف الماء اليومي';
+      case 'water_step':
+        return 'كسبت $pts نقطة: شرب ماء (+500 مل)';
+      default:
+        return 'كسبت $pts نقطة';
+    }
+  }
+  void _showInstantClaimSheet({
+    required String title,
+    required List<_InstantClaimItem> details,
+    VoidCallback? onOpenAchievements,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.emoji_events_outlined),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...details.map((e) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.check_circle_outline),
+                    title: Text(e.title),
+                    trailing: Text('+${e.points}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  )),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('إغلاق'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        if (onOpenAchievements != null) onOpenAchievements();
+                      },
+                      child: const Text('افتح الإنجازات'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}  
+// ====== عناصر UI مصغّرة ======
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _SectionHeader({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Row(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: cs.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.all(6),
+            child: Icon(icon, size: 16, color: cs.primary),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniStatCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  const _MiniStatCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(title,
+                style: TextStyle(
+                    color: color, fontWeight: FontWeight.w700, fontSize: 13)),
+          ),
+          Text(value, style: const TextStyle(fontSize: 13.5)),
+        ],
+      ),
+    );
+  }
+}
+
+// ====== بطاقة ماء مع شريط تقدّم متحرّك ======
+class _WaterCompact extends StatelessWidget {
+  final double liters;
+  final Future<void> Function() onAdd;
+  const _WaterCompact({required this.liters, required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    const kGoal = 3.0; // لتر
+    final percent = (kGoal > 0) ? (liters / kGoal).clamp(0.0, 1.0) : 0.0;
+    final enough = liters >= kGoal;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.teal.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.teal.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.water_drop, color: Colors.teal, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Row(
+                  children: [
+                    const Text('الماء اليوم: ',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                    _Countup(
+                      value: liters,
+                      decimals: 2,
+                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+                    ),
+                    const Text(' لتر', style: TextStyle(fontSize: 13.5)),
+                    if (enough) const Text(' • شرب كثير ✅',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onAdd,
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('إضافة'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _AnimatedBar(
+            percent: percent,
+            height: 10,
+            background: Colors.teal.withOpacity(0.15),
+            color: Colors.teal,
+            curve: Curves.easeOutCubic,
+            duration: const Duration(milliseconds: 900),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ====== بطاقة ماكروز مع Progress متحرك ======
+class _MacroTile extends StatelessWidget {
+  final String title;
+  final String unit;
+  final IconData icon;
+  final double consumed;
+  final double total;
+
+  const _MacroTile({
+    required this.title,
+    required this.unit,
+    required this.icon,
+    required this.consumed,
+    required this.total,
+  });
+
+  Color _color(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (title.contains('سعرات')) return cs.primary;
+    if (title.contains('بروتين')) return Colors.pink;
+    if (title.contains('دهون')) return Colors.blue;
+    return Colors.orange; // كارب
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = Theme.of(context).textTheme.bodyMedium?.color ?? cs.onSurface;
+
+    final percent = total > 0 ? (consumed / total).clamp(0.0, 1.0) : 0.0;
+    final remaining = (total - consumed).clamp(0.0, double.infinity);
+    final color = _color(context);
+    final unitSuffix = unit.isNotEmpty ? ' $unit' : '';
+
+    return Card(
+      elevation: 0.6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: color, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13.5,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  _Countup(
+                    value: consumed,
+                    decimals: 0,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: onSurface.withOpacity(0.9),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(' / ${total.toStringAsFixed(0)}$unitSuffix', style: TextStyle(fontSize: 12.5, color: onSurface.withOpacity(0.7))),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _AnimatedBar(
+                percent: percent,
+                height: 10,
+                background: color.withOpacity(0.15),
+                color: color,
+                curve: Curves.easeOutCubic,
+                duration: const Duration(milliseconds: 900),
+              ),
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'المتبقي: ${remaining.toStringAsFixed(0)}$unitSuffix',
+                  style: const TextStyle(fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ====== بطاقة خيار داخل أسفلية "إضافة وجبة" ======
+class _AddOptionCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  const _AddOptionCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
+    final base = onSurface.withOpacity(0.06);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color.withOpacity(0.14),
+                theme.colorScheme.surface.withOpacity(0.6),
+              ],
+            ),
+            border: Border.all(color: base),
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.10),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 40, width: 40,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  height: 1.1,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  subtitle!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: onSurface.withOpacity(.7),
+                    height: 1.25,
+                  ),
+                ),
+              ],
+              const Spacer(),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Icon(Icons.chevron_left, size: 18, color: onSurface.withOpacity(.6)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+// زر شريحة صغير للإجراءات السريعة
+class _QuickAddChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _QuickAddChip({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: cs.secondaryContainer.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: cs.outline.withOpacity(0.25)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 24,
+              height: 24,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: cs.primaryContainer.withOpacity(0.9),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 16, color: cs.onPrimaryContainer),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ====== ودجت: شريط تقدّم متحرّك بعرض ملس ======
+class _AnimatedBar extends StatelessWidget {
+  final double percent; // 0..1
+  final double height;
+  final Color background;
+  final Color color;
+  final Curve curve;
+  final Duration duration;
+
+  const _AnimatedBar({
+    required this.percent,
+    required this.height,
+    required this.background,
+    required this.color,
+    this.curve = Curves.easeOutCubic,
+    this.duration = const Duration(milliseconds: 800),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = percent.clamp(0.0, 1.0);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(height),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final maxW = c.maxWidth;
+          return Stack(
+            children: [
+              Container(
+                height: height,
+                width: double.infinity,
+                color: background,
+              ),
+              AnimatedContainer(
+                duration: duration,
+                curve: curve,
+                height: height,
+                width: maxW * p,
+                decoration: BoxDecoration(
+                  color: color,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ====== ودجت: عدّاد أرقام متحرك ======
+class _Countup extends StatefulWidget {
+  final double value;
+  final int decimals;
+  final TextStyle? style;
+  final String? prefix;
+  final String? suffix;
+  final Duration duration;
+  final Curve curve;
+
+  const _Countup({
+    required this.value,
+    this.decimals = 0,
+    this.style,
+    this.prefix,
+    this.suffix,
+    this.duration = const Duration(milliseconds: 700),
+    this.curve = Curves.easeOutCubic,
+  });
+
+  @override
+  State<_Countup> createState() => _CountupState();
+}
+
+class _CountupState extends State<_Countup> {
+
+// removed duplicated helper
+void _showPointsToast_DELETED(int points, {String? reason, IconData icon = Icons.star_rounded}) {
+  if (!mounted) return;
+  try {
+    PointsEarnedToast.show(
+      context,
+      points: points,
+      title: 'كسبت نقاط 🎉',
+      message: reason != null ? reason : 'أضفنا $points نقطة إلى رصيدك',
+      icon: icon,
+      withConfetti: true,
+    );
+  } catch (_) {}
+}
+
+  late double _from;
+  late double _to;
+
+  @override
+  void initState() {
+    super.initState();
+    _from = widget.value;
+    _to = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(covariant _Countup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.value != oldWidget.value) {
+      setState(() {
+        _from = oldWidget.value;
+        _to = widget.value;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: _from, end: _to),
+      duration: widget.duration,
+      curve: widget.curve,
+      builder: (context, val, _) {
+        final s = val.toStringAsFixed(widget.decimals);
+        return Text(
+          '${widget.prefix ?? ''}$s${widget.suffix ?? ''}',
+          style: widget.style,
+        );
+      },
+    );
+  }
+}
+
+// ====== نهاية الملف ======
+
+
+// --- Meal Analysis Card (top-level) ---
+class _MealAnalysisCard extends StatelessWidget {
+  const _MealAnalysisCard({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () async {
+        try {
+          // Ensure we have an authenticated user (callable often requires auth)
+          if (FirebaseAuth.instance.currentUser == null) {
+            await FirebaseAuth.instance.signInAnonymously();
+          }
+
+          // Ask user for a meal description
+          final text = await MealTextUI.prompt(context);
+          if (text == null || text.trim().isEmpty) {
+            return; // user cancelled
+          }
+
+          // Call Firebase Callable to analyze the meal text
+          final data = await MealTextAnalyzer.analyze(text.trim());
+
+          if (!context.mounted) return;
+
+          // Show nicely formatted result and allow adding to log
+          await showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            builder: (ctx) => MealTextUI.sheetFromMap(data),
+          );
+        } catch (e) {
+          // Fallback to previous screen to avoid breaking existing flow
+          try {
+            await AnalyzeMeal.launch(context);
+          } catch (_) {}
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('تعذّر تحليل الوجبة بالنص: $e')),
+          );
+        }
+      },
+      child: Card(
+        elevation: 1.0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              const Icon(Icons.restaurant_menu, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Text(
+                      'تحليل وجبة',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'اكتب وصف الوجبة واحصل على ماكروز وسعرات تقريبية',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ====== Meal Text Analyze UI Helpers (static) ======
+class MealTextUI {
+  static Future<String?> prompt(BuildContext context) async {
+    final c = TextEditingController();
+    return await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+            left: 16, right: 16, top: 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'تحليل وجبة بالنص',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: c,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  hintText: 'مثال: وجبة ماك تشيكن مع بطاطس وكولا',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => Navigator.of(ctx).pop(c.text),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(c.text),
+                child: const Text('تحليل'),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static Widget sheetFromMap(Map<String, dynamic> data) {
+    num _n(dynamic v) => (v is num) ? v : num.tryParse('$v') ?? 0;
+
+    final name   = data['name']?.toString() ?? data['item']?.toString() ?? 'وجبة';
+    final kcal   = _n(data['calories_kcal']).toInt();
+    final protein= _n(data['protein_g']);
+    final carbs  = _n(data['carbs_g']);
+    final fat    = _n(data['fat_g']);
+    final fiber  = _n(data['fiber_g']);
+    final sugar  = _n(data['sugar_g']);
+    final sodium = _n(data['sodium_mg']).toInt();
+    final conf   = _n(data['confidence']) * 100;
+    final notes  = data['notes']?.toString() ?? '';
+
+    return Builder(
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text('السعرات: $kcal kcal  |  الثقة: ${conf.toStringAsFixed(0)}%'),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Chip(label: Text('بروتين: ${protein.toStringAsFixed(0)} g')),
+                  Chip(label: Text('كارب: ${carbs.toStringAsFixed(0)} g')),
+                  Chip(label: Text('دهون: ${fat.toStringAsFixed(0)} g')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8, runSpacing: 8,
+                children: [
+                  Chip(label: Text('ألياف: ${fiber.toStringAsFixed(0)} g')),
+                  Chip(label: Text('سكر: ${sugar.toStringAsFixed(0)} g')),
+                  Chip(label: Text('صوديوم: $sodium mg')),
+                ],
+              ),
+              if (notes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(notes, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.add),
+                      label: const Text('إضافة للسجل'),
+                      onPressed: () async {
+      // نبني عنصر وجبة واحد من نتيجة التحليل
+      final items = <Map<String, dynamic>>[
+        {
+          'name': name,
+          'cal': (kcal).toDouble(),
+          'protein': (protein).toDouble(),
+          'carb': (carbs).toDouble(),
+          'fat': (fat).toDouble(),
+        }
+      ];
+
+      // نختار الوجبة
+      final state = ctx.findAncestorStateOfType<_HomeScreenState>();
+      if (state == null) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(content: Text('تعذّر العثور على حالة الصفحة')),
+        );
+        return;
+      }
+
+      final int? mealIndex = await showModalBottomSheet<int>(
+        context: ctx,
+        builder: (pickCtx) {
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(state.meals.length, (i) {
+                final m = state.meals[i];
+                return ListTile(
+                  title: Text("إضافة إلى ${m['name']}"),
+                  onTap: () => Navigator.of(pickCtx).pop(i),
+                );
+              }),
+            ),
+          );
+        },
+      );
+
+      if (mealIndex == null) return;
+
+      try {
+        // نحاول كذلك مزامنة منطق الرجيم
+        try {
+          await DietBus.addMeal(
+            calories: (kcal).toDouble(),
+            proteinGrams: (protein).toDouble(),
+            carbsGrams: (carbs).toDouble(),
+            fatGrams: (fat).toDouble(),
+            at: DateTime.now(),
+            context: ctx,
+          );
+        } catch (_) { /* تجاهل أي خطأ هنا */ }
+
+        // نحفظ الإضافة لوجبات اليوم
+        await state._addItemsToMealAndPersist(mealIndex, items);
+
+        if (Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(content: Text('تمت إضافة الوجبة إلى سجلك')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('تعذّر إضافة الوجبة: $e')),
+        );
+      }
+    },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+// ================= Home Macros Card (mirrors SummaryPage style) =================
+
+
+class _HomeMacrosCard extends StatelessWidget {
+  final double calories;
+  final double caloriesGoal;
+  final double protein;
+  final double carbs;
+  final double fat;
+  final double proteinGoal;
+  final double carbsGoal;
+  final double fatGoal;
+
+  const _HomeMacrosCard({
+    Key? key,
+    required this.calories,
+    required this.caloriesGoal,
+    required this.protein,
+    required this.carbs,
+    required this.fat,
+    required this.proteinGoal,
+    required this.carbsGoal,
+    required this.fatGoal,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const spacing = 8.0;
+
+    return Column(
+      children: [
+        // الصف الأول: السعرات + البروتين
+        Row(
+          children: [
+            Expanded(
+              child: MacroCard(
+                title: 'السعرات',
+                emoji: '🔥',
+                value: calories,
+                goal: caloriesGoal,
+                unit: 'kcal',
+                color: theme.colorScheme.primary,
+                barColor: theme.colorScheme.primary,
+                bg: theme.colorScheme.primaryContainer.withOpacity(0.15),
+                emphasizeOver: true,
+              ),
+            ),
+            const SizedBox(width: spacing),
+            Expanded(
+              child: MacroCard(
+                title: 'البروتين',
+                emoji: '🥩',
+                value: protein,
+                goal: proteinGoal,
+                unit: 'غ',
+                // أزرق هادئ للبروتين
+                color: const Color(0xFF2563EB),
+                barColor: const Color(0xFF2563EB),
+                bg: const Color(0xFFE0ECFF),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: spacing),
+        // الصف الثاني: الكارب + الدهون
+        Row(
+          children: [
+            Expanded(
+              child: MacroCard(
+                title: 'الكربوهيدرات',
+                emoji: '🍞',
+                value: carbs,
+                goal: carbsGoal,
+                unit: 'غ',
+                // برتقالي لطيف للكارب
+                color: const Color(0xFFF97316),
+                barColor: const Color(0xFFF97316),
+                bg: const Color(0xFFFFF7ED),
+              ),
+            ),
+            const SizedBox(width: spacing),
+            Expanded(
+              child: MacroCard(
+                title: 'الدهون',
+                emoji: '🥑',
+                value: fat,
+                goal: fatGoal,
+                unit: 'غ',
+                // أخضر ناعم للدهون الصحية
+                color: const Color(0xFF22C55E),
+                barColor: const Color(0xFF22C55E),
+                bg: const Color(0xFFEAFBF1),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Reusable stat card with unified layout
+class MacroCard extends StatelessWidget {
+  final bool emphasizeOver;
+  final String title;
+  final String emoji;
+  final double value;
+  final double goal;
+  final String unit;
+  final Color color;
+  final Color barColor;
+  final Color bg;
+
+  const MacroCard({
+    Key? key,
+    required this.title,
+    required this.emoji,
+    required this.value,
+    required this.goal,
+    required this.unit,
+    required this.color,
+    required this.barColor,
+    required this.bg,
+    this.emphasizeOver = true,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = goal <= 0 ? 0.0 : (value / goal).clamp(0.0, 1.0);
+    final remaining = (goal - value).clamp(0, double.infinity);
+    final isOver = value > goal;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.25), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // العنوان + الإيموجي في الأعلى
+          Row(
+            children: [
+              _EmojiPill(emoji: emoji, tint: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.start,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // شريط التقدم
+          _ProgressBar(value: pct, color: barColor),
+          const SizedBox(height: 8),
+          // الأرقام (مستهلك / هدف + المتبقي)
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'المتبقي: ${remaining.toStringAsFixed(0)} $unit',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: (emphasizeOver && isOver)
+                        ? Colors.red
+                        : Colors.black54,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                '${value.toStringAsFixed(0)} / ${goal.toStringAsFixed(0)} $unit',
+                style: const TextStyle(fontSize: 12.5),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmojiPill extends StatelessWidget {
+  final String emoji;
+  final Color tint;
+  const _EmojiPill({required this.emoji, required this.tint});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: tint.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      child: Text(
+        emoji,
+        style: const TextStyle(fontSize: 16),
+      ),
+    );
+  }
+}
+
+class _ProgressBar extends StatelessWidget {
+  final double value; // 0..1
+  final Color color;
+  const _ProgressBar({required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth;
+        final fill = w * value;
+        return Container(
+          height: 9,
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Stack(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 450),
+                curve: Curves.easeOutCubic,
+                width: fill,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+enum ChipTone { success, warning, neutral }
+
+class _Chip extends StatelessWidget {
+  final ChipTone tone;
+  final String label;
+  const _Chip({required this.label, this.tone = ChipTone.neutral, Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg;
+    Color fg;
+    switch (tone) {
+      case ChipTone.success:
+        bg = const Color(0xFFE9F7EF);
+        fg = const Color(0xFF1E7E34);
+        break;
+      case ChipTone.warning:
+        bg = const Color(0xFFFFF4E5);
+        fg = const Color(0xFF8A5A12);
+        break;
+      default:
+        bg = const Color(0xFFEFF3F8);
+        fg = const Color(0xFF2F3A4A);
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Text(label, style: TextStyle(color: fg, fontSize: 13, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+

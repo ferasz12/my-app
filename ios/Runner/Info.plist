@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>وازن</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>وازن</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>GMSApiKey</key>
+	<string>AIzaSyCKm_v16NtZ_5k2YUg9XBfZzNHPUbXwnxs</string>
+	<key>LSApplicationCategoryType</key>
+	<string></string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>MinimumOSVersion</key>
+	<string>13.0</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>نحتاج الكاميرا لمسح الباركود وتصوير الوجبات لتحليلها.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>نحتاج قراءة بيانات النشاط الصحي (الخطوات والسعرات المحروقة).</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>قد نحدّث بعض بياناتك الصحية بإذنك لتحسين التتبع.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>نستخدم موقعك لاقتراح أماكن وأطعمة قريبة.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>نستخدم موقعك لاقتراح أماكن وأطعمة قريبة وتحسين تجربة التطبيق. يمكنك استخدام التطبيق بدون تفعيل الموقع.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>نحتاج حفظ الصور المُعدّلة/التقارير.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>نحتاج الوصول للصور لاختيار صور الوجبات.</string>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>io.flutter.embedded_views_preview</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>GoogleSignIn</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.209409669834-vdbuhhrta3j6oaj6jdu91k5v0cbdeqo1</string>
+				<string>com.googleusercontent.apps.209409669834-vdbuhrta3j6oaj6jdu91k5v0cbdeqo1</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>google</string>
+		<string>com.googleusercontent.apps</string>
+	</array>
+</dict>
+</plist>

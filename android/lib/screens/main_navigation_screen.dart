@@ -1,0 +1,185 @@
+// lib/screens/main_navigation_screen.dart
+import 'dart:ui' show ImageFilter;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'home_screen.dart';
+import 'my_data_page.dart';
+import 'weight_tracking_page.dart';
+import 'regimen_screen.dart';
+import 'guide_page.dart';
+
+import 'package:my_app/achievements/achievements_with_leaderboard.dart';
+//import '../achievements/achievements_with_leaderboard.dart'; // يحتوي AchievementsPage
+import 'settings_page.dart';
+import '../shared/user_goal_controller.dart';
+
+class MainNavigationScreen extends StatefulWidget {
+  const MainNavigationScreen({super.key});
+
+  @override
+  State<MainNavigationScreen> createState() => _MainNavigationScreenState();
+}
+
+class _MainNavigationScreenState extends State<MainNavigationScreen> {
+  int _selectedIndex = 0;
+
+  /// نجهّز الشاشات مرة وحدة.
+  /// ملاحظة: أبقينا AchievementsPage بدون const (قد لا يكون لها constructor const).
+  late final List<Widget> _screens = <Widget>[
+    const HomeScreen(key: PageStorageKey('home')),
+    const MyDataPage(key: PageStorageKey('mydata')),
+    const WeightTrackingPage(key: PageStorageKey('weight')),
+    const RegimenScreen(key: PageStorageKey('regimen')),
+    const GuidePage(key: PageStorageKey('guide')),
+    AchievementsPage(key: const PageStorageKey('achievements')),
+    const SettingsPage(key: PageStorageKey('settings')),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    UserGoalController.loadGoal();
+  }
+
+  void _onItemTapped(int index) {
+    if (index == _selectedIndex) return;
+    HapticFeedback.selectionClick();
+    setState(() => _selectedIndex = index);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return ValueListenableBuilder<String>(
+      valueListenable: UserGoalController.userGoal,
+      builder: (context, _, __) {
+        return Scaffold(
+          body: SafeArea(
+            top: false,
+            bottom: false,
+            // ✅ استخدام IndexedStack يمنع إعادة بناء/تفكيكツ
+            child: IndexedStack(index: _selectedIndex, children: _screens),
+          ),
+          bottomNavigationBar: _GlassAdaptiveNavBar(
+            currentIndex: _selectedIndex,
+            onDestinationSelected: _onItemTapped,
+            activeColor: cs.primary,
+            inactiveColor: cs.onSurfaceVariant,
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.home), label: 'الرئيسية'),
+              NavigationDestination(icon: Icon(Icons.person), label: 'بياناتي'),
+              NavigationDestination(icon: Icon(Icons.monitor_weight), label: 'تتبع الوزن'),
+              NavigationDestination(icon: Icon(Icons.local_hospital), label: 'رجيمي'),
+              NavigationDestination(icon: Icon(Icons.map), label: 'دليلك'),
+              NavigationDestination(icon: Icon(Icons.emoji_events), label: 'الإنجازات'),
+              NavigationDestination(icon: Icon(Icons.settings), label: 'الإعدادات'),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _GlassAdaptiveNavBar extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final List<NavigationDestination> destinations;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  const _GlassAdaptiveNavBar({
+    super.key,
+    required this.currentIndex,
+    required this.onDestinationSelected,
+    required this.destinations,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  double _targetHeight(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final scale = mq.textScaleFactor.clamp(0.8, 1.15);
+    final shortest = mq.size.shortestSide;
+    final isCompact = shortest < 360 || scale > 1.12;
+    return isCompact ? 56.0 : 64.0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final mq = MediaQuery.of(context);
+    final cappedFactor = mq.textScaleFactor.clamp(0.8, 1.15);
+    final height = _targetHeight(context);
+
+    return MediaQuery(
+      data: mq.copyWith(textScaleFactor: cappedFactor.toDouble()),
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isDark
+                      ? [cs.surface.withOpacity(0.42), cs.surfaceVariant.withOpacity(0.30)]
+                      : [cs.surface.withOpacity(0.70), cs.surfaceVariant.withOpacity(0.52)],
+                ),
+                border: Border.all(color: cs.outlineVariant.withOpacity(0.5), width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.28 : 0.10),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: NavigationBarTheme(
+                data: NavigationBarThemeData(
+                  height: height,
+                  indicatorColor: activeColor.withOpacity(0.14),
+                  labelTextStyle: MaterialStateProperty.resolveWith<TextStyle?>(
+                    (states) {
+                      final selected = states.contains(MaterialState.selected);
+                      return TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: selected ? activeColor : inactiveColor,
+                        height: 1.0,
+                      );
+                    },
+                  ),
+                  iconTheme: MaterialStateProperty.resolveWith<IconThemeData?>(
+                    (states) {
+                      final selected = states.contains(MaterialState.selected);
+                      return IconThemeData(
+                        color: selected ? activeColor : inactiveColor,
+                        size: height <= 56 ? 22 : 24,
+                      );
+                    },
+                  ),
+                  labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+                ),
+                child: NavigationBar(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  selectedIndex: currentIndex,
+                  onDestinationSelected: onDestinationSelected,
+                  destinations: destinations,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

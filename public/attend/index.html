@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>وازن — حضور التدشين</title>
+  <meta name="description" content="سجّل حضورك لتدشين وازن." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+
+    :root{
+      --brand:#016C66;
+      --brandDark:#004642;
+      --brandLight:#017C75;
+      --card:rgba(255,255,255,.08);
+      --stroke:rgba(255,255,255,.14);
+      --text:#F7FFFE;
+      --muted:rgba(247,255,254,.78);
+      --shadow: 0 22px 90px rgba(0,0,0,.35);
+      --radius: 22px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:"Tajawal",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans Arabic","Noto Sans",sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(900px 650px at 15% 10%, rgba(255,255,255,.16), transparent 55%),
+        radial-gradient(900px 700px at 85% 30%, rgba(0,0,0,.18), transparent 60%),
+        linear-gradient(180deg, var(--brand), var(--brandDark));
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:26px;
+    }
+    a{color:inherit}
+    .shell{width:min(980px,100%); display:grid; gap:18px;}
+    .card{
+      background: var(--card);
+      border:1px solid var(--stroke);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      backdrop-filter: blur(10px);
+    }
+    .top{
+      display:flex;
+      gap:16px;
+      align-items:center;
+      padding:18px 18px 16px;
+    }
+    .logo{
+      width:52px;height:52px;border-radius:16px;
+      background: rgba(255,255,255,.10);
+      display:grid;place-items:center;
+      border:1px solid rgba(255,255,255,.18);
+      overflow:hidden;
+    }
+    .logo img{width:100%;height:100%;object-fit:cover}
+    .title{line-height:1.15}
+    .title h1{margin:0;font-size:22px;font-weight:800;letter-spacing:.2px}
+    .title p{margin:6px 0 0;color:var(--muted);font-size:14px}
+    .content{padding:18px}
+    .grid{display:grid; gap:14px}
+    .hint{color:var(--muted); font-size:13px; line-height:1.7}
+    .row{display:grid; gap:10px}
+    label{font-size:13px;color:var(--muted)}
+    input{
+      width:100%;
+      padding:14px 14px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.16);
+      background: rgba(0,0,0,.12);
+      color:var(--text);
+      outline:none;
+      font-size:15px;
+    }
+    input:focus{border-color: rgba(255,255,255,.32); box-shadow: 0 0 0 4px rgba(255,255,255,.08);}
+    .btn{
+      width:100%;
+      border:1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.12);
+      color:var(--text);
+      border-radius: 18px;
+      padding:14px 16px;
+      cursor:pointer;
+      font-size:15px;
+      font-weight:800;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      transition: transform .12s ease, background .12s ease, border-color .12s ease, opacity .12s ease;
+    }
+    .btn:hover{transform: translateY(-1px); background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.28);}
+    .btn:disabled{opacity:.55; cursor:not-allowed; transform:none}
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:10px 12px;
+      border:1px solid rgba(255,255,255,.16);
+      background: rgba(0,0,0,.10);
+      border-radius: 999px;
+      font-size:13px;
+      color:var(--muted);
+    }
+    .ok{color:#CFFCF8}
+    .err{color:#FFE1E1}
+    .divider{height:1px;background:rgba(255,255,255,.12); margin:12px 0}
+    .actions{display:flex; gap:10px; flex-wrap:wrap}
+    .mini{
+      border:1px solid rgba(255,255,255,.18);
+      background: rgba(0,0,0,.12);
+      color:var(--text);
+      border-radius: 14px;
+      padding:10px 12px;
+      cursor:pointer;
+      font-size:13px;
+      font-weight:800;
+      transition: background .12s ease, border-color .12s ease;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+    }
+    .mini:hover{background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.28);}
+    .footer{
+      text-align:center;
+      color: rgba(247,255,254,.70);
+      font-size:12px;
+      padding:12px 8px 0;
+    }
+    .hide{display:none !important}
+    @media (min-width: 900px){
+      .shell{grid-template-columns: 1.15fr .85fr; align-items:start}
+      .card.main{grid-column: 1;}
+      .card.side{grid-column: 2;}
+    }
+
+    .heroBadge{display:flex; gap:10px; flex-wrap:wrap}
+    .big{
+      font-size:16px; font-weight:800; letter-spacing:.2px;
+      padding:12px 14px; border-radius:18px;
+      border:1px solid rgba(255,255,255,.18);
+      background: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.10));
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="card main">
+      <div class="top">
+        <div class="logo"><img src="/wazen_logo.png" alt="Wazen" /></div>
+        <div class="title">
+          <h1>حضور تدشين وازن</h1>
+          <p>سجّل اسمك الآن، وخلّنا نرسل لك تأكيد الحضور.</p>
+        </div>
+      </div>
+      <div class="content grid">
+        <div class="heroBadge">
+          <span class="big">🎉 ليلة التدشين</span>
+          <span class="pill">✨ تسجيل سريع أقل من 10 ثواني</span>
+          <span class="pill">🔒 بياناتك خاصة</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <form id="form" class="grid" autocomplete="off">
+          <div class="row">
+            <label>الاسم (إجباري)</label>
+            <input id="name" name="name" placeholder="مثال: فراس آل سويده" required minlength="2" maxlength="60" />
+          </div>
+
+          <div class="row">
+            <label>رقم الجوال (اختياري)</label>
+            <input id="phone" name="phone" inputmode="tel" placeholder="05xxxxxxxx" maxlength="20" />
+          </div>
+
+          <!-- حقل مخفي لمنع البوتات (اتركه فاضي) -->
+          <div class="hide">
+            <label>Company</label>
+            <input id="company" name="company" />
+          </div>
+
+          <button id="submit" class="btn" type="submit">
+            <span>تأكيد الحضور</span>
+            <span aria-hidden="true">↗</span>
+          </button>
+
+          <div id="msg" class="hint"></div>
+        </form>
+
+        <div class="divider"></div>
+
+        <div class="actions">
+          <a class="mini" href="/" title="رجوع">← رجوع للروابط</a>
+          <a class="mini" href="mailto:support@wazensapp.com" title="تواصل">✉ تواصل</a>
+        </div>
+
+        <div class="hint">
+          بإرسالك لهذا النموذج أنت توافق على استخدام بياناتك فقط لغرض تنظيم الحضور والتواصل المتعلق بالتدشين.
+        </div>
+      </div>
+    </section>
+
+
+    <div class="footer">
+      © <span id="y"></span> وازن — تسجيل حضور رسمي.
+    </div>
+  </div>
+
+  <script type="module">
+    document.getElementById('y').textContent = new Date().getFullYear();
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyD9y9FED7L-s0unONweN-5LhmwEdipXYUo",
+      authDomain: "wazenfapp.firebaseapp.com",
+      projectId: "wazenfapp",
+      appId: "1:209409669834:web:9e33eba07509ee28a29233"
+    };
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-functions.js";
+
+    const app = initializeApp(firebaseConfig);
+    const functions = getFunctions(app, "europe-west1");
+    const callRegister = httpsCallable(functions, "registerLaunchAttendance");
+
+    const form = document.getElementById('form');
+    const btn = document.getElementById('submit');
+    const msg = document.getElementById('msg');
+
+    function setMsg(text, kind="") {
+      msg.className = "hint " + (kind ? kind : "");
+      msg.textContent = text || "";
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setMsg("");
+      btn.disabled = true;
+
+      const name = (document.getElementById('name').value || "").trim();
+      const phone = (document.getElementById('phone').value || "").trim();
+      const company = (document.getElementById('company').value || "").trim(); // honeypot
+
+      try {
+        const res = await callRegister({ name, phone, company });
+        const data = res.data || {};
+        setMsg(`✅ تم تأكيد حضورك بنجاح. رقم التسجيل: ${data.id || "—"}`, "ok");
+        form.reset();
+      } catch (err) {
+        const m = (err && err.message) ? err.message : "حدث خطأ غير متوقع.";
+        setMsg("❌ " + m, "err");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

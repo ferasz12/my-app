@@ -1,0 +1,149 @@
+name: my_app
+description: تطبيق صحي لحساب السعرات والبروتين والكارب والدهون.
+publish_to: 'none'
+
+version: 1.5.0+16
+
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"   # متوافق مع Flutter 3.35 / Dart 3.9
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # واجهة ووظائف أساسية
+  cupertino_icons: ^1.0.2
+  shared_preferences: ^2.2.2
+  intl: ^0.20.2
+  hijri: ^3.0.0
+  percent_indicator: ^4.2.2
+  timezone: ^0.10.1
+  flutter_screenutil: ^5.9.0
+  animations: ^2.0.11
+
+  # ملفات و PDF
+  file_picker: ^10.3.2
+  open_file: ^3.3.2
+  path_provider: ^2.1.2
+  pdf: ^3.10.4
+  flutter_svg: ^2.2.4
+
+  # ميزات حالية
+  image_picker: ^1.2.1
+  http: ^1.5.0
+  vibration: ^3.1.3
+  url_launcher: ^6.3.0
+  font_awesome_flutter: ^10.7.0
+
+  # ماسح باركود
+  mobile_scanner: ^7.0.1
+  flutter_barcode_scanner: ^2.0.0
+
+  # تصغير الصور (Pure Dart)
+  image: ^4.5.4
+
+  # تنبيهات
+  flutter_local_notifications: ^19.5.0
+
+  # Apple/Google Health
+  health: ^13.1.3
+
+  # الرسوم البيانية
+  fl_chart: ^1.0.0
+
+  # أخرى
+  provider: ^6.1.1
+  uuid: ^4.5.1
+  google_sign_in: ^7.2.0
+  sign_in_with_apple: ^7.0.1
+  camera: ^0.11.3
+
+  # الصفحات الجديدة للإعدادات
+  share_plus: ^12.0.1
+  in_app_review: ^2.0.6
+  in_app_purchase: ^3.1.11
+
+  # قراءة بيانات المطاعم (CSV) + البيئة
+  csv: ^6.0.0
+  flutter_dotenv: ^6.0.0
+
+  # الخرائط والأماكن + تحديد الموقع
+  google_maps_flutter: ^2.2.7
+  geolocator: ^14.0.2
+  geocoding: ^4.0.0
+  google_place_plus: ^1.0.0
+
+  # ML + Firebase (FlutterFire Updated)
+  google_mlkit_image_labeling: ^0.14.1
+  firebase_core: ^4.3.0
+  cloud_firestore: ^6.1.1
+  firebase_auth: ^6.1.3
+  firebase_analytics: ^12.1.0
+  firebase_crashlytics: ^5.0.6
+  firebase_app_check: ^0.4.1+3
+  firebase_storage: ^13.0.5
+  firebase_messaging: ^16.1.0
+  cloud_functions: ^6.0.5
+
+  # أدوات Dart
+  path: ^1.9.1
+  crypto: ^3.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4   # أداة توليد الأيقونات
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    # ملف البيئة (حسب اختيارك الحالي)
+    - .env
+
+    # بيانات قديمة/محتوى التطبيق
+    - assets/foods.json
+    - assets/restaurant_meals_579.csv
+
+    # أيقونة التطبيق
+    - assets/icon/app_icon.png
+
+    # شعار الواجهة الجديد (لشاشة الترحيب)
+    - assets/images/app_logo.png
+
+    # صور الواجهة الجديدة:
+    # فئات البداية (المربعات: مطاعم/مقاهي)
+    - assets/images/categories/
+    # صور المنشآت (مطاعم/مقاهي) – ضع صورك هنا
+    - assets/images/venues/
+
+    # شارة صنع في السعودية
+    - assets/saudi_made/
+
+  fonts:
+    - family: Tajawal
+      fonts:
+        - asset: assets/Tajawal-Regular.ttf
+
+    - family: Jenine
+      fonts:
+        - asset: assets/fonts/Jenine-Bold-1.otf
+          weight: 700
+
+# إعدادات flutter_launcher_icons (جذر الملف، ليس تحت flutter:)
+flutter_launcher_icons:
+  ios: true
+  android: true
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  remove_alpha_ios: true
+  windows:
+    generate: false
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 48
+  macos:
+    generate: false
+    image_path: "assets/icon/app_icon.png"

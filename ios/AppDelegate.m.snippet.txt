@@ -1,0 +1,27 @@
+// AppDelegate.m  (Objective‑C)
+// أضف هذا داخل application:didFinishLaunchingWithOptions: بعد [GeneratedPluginRegistrant registerWithRegistry:self];
+
+#import <StoreKit/StoreKit.h>
+#import <Flutter/Flutter.h>
+
+FlutterViewController* controller = (FlutterViewController*)self.window.rootViewController;
+FlutterMethodChannel* channel =
+  [FlutterMethodChannel methodChannelWithName:@"wazen_iap/offer_code"
+                              binaryMessenger:controller.binaryMessenger];
+
+[channel setMethodCallHandler:^(FlutterMethodCall* call, FlutterResult result) {
+  if ([@"presentCodeRedemptionSheet" isEqualToString:call.method]) {
+    if (@available(iOS 14.0, *)) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [[SKPaymentQueue defaultQueue] presentCodeRedemptionSheet];
+        result(nil);
+      });
+    } else {
+      result([FlutterError errorWithCode:@"UNAVAILABLE"
+                                 message:@"Requires iOS 14.0+"
+                                 details:nil]);
+    }
+  } else {
+    result(FlutterMethodNotImplemented);
+  }
+}];

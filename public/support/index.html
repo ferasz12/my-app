@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#016C66" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>مركز إدارة ودعم وازن</title>
+  <link rel="icon" type="image/png" href="/wazen_logo.png?v=20260503" />
+  <link rel="apple-touch-icon" href="/wazen_logo.png?v=20260503" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --brand:#016C66;--brand2:#19DDD0;--bg:#041210;--panel:rgba(255,255,255,.085);--panel2:rgba(255,255,255,.055);
+      --text:#F7FFFE;--muted:rgba(247,255,254,.70);--muted2:rgba(247,255,254,.50);--line:rgba(255,255,255,.13);
+      --danger:#FFB4B4;--success:#91F6CB;--warn:#FFD990;--shadow:0 28px 90px rgba(0,0,0,.40);--radius:26px;
+    }
+    *{box-sizing:border-box} html{scroll-behavior:smooth}
+    body{margin:0;min-height:100vh;font-family:"Tajawal",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:var(--text);background:radial-gradient(900px 640px at 0% -10%,rgba(25,221,208,.24),transparent 58%),radial-gradient(760px 620px at 100% 10%,rgba(1,108,102,.30),transparent 60%),linear-gradient(180deg,#041210,#06201c 56%,#03100e);}
+    button,input,textarea,select{font-family:inherit} button{cursor:pointer} a{color:inherit;text-decoration:none}.hidden{display:none!important}
+    .loginPage{min-height:100vh;display:grid;place-items:center;padding:22px}.loginCard{width:min(520px,100%);border:1px solid var(--line);border-radius:32px;background:linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.06));box-shadow:var(--shadow);backdrop-filter:blur(18px);overflow:hidden}.loginTop{padding:24px;display:flex;gap:14px;align-items:center;border-bottom:1px solid var(--line)}.logo{width:58px;height:58px;border-radius:20px;overflow:hidden;border:1px solid var(--line);background:rgba(255,255,255,.08);flex:0 0 auto}.logo img{width:100%;height:100%;object-fit:cover}.loginTop h1{margin:0;font-size:23px;font-weight:900}.loginTop p{margin:5px 0 0;color:var(--muted);font-size:13px}.loginBody{padding:24px;display:grid;gap:12px}.field{display:grid;gap:7px}.field label{font-size:13px;color:var(--muted);font-weight:800}.input, input, textarea, select{width:100%;border:1px solid var(--line);border-radius:17px;background:rgba(0,0,0,.18);color:var(--text);outline:none;padding:14px 14px;font-size:15px}.input:focus,input:focus,textarea:focus,select:focus{border-color:rgba(25,221,208,.50);box-shadow:0 0 0 4px rgba(25,221,208,.09)}textarea{resize:vertical;min-height:94px}.btn{border:1px solid rgba(255,255,255,.16);border-radius:17px;background:linear-gradient(135deg,var(--brand),#009D92);color:white;padding:13px 16px;font-size:15px;font-weight:900;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:.16s ease}.btn:hover{transform:translateY(-1px);filter:brightness(1.08)}.btn:disabled{opacity:.55;cursor:not-allowed;transform:none}.btn.ghost{background:rgba(255,255,255,.07)}.btn.soft{background:rgba(25,221,208,.10);color:var(--text)}.btn.danger{background:rgba(255,83,83,.20);color:#FFE4E4}.btn.small{padding:9px 11px;border-radius:13px;font-size:13px}.message{display:none;border:1px solid var(--line);border-radius:16px;padding:11px 12px;color:var(--muted);font-size:13px;line-height:1.65;background:rgba(0,0,0,.16)}.message.show{display:block}.message.ok{border-color:rgba(145,246,203,.35);color:var(--success)}.message.err{border-color:rgba(255,180,180,.35);color:var(--danger)}.message.warn{border-color:rgba(255,217,144,.35);color:var(--warn)}
+    .app{min-height:100vh;display:grid;grid-template-columns:292px minmax(0,1fr)}.sidebar{position:sticky;top:0;height:100vh;border-left:1px solid var(--line);background:rgba(0,0,0,.22);backdrop-filter:blur(20px);padding:16px;display:flex;flex-direction:column;gap:14px}.brand{display:flex;gap:12px;align-items:center;padding:8px 6px 12px}.brand h2{margin:0;font-size:20px;font-weight:900}.brand p{margin:4px 0 0;color:var(--muted);font-size:12px}.nav{display:grid;gap:8px}.nav button{width:100%;border:1px solid transparent;background:transparent;color:var(--muted);border-radius:16px;padding:13px 13px;font-size:14px;font-weight:900;display:flex;align-items:center;gap:10px;text-align:right}.nav button:hover,.nav button.active{color:var(--text);border-color:var(--line);background:rgba(255,255,255,.08)}.sideFoot{margin-top:auto;display:grid;gap:8px}.main{min-width:0;padding:18px 18px 42px}.topbar{position:sticky;top:0;z-index:10;margin:-18px -18px 18px;padding:14px 18px;border-bottom:1px solid var(--line);background:rgba(4,18,16,.74);backdrop-filter:blur(18px);display:flex;align-items:center;justify-content:space-between;gap:12px}.hamb{display:none}.topTitle h1{margin:0;font-size:21px;font-weight:900}.topTitle p{margin:4px 0 0;color:var(--muted);font-size:13px}.chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.07);padding:9px 12px;font-size:13px;font-weight:900;color:var(--muted)}.chip.ok{color:var(--success);border-color:rgba(145,246,203,.30)}.chip.warn{color:var(--warn);border-color:rgba(255,217,144,.32)}.grid{display:grid;gap:14px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.card,.panel{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,var(--panel),var(--panel2));box-shadow:0 18px 62px rgba(0,0,0,.20);backdrop-filter:blur(18px)}.card{padding:17px}.card:before,.panel:before{content:"";position:absolute;inset:0 0 auto;height:4px;background:linear-gradient(90deg,rgba(25,221,208,.90),rgba(255,255,255,0));opacity:.75}.kpiIcon{width:42px;height:42px;border-radius:16px;display:grid;place-items:center;background:rgba(25,221,208,.12);border:1px solid rgba(25,221,208,.20);font-size:19px}.kpiLabel{margin-top:11px;color:var(--muted);font-size:13px;font-weight:800}.kpiValue{margin-top:3px;font-size:28px;font-weight:900}.kpiValue.hiddenMetric{font-size:18px;color:var(--muted)}.panelHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 18px 0}.panelTitle h3{margin:0;font-size:18px;font-weight:900}.panelTitle p{margin:5px 0 0;color:var(--muted);font-size:13px}.panelBody{padding:18px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}.actions{display:flex;gap:8px;flex-wrap:wrap}.tableWrap{overflow:auto;margin-top:6px}table{width:100%;border-collapse:separate;border-spacing:0 9px}th{font-size:12px;color:var(--muted);font-weight:900;text-align:right;padding:0 10px}td{background:rgba(0,0,0,.15);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 10px;font-size:13px;vertical-align:top;white-space:nowrap}td:first-child{border-right:1px solid var(--line);border-radius:0 16px 16px 0}td:last-child{border-left:1px solid var(--line);border-radius:16px 0 0 16px}.muted{color:var(--muted)}.mini{font-size:12px;color:var(--muted2)}.status{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:7px 9px;font-weight:900;font-size:12px;color:var(--muted)}.status.open{color:var(--warn);border-color:rgba(255,217,144,.30)}.status.closed{color:var(--success);border-color:rgba(145,246,203,.32)}.status.banned{color:var(--danger);border-color:rgba(255,180,180,.30)}.userBox{display:flex;gap:9px;align-items:center}.avatar{width:36px;height:36px;border-radius:14px;overflow:hidden;background:rgba(25,221,208,.14);border:1px solid var(--line);display:grid;place-items:center;font-weight:900}.avatar img{width:100%;height:100%;object-fit:cover}.modalBack{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(10px);z-index:90;display:none;align-items:center;justify-content:center;padding:16px}.modalBack.show{display:flex}.modal{width:min(720px,100%);max-height:90vh;overflow:auto;border:1px solid var(--line);border-radius:28px;background:linear-gradient(180deg,#0A2723,#061613);box-shadow:var(--shadow)}.modalHead{padding:17px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center}.modalHead h3{margin:0;font-size:18px;font-weight:900}.modalBody{padding:18px;display:grid;gap:12px}.close{width:42px;height:42px;border-radius:15px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:var(--text)}.section{display:none}.section.active{display:block}.ownerOnly,.adminOnly,.supportOnly{display:none}.allowOwner .ownerOnly{display:block}.allowAdmin .adminOnly{display:block}.allowSupport .supportOnly{display:block}.empty{border:1px dashed var(--line);border-radius:20px;padding:18px;text-align:center;color:var(--muted);background:rgba(255,255,255,.04);line-height:1.8}.ltr{direction:ltr;text-align:left;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+    @media(max-width:980px){.app{grid-template-columns:1fr}.sidebar{position:fixed;right:0;top:0;bottom:0;z-index:50;width:min(310px,86vw);transform:translateX(105%);transition:.18s ease}.sidebar.open{transform:none}.hamb{display:inline-flex}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.row,.row3{grid-template-columns:1fr}.topbar{position:sticky}.main{padding:16px 12px 34px}.topbar{margin:-16px -12px 16px;padding:12px}}
+    @media(max-width:560px){.cards{grid-template-columns:1fr}.topbar{align-items:flex-start}.chips{justify-content:flex-start}.panelHead{display:grid}.loginTop{align-items:flex-start}.tableWrap{margin-inline:-8px}}
+  </style>
+</head>
+<body>
+  <main id="loginPage" class="loginPage">
+    <section class="loginCard">
+      <div class="loginTop">
+        <div class="logo"><img src="/wazen_logo.png" alt="Wazen"></div>
+        <div>
+          <h1>مركز إدارة ودعم وازن</h1>
+          <p>الدخول متاح فقط لحسابات Owner / Admin / Support.</p>
+        </div>
+      </div>
+      <div class="loginBody">
+        <div class="field"><label>البريد الإلكتروني</label><input id="email" type="email" autocomplete="email" placeholder="admin@wazen..."></div>
+        <div class="field"><label>كلمة المرور</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+        <button id="loginEmailBtn" class="btn">دخول بالبريد</button>
+        <button id="loginGoogleBtn" class="btn ghost">دخول عبر Google</button>
+        <div id="loginMsg" class="message"></div>
+        <div class="message warn show">هذه الصفحة لا تكفي وحدها للحماية؛ الحماية الحقيقية تكون أيضًا من Firestore Rules / Cloud Functions.</div>
+      </div>
+    </section>
+  </main>
+
+  <main id="app" class="app hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <div class="logo"><img src="/wazen_logo.png" alt="Wazen"></div>
+        <div>
+          <h2>دعم وازن</h2>
+          <p id="sideRole">—</p>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="active" data-view="dashboard">☰ الرئيسية</button>
+        <button data-view="tickets">🎫 التذاكر</button>
+        <button data-view="users">👥 العملاء</button>
+        <button data-view="bans">🚫 المحظورين</button>
+        <button data-view="notifications">🔔 الإشعارات</button>
+        <button data-view="announcement">📣 إعلان التطبيق</button>
+        <button data-view="owner" class="ownerOnly">⚙️ إدارة الأونر</button>
+      </nav>
+      <div class="sideFoot">
+        <a class="btn soft small ownerOnly" href="/pay/admin/">إدارة أكواد الخصم</a>
+        <button id="logoutBtn" class="btn ghost small">تسجيل خروج</button>
+      </div>
+    </aside>
+
+    <section class="main">
+      <header class="topbar">
+        <button id="hamb" class="btn ghost small hamb">☰</button>
+        <div class="topTitle">
+          <h1 id="pageTitle">الرئيسية</h1>
+          <p id="pageSub">لوحة خارجية لإدارة الدعم والعملاء.</p>
+        </div>
+        <div class="chips">
+          <span id="whoami" class="chip ok">—</span>
+          <button id="refreshAll" class="btn ghost small">↻ تحديث</button>
+        </div>
+      </header>
+
+      <section id="dashboard" class="section active">
+        <div class="cards">
+          <div class="card ownerOnly"><div class="kpiIcon">👥</div><div class="kpiLabel">إجمالي المستخدمين</div><div id="kpiUsers" class="kpiValue">—</div></div>
+          <div class="card"><div class="kpiIcon">🎫</div><div class="kpiLabel">تذاكر مفتوحة</div><div id="kpiTickets" class="kpiValue">—</div></div>
+          <div class="card"><div class="kpiIcon">🚫</div><div class="kpiLabel">محظورين</div><div id="kpiBanned" class="kpiValue">—</div></div>
+          <div class="card"><div class="kpiIcon">🔐</div><div class="kpiLabel">صلاحيتك</div><div id="kpiRole" class="kpiValue">—</div></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="panel">
+          <div class="panelHead"><div class="panelTitle"><h3>اختصارات الإدارة</h3><p>الوصول السريع لأهم مهام الدعم.</p></div></div>
+          <div class="panelBody actions">
+            <button class="btn soft" onclick="goView('tickets')">فتح التذاكر</button>
+            <button class="btn soft" onclick="goView('users')">بحث عن عميل</button>
+            <button class="btn soft" onclick="goView('bans')">قائمة المحظورين</button>
+            <button class="btn soft ownerOnly" onclick="goView('owner')">إدارة الأونر</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="tickets" class="section">
+        <div class="panel">
+          <div class="panelHead">
+            <div class="panelTitle"><h3>تذاكر الدعم</h3><p>إدارة طلبات العملاء وحالتها والرد الداخلي.</p></div>
+            <div class="actions"><select id="ticketStatusFilter" class="input" style="min-width:160px"><option value="all">كل الحالات</option><option value="open">مفتوحة</option><option value="in_progress">قيد المعالجة</option><option value="closed">مغلقة</option></select><button id="newTicketBtn" class="btn small">+ تذكرة</button></div>
+          </div>
+          <div class="panelBody"><div id="ticketsTable" class="tableWrap"></div></div>
+        </div>
+      </section>
+
+      <section id="users" class="section">
+        <div class="panel">
+          <div class="panelHead"><div class="panelTitle"><h3>مساعدة العملاء</h3><p>ابحث عن عميل بالإيميل أو اليوزر أو UID. لا يتم عرض إجمالي المستخدمين للأدمن أو الدعم.</p></div></div>
+          <div class="panelBody grid">
+            <div class="row"><input id="userSearch" placeholder="اكتب البريد / اليوزر / UID"><button id="userSearchBtn" class="btn">بحث</button></div>
+            <div id="userSearchMsg" class="message"></div>
+            <div id="usersTable" class="tableWrap"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="bans" class="section">
+        <div class="panel">
+          <div class="panelHead"><div class="panelTitle"><h3>المحظورين</h3><p>عرض سبب الحظر والمدة وفك الحظر عند الحاجة.</p></div><button id="reloadBans" class="btn small ghost">↻ تحديث</button></div>
+          <div class="panelBody"><div id="bansTable" class="tableWrap"></div></div>
+        </div>
+      </section>
+
+      <section id="notifications" class="section">
+        <div class="panel">
+          <div class="panelHead"><div class="panelTitle"><h3>إرسال إشعار داخلي</h3><p>الإشعار يظهر داخل صندوق المستخدم في التطبيق.</p></div></div>
+          <div class="panelBody grid">
+            <div class="row"><input id="notifUid" placeholder="UID العميل"><input id="notifTitle" placeholder="عنوان الإشعار"></div>
+            <textarea id="notifBody" placeholder="نص الإشعار"></textarea>
+            <button id="sendNotifBtn" class="btn">إرسال الإشعار</button>
+            <div id="notifMsg" class="message"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="announcement" class="section">
+        <div class="panel">
+          <div class="panelHead"><div class="panelTitle"><h3>إعلان التطبيق العام</h3><p>رسالة تظهر داخل التطبيق. يمكن للمالك السماح للأدمن بالتعديل.</p></div></div>
+          <div class="panelBody grid">
+            <div class="row"><input id="annTitle" placeholder="عنوان الإعلان"><select id="annType"><option value="info">معلومة</option><option value="warning">تنبيه</option><option value="maintenance">صيانة</option><option value="success">نجاح</option></select></div>
+            <textarea id="annBody" placeholder="نص الإعلان"></textarea>
+            <div class="row3"><select id="annActive"><option value="true">مفعل</option><option value="false">متوقف</option></select><input id="annLink" placeholder="رابط اختياري"><label class="ownerOnly input" style="display:flex;align-items:center;gap:8px"><input id="annAllowAdmin" type="checkbox" style="width:auto"> السماح للأدمن</label></div>
+            <button id="saveAnnBtn" class="btn">حفظ الإعلان</button>
+            <div id="annMsg" class="message"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="owner" class="section ownerOnly">
+        <div class="grid">
+          <div class="panel">
+            <div class="panelHead"><div class="panelTitle"><h3>إدارة التطبيق للمالك</h3><p>هذا القسم لا يظهر إلا للـ Owner.</p></div></div>
+            <div class="panelBody grid">
+              <div class="cards">
+                <div class="card"><div class="kpiIcon">👥</div><div class="kpiLabel">إجمالي المستخدمين</div><div id="ownerTotalUsers" class="kpiValue">—</div></div>
+                <div class="card"><div class="kpiIcon">🛡️</div><div class="kpiLabel">الطاقم</div><div id="ownerStaff" class="kpiValue">—</div></div>
+                <div class="card"><div class="kpiIcon">🚫</div><div class="kpiLabel">محظورين</div><div id="ownerBanned" class="kpiValue">—</div></div>
+                <div class="card"><div class="kpiIcon">🎫</div><div class="kpiLabel">تذاكر مفتوحة</div><div id="ownerOpenTickets" class="kpiValue">—</div></div>
+              </div>
+              <div class="actions"><a class="btn soft" href="/pay/admin/">إدارة أكواد الخصم</a><button class="btn soft" onclick="goView('announcement')">إدارة الإعلان العام</button><button class="btn ghost" id="exportUsersBtn">تصدير المستخدمين CSV</button></div>
+              <div class="message warn show">لا تعطي صلاحية Owner إلا لحساباتك أنت. الأدمن والدعم لهم صلاحيات تشغيلية فقط.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div id="modalBack" class="modalBack">
+    <div class="modal">
+      <div class="modalHead"><h3 id="modalTitle">إجراء</h3><button id="modalClose" class="close">✕</button></div>
+      <div id="modalBody" class="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig={apiKey:'AIzaSyD9y9FED7L-s0unONweN-5LhmwEdipXYUo',authDomain:'wazenfapp.firebaseapp.com',projectId:'wazenfapp',storageBucket:'wazenfapp.appspot.com',messagingSenderId:'209409669834',appId:'1:209409669834:web:9e33eba07509ee28a29233'};
+    const PROJECT_ID='wazenfapp'; const REGION='europe-west1';
+    const API_BASE=`https://${REGION}-${PROJECT_ID}.cloudfunctions.net`;
+    const endpoints={assertAdmin:`${API_BASE}/assertCouponAdminAccess`};
+    firebase.initializeApp(firebaseConfig);
+    const auth=firebase.auth(); const db=firebase.firestore();
+    const FieldValue=firebase.firestore.FieldValue; const Timestamp=firebase.firestore.Timestamp;
+    const OWNER_UID='7CYI66sIq3UbOHwq2qi85bpFL7x2';
+    let currentUser=null; let currentRole='user'; let cachedUsersForOwner=[]; let cachedTickets=[]; let cachedBans=[]; let lastSearchResults=[];
+    const $=id=>document.getElementById(id);
+    function msg(el,text,type=''){el.textContent=text||'';el.className=`message ${text?'show':''} ${type}`}
+    function roleLabel(r){return r==='owner'?'Owner':r==='admin'?'Admin':r==='support'?'Support':'User'}
+    function canOwner(){return currentRole==='owner'} function canStaff(){return ['owner','admin','support'].includes(currentRole)}
+    function safe(v){return String(v??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+    function fmtDate(v){try{if(!v)return'—'; if(v.toDate)v=v.toDate(); const d=new Date(v); if(isNaN(d.getTime()))return'—'; return d.toLocaleString('ar-SA',{dateStyle:'medium',timeStyle:'short'});}catch(_){return'—'}}
+    function firstLetter(name,email){const t=String(name||email||'?').trim();return t?t[0].toUpperCase():'?'}
+    async function authedFetch(url,options={}){if(!currentUser)throw new Error('not-signed-in');const token=await currentUser.getIdToken(true);const res=await fetch(url,{...options,headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,...(options.headers||{})}});const data=await res.json().catch(()=>({}));if(!res.ok||data.ok===false)throw new Error(data.message||'request-failed');return data}
+    async function verifyAccess(user){try{msg($('loginMsg'),'جاري التحقق من صلاحية الحساب...','warn');const data=await authedFetch(endpoints.assertAdmin,{method:'POST',body:'{}'});currentRole=String(data.role||'user').toLowerCase();if(user.uid===OWNER_UID)currentRole='owner';if(!canStaff())throw new Error('not-staff');showApp(user);await loadAll();}catch(e){showLogin();msg($('loginMsg'),'هذا الحساب لا يملك صلاحية دخول مركز الدعم. تأكد أن role داخل users/{uid} هو owner أو admin أو support.','err');try{await auth.signOut()}catch(_){}}}
+    function showApp(user){$('loginPage').classList.add('hidden');$('app').classList.remove('hidden');document.body.classList.toggle('allowOwner',currentRole==='owner');document.body.classList.toggle('allowAdmin',currentRole==='admin');document.body.classList.toggle('allowSupport',currentRole==='support');$('sideRole').textContent=`${roleLabel(currentRole)} • ${user.email||user.uid}`;$('whoami').textContent=`${roleLabel(currentRole)} • ${user.email||user.uid}`;$('kpiRole').textContent=roleLabel(currentRole)}
+    function showLogin(){$('loginPage').classList.remove('hidden');$('app').classList.add('hidden')}
+    auth.onAuthStateChanged(async user=>{currentUser=user;if(!user){showLogin();return}await verifyAccess(user)});
+    $('loginEmailBtn').onclick=async()=>{try{msg($('loginMsg'),'جاري تسجيل الدخول...','warn');await auth.signInWithEmailAndPassword($('email').value.trim(),$('password').value)}catch(e){msg($('loginMsg'),'تعذر تسجيل الدخول. تأكد من البريد وكلمة المرور.','err')}};
+    $('loginGoogleBtn').onclick=async()=>{const provider=new firebase.auth.GoogleAuthProvider();provider.setCustomParameters({prompt:'select_account'});try{await auth.signInWithPopup(provider)}catch(e){try{await auth.signInWithRedirect(provider)}catch(_){msg($('loginMsg'),'تعذر تسجيل الدخول عبر Google.','err')}}};
+    $('logoutBtn').onclick=()=>auth.signOut(); $('refreshAll').onclick=()=>loadAll(); $('hamb').onclick=()=>$('sidebar').classList.toggle('open');
+    document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>goView(b.dataset.view));
+    function goView(id){if(id==='owner'&&!canOwner())return;document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===id));document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));$('sidebar').classList.remove('open');const titles={dashboard:['الرئيسية','نظرة عامة على الدعم والإدارة.'],tickets:['التذاكر','إدارة طلبات العملاء.'],users:['مساعدة العملاء','البحث عن حسابات العملاء وتنفيذ إجراءات الدعم.'],bans:['المحظورين','عرض وفك الحظر ومعرفة السبب.'],notifications:['الإشعارات','إرسال إشعار داخلي لمستخدم محدد.'],announcement:['إعلان التطبيق','تعديل الإعلان العام داخل التطبيق.'],owner:['إدارة الأونر','صلاحيات وإحصائيات خاصة بالمالك فقط.']};$('pageTitle').textContent=titles[id]?.[0]||'دعم وازن';$('pageSub').textContent=titles[id]?.[1]||''}
+    async function loadAll(){if(!canStaff())return;await Promise.allSettled([loadTickets(),loadBans(),loadAnnouncement(),canOwner()?loadOwnerStats():Promise.resolve()]);}
+    async function loadOwnerStats(){if(!canOwner())return;try{const snap=await db.collection('users').limit(2000).get();cachedUsersForOwner=snap.docs.map(d=>({id:d.id,...d.data()}));const total=cachedUsersForOwner.length;const staff=cachedUsersForOwner.filter(u=>['owner','admin','support'].includes(String(u.role||'user').toLowerCase())).length;const banned=cachedUsersForOwner.filter(u=>u.isBanned===true).length;$('kpiUsers').textContent=total;$('ownerTotalUsers').textContent=total;$('ownerStaff').textContent=staff;$('ownerBanned').textContent=banned;$('kpiBanned').textContent=banned;}catch(e){$('kpiUsers').textContent='—';}}
+    async function loadTickets(){
+      try{
+        const snap=await db.collection('supportTickets').orderBy('createdAt','desc').limit(150).get();
+        cachedTickets=snap.docs.map(d=>({id:d.id,...d.data()}));
+        const open=cachedTickets.filter(t=>String(t.status||'open')!=='closed').length;
+        $('kpiTickets').textContent=open;
+        $('ownerOpenTickets').textContent=open;
+        renderTickets();
+      }catch(e){
+        cachedTickets=[];
+        $('kpiTickets').textContent='—';
+        $('ticketsTable').innerHTML='<div class="empty">تعذر تحميل التذاكر. أضف قواعد supportTickets أو تأكد من الصلاحيات.</div>';
+      }
+    }
+
+    function ticketCustomerLabel(t){
+      return t.customerName || t.name || t.displayName || t.email || t.userId || 'غير معروف';
+    }
+    function ticketContactLine(t){
+      const parts=[];
+      if(t.email)parts.push(t.email);
+      if(t.accountName)parts.push('الحساب: '+t.accountName);
+      if(t.phone)parts.push('الجوال: '+t.phone);
+      if(t.userId)parts.push('UID: '+t.userId);
+      return parts.join(' • ');
+    }
+    function categoryAr(c){
+      c=String(c||'other');
+      return c==='subscription'?'اشتراك أو دفع':c==='login'?'دخول أو حساب':c==='food_analysis'?'تحليل الطعام':c==='bugs'?'مشكلة تقنية':c==='suggestion'?'اقتراح':'أخرى';
+    }
+    function renderTickets(){
+      const filter=$('ticketStatusFilter').value;
+      let arr=cachedTickets;
+      if(filter!=='all')arr=arr.filter(t=>String(t.status||'open')===filter);
+      if(!arr.length){$('ticketsTable').innerHTML='<div class="empty">لا توجد تذاكر بهذه الحالة.</div>';return}
+      $('ticketsTable').innerHTML=`<table><thead><tr><th>العميل</th><th>الموضوع</th><th>الحالة</th><th>الأولوية</th><th>آخر تحديث</th><th>إجراء</th></tr></thead><tbody>${arr.map(t=>`<tr><td><b>${safe(ticketCustomerLabel(t))}</b><div class="mini">${safe(ticketContactLine(t))}</div><div class="mini ltr">${safe(t.publicTicketId||t.id)}</div></td><td><b>${safe(t.subject||'بدون عنوان')}</b><div class="mini">${safe(categoryAr(t.category))} • ${safe(String(t.message||'').slice(0,90))}</div></td><td><span class="status ${String(t.status||'open')==='closed'?'closed':'open'}">${safe(statusAr(t.status))}</span></td><td>${safe(priorityAr(t.priority))}</td><td>${fmtDate(t.updatedAt||t.createdAt)}</td><td><button class="btn small soft" onclick="openTicket('${t.id}')">فتح</button></td></tr>`).join('')}</tbody></table>`;
+    }
+    function statusAr(s){s=String(s||'open');return s==='closed'?'مغلقة':s==='in_progress'?'قيد المعالجة':'مفتوحة'}
+    function priorityAr(p){p=String(p||'normal');return p==='high'?'عالية':p==='low'?'منخفضة':'عادية'}
+    $('ticketStatusFilter').onchange=renderTickets; $('newTicketBtn').onclick=()=>openNewTicket();
+
+    function openTicket(id){
+      const t=cachedTickets.find(x=>x.id===id);if(!t)return;
+      openModal('تذكرة دعم',`<div class="message warn show">رقم التذكرة: <b class="ltr">${safe(t.publicTicketId||t.id)}</b> • المصدر: ${safe(t.source||'لوحة الدعم')}</div><div class="row"><div class="field"><label>اسم العميل</label><input value="${safe(t.customerName||t.name||'')}" readonly></div><div class="field"><label>البريد</label><input value="${safe(t.email||'')}" readonly></div></div><div class="row"><div class="field"><label>اسم الحساب / UID</label><input class="ltr" value="${safe(t.accountName||t.userId||'')}" readonly></div><div class="field"><label>الجوال</label><input value="${safe(t.phone||'')}" readonly></div></div><div class="field"><label>الموضوع</label><input id="mSubject" value="${safe(t.subject||'')}"></div><div class="row"><div class="field"><label>الحالة</label><select id="mStatus"><option value="open">مفتوحة</option><option value="in_progress">قيد المعالجة</option><option value="closed">مغلقة</option></select></div><div class="field"><label>الأولوية</label><select id="mPriority"><option value="normal">عادية</option><option value="high">عالية</option><option value="low">منخفضة</option></select></div></div><div class="field"><label>رسالة العميل</label><textarea id="mMessage">${safe(t.message||'')}</textarea></div><div class="field"><label>رد/ملاحظة الإدارة</label><textarea id="mReply" placeholder="اكتب ملاحظتك أو الرد الذي تم إرساله للعميل">${safe(t.adminReply||'')}</textarea></div><div class="actions"><button class="btn soft" onclick="quickTicketStatus('${t.id}','in_progress')">قيد المعالجة</button><button class="btn ghost" onclick="quickTicketStatus('${t.id}','closed')">إنهاء التذكرة</button><button class="btn" onclick="saveTicket('${t.id}')">حفظ التذكرة</button></div>`);
+      $('mStatus').value=String(t.status||'open');$('mPriority').value=String(t.priority||'normal');
+    }
+
+    function openNewTicket(){
+      openModal('إنشاء تذكرة',`<div class="row"><div class="field"><label>UID العميل</label><input id="newTicketUid" placeholder="UID"></div><div class="field"><label>إيميل العميل</label><input id="newTicketEmail" placeholder="email"></div></div><div class="row"><div class="field"><label>اسم العميل</label><input id="newTicketName" placeholder="اسم العميل"></div><div class="field"><label>اسم الحساب</label><input id="newTicketAccount" placeholder="@username"></div></div><div class="field"><label>الموضوع</label><input id="newTicketSubject" placeholder="مثال: مشكلة في الاشتراك"></div><div class="field"><label>الوصف</label><textarea id="newTicketMsg" placeholder="اكتب تفاصيل المشكلة"></textarea></div><button class="btn" onclick="createTicket()">إنشاء</button>`);
+    }
+    window.createTicket=async()=>{
+      try{
+        await db.collection('supportTickets').add({userId:$('newTicketUid').value.trim(),email:$('newTicketEmail').value.trim().toLowerCase(),customerName:$('newTicketName').value.trim(),accountName:$('newTicketAccount').value.trim(),subject:$('newTicketSubject').value.trim(),message:$('newTicketMsg').value.trim(),priority:'normal',status:'open',source:'support_admin_panel',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),createdByAdmin:currentUser.uid});
+        closeModal();await loadTickets();
+      }catch(e){alert('تعذر إنشاء التذكرة: '+e.message)}
+    }
+    window.saveTicket=async(id)=>{
+      try{
+        await db.collection('supportTickets').doc(id).set({subject:$('mSubject').value.trim(),message:$('mMessage').value.trim(),status:$('mStatus').value,priority:$('mPriority').value,adminReply:$('mReply').value.trim(),updatedAt:FieldValue.serverTimestamp(),handledBy:currentUser.uid,handledByRole:currentRole}, {merge:true});
+        closeModal();await loadTickets();
+      }catch(e){alert('تعذر حفظ التذكرة: '+e.message)}
+    };
+    window.quickTicketStatus=async(id,status)=>{
+      try{
+        await db.collection('supportTickets').doc(id).set({status,updatedAt:FieldValue.serverTimestamp(),handledBy:currentUser.uid,handledByRole:currentRole}, {merge:true});
+        closeModal();await loadTickets();
+      }catch(e){alert('تعذر تحديث الحالة: '+e.message)}
+    };
+    async function loadBans(){try{const snap=await db.collection('users').where('isBanned','==',true).limit(150).get();cachedBans=snap.docs.map(d=>({id:d.id,...d.data()}));$('kpiBanned').textContent=cachedBans.length;if(canOwner())$('ownerBanned').textContent=cachedBans.length;renderBans();}catch(e){$('bansTable').innerHTML='<div class="empty">تعذر تحميل المحظورين. تأكد من القواعد.</div>'}}
+    function renderBans(){if(!cachedBans.length){$('bansTable').innerHTML='<div class="empty">لا يوجد مستخدمين محظورين حاليًا.</div>';return}$('bansTable').innerHTML=`<table><thead><tr><th>المستخدم</th><th>سبب الحظر</th><th>ينتهي</th><th>حُظر في</th><th>إجراء</th></tr></thead><tbody>${cachedBans.map(u=>`<tr><td><div class="userBox"><span class="avatar">${safe(firstLetter(u.name||u.displayName,u.email))}</span><div><b>${safe(u.name||u.displayName||'بدون اسم')}</b><div class="mini">${safe(u.email||'')}</div><div class="mini ltr">${safe(u.id)}</div></div></div></td><td>${safe(u.banReason||'بدون سبب')}</td><td>${u.bannedUntil?fmtDate(u.bannedUntil):'دائم'}</td><td>${fmtDate(u.bannedAt)}</td><td><button class="btn small danger" onclick="unbanUser('${u.id}')">فك الحظر</button></td></tr>`).join('')}</tbody></table>`}
+    $('reloadBans').onclick=loadBans; window.unbanUser=async(uid)=>{if(!confirm('فك الحظر عن هذا المستخدم؟'))return;try{await db.collection('users').doc(uid).set({isBanned:false,banReason:null,bannedUntil:null,unbannedAt:FieldValue.serverTimestamp(),unbannedBy:currentUser.uid},{merge:true});await loadBans()}catch(e){alert('تعذر فك الحظر: '+e.message)}};
+    $('userSearchBtn').onclick=searchUsers; $('userSearch').addEventListener('keydown',e=>{if(e.key==='Enter')searchUsers()});
+    async function searchUsers(){const q=$('userSearch').value.trim();if(q.length<2){msg($('userSearchMsg'),'اكتب على الأقل حرفين للبحث.','warn');return}msg($('userSearchMsg'),'جاري البحث...','warn');$('usersTable').innerHTML='';const found=new Map();async function addDoc(ref){const d=await ref.get();if(d.exists)found.set(d.id,{id:d.id,...d.data()})}async function addQuery(query){const s=await query.limit(20).get();s.docs.forEach(d=>found.set(d.id,{id:d.id,...d.data()}))}try{await Promise.allSettled([addDoc(db.collection('users').doc(q)),addQuery(db.collection('users').where('email','==',q.toLowerCase())),addQuery(db.collection('users').where('mail','==',q.toLowerCase())),addQuery(db.collection('users').where('username','==',q)),addQuery(db.collection('users').where('handle','==',q)),addQuery(db.collection('users').where('userHandle','==',q)),addQuery(db.collection('users').where('name','==',q)),addQuery(db.collection('users').where('displayName','==',q))]);lastSearchResults=Array.from(found.values()).slice(0,40);renderUsers(lastSearchResults);msg($('userSearchMsg'),lastSearchResults.length?'تم العثور على نتائج. لا يظهر إجمالي المستخدمين هنا.':'لا يوجد مستخدم مطابق.','ok')}catch(e){msg($('userSearchMsg'),'تعذر البحث. تأكد من الصلاحيات أو الفهارس.','err')}}
+    function renderUsers(arr){if(!arr.length){$('usersTable').innerHTML='<div class="empty">لا توجد نتائج بحث.</div>';return}$('usersTable').innerHTML=`<table><thead><tr><th>المستخدم</th><th>الدور</th><th>الحالة</th><th>نقاط</th><th>إجراء</th></tr></thead><tbody>${arr.map(u=>{const role=String(u.role||'user');return`<tr><td><div class="userBox"><span class="avatar">${u.photoUrl||u.avatarUrl?`<img src="${safe(u.photoUrl||u.avatarUrl)}">`:safe(firstLetter(u.name||u.displayName,u.email))}</span><div><b>${safe(u.name||u.displayName||u.userName||'بدون اسم')}</b><div class="mini">${safe(u.email||u.mail||'')}</div><div class="mini ltr">${safe(u.id)}</div></div></div></td><td>${safe(role)}</td><td>${u.isBanned?'<span class="status banned">محظور</span>':'<span class="status closed">نشط</span>'}</td><td>${safe(u.points_total||u.pointsTotal||u.points||0)}</td><td><button class="btn small soft" onclick="openUserManage('${u.id}')">إدارة</button></td></tr>`}).join('')}</tbody></table>`}
+    window.openUserManage=async(uid)=>{let u=lastSearchResults.find(x=>x.id===uid)||cachedBans.find(x=>x.id===uid);if(!u){const d=await db.collection('users').doc(uid).get();u={id:d.id,...d.data()}}openModal('إدارة عميل',`<div class="message warn show">لا تغيّر الدور إلا من حساب Owner.</div><div class="row"><div class="field"><label>UID</label><input class="ltr" value="${safe(uid)}" readonly></div><div class="field"><label>البريد</label><input value="${safe(u.email||u.mail||'')}" readonly></div></div><div class="row"><div class="field"><label>سبب الحظر</label><input id="banReason" value="${safe(u.banReason||'')}"></div><div class="field"><label>مدة الحظر</label><select id="banDuration"><option value="forever">دائم</option><option value="1">24 ساعة</option><option value="3">3 أيام</option><option value="7">7 أيام</option><option value="30">30 يوم</option></select></div></div><div class="actions"><button class="btn danger" onclick="banUser('${uid}')">حظر المستخدم</button><button class="btn ghost" onclick="unbanUser('${uid}');closeModal()">فك الحظر</button><button class="btn soft" onclick="fillNotif('${uid}')">إرسال إشعار</button></div><div class="ownerOnly" style="display:${canOwner()?'block':'none'}"><hr style="border-color:var(--line);border-style:solid none none;margin:14px 0"><div class="row"><select id="newRole"><option value="user">User</option><option value="support">Support</option><option value="admin">Admin</option><option value="owner">Owner</option></select><button class="btn" onclick="changeRole('${uid}')">تغيير الدور</button></div></div>`);if(canOwner())$('newRole').value=String(u.role||'user')}
+    window.banUser=async(uid)=>{const days=$('banDuration').value;let bannedUntil=null;if(days!=='forever')bannedUntil=Timestamp.fromDate(new Date(Date.now()+Number(days)*24*60*60*1000));try{await db.collection('users').doc(uid).set({isBanned:true,banReason:$('banReason').value.trim()||'تم الحظر من الإدارة',bannedUntil,bannedAt:FieldValue.serverTimestamp(),bannedBy:currentUser.uid},{merge:true});closeModal();await loadBans();alert('تم الحظر')}catch(e){alert('تعذر الحظر: '+e.message)}};
+    window.changeRole=async(uid)=>{if(!canOwner())return;const r=$('newRole').value;if(!confirm(`تغيير دور المستخدم إلى ${r}؟`))return;try{await db.collection('users').doc(uid).set({role:r,updatedAt:FieldValue.serverTimestamp(),roleUpdatedBy:currentUser.uid},{merge:true});alert('تم تحديث الدور')}catch(e){alert('تعذر تحديث الدور: '+e.message)}};
+    window.fillNotif=(uid)=>{closeModal();goView('notifications');$('notifUid').value=uid;$('notifTitle').focus()};
+    $('sendNotifBtn').onclick=async()=>{const uid=$('notifUid').value.trim(),title=$('notifTitle').value.trim(),body=$('notifBody').value.trim();if(!uid||!title||!body){msg($('notifMsg'),'اكتب UID والعنوان والنص.','warn');return}try{await db.collection('notifications').doc(uid).collection('inbox').add({title,body,createdAt:FieldValue.serverTimestamp(),read:false,type:'admin',fromRole:currentRole,fromUid:currentUser.uid});$('notifTitle').value='';$('notifBody').value='';msg($('notifMsg'),'تم إرسال الإشعار.','ok')}catch(e){msg($('notifMsg'),'تعذر إرسال الإشعار: '+e.message,'err')}};
+    async function loadAnnouncement(){try{const d=await db.doc('appConfig/announcement').get();const x=d.data()||{};$('annTitle').value=x.title||'';$('annBody').value=x.body||x.message||'';$('annType').value=x.type||'info';$('annActive').value=String(x.active!==false);$('annLink').value=x.link||'';$('annAllowAdmin').checked=x.allowAdminEdit===true;}catch(e){msg($('annMsg'),'تعذر تحميل الإعلان.','err')}}
+    $('saveAnnBtn').onclick=async()=>{try{const payload={title:$('annTitle').value.trim(),body:$('annBody').value.trim(),message:$('annBody').value.trim(),type:$('annType').value,active:$('annActive').value==='true',link:$('annLink').value.trim(),updatedAt:FieldValue.serverTimestamp(),updatedBy:currentUser.uid};if(canOwner())payload.allowAdminEdit=$('annAllowAdmin').checked;await db.doc('appConfig/announcement').set(payload,{merge:true});msg($('annMsg'),'تم حفظ الإعلان.','ok')}catch(e){msg($('annMsg'),'تعذر الحفظ. قد لا يكون الأدمن مسموح له بتعديل الإعلان.','err')}};
+    $('exportUsersBtn').onclick=()=>{if(!canOwner())return;const rows=[['uid','email','name','role','isBanned','points']].concat(cachedUsersForOwner.map(u=>[u.id,u.email||u.mail||'',u.name||u.displayName||'',u.role||'user',u.isBanned===true,u.points_total||u.pointsTotal||u.points||0]));const csv=rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='wazen-users.csv';a.click();URL.revokeObjectURL(a.href)};
+    function openModal(title,html){$('modalTitle').textContent=title;$('modalBody').innerHTML=html;$('modalBack').classList.add('show')}function closeModal(){$('modalBack').classList.remove('show');$('modalBody').innerHTML=''}$('modalClose').onclick=closeModal;$('modalBack').addEventListener('click',e=>{if(e.target.id==='modalBack')closeModal()});
+  </script>
+</body>
+</html>

@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>وازن — الصفحة الرسمية للإجراءات</title>
+  <meta name="description" content="الصفحة الرسمية والآمنة لإجراءات الحساب في تطبيق وازن، مثل تأكيد البريد الإلكتروني وإعادة تعيين كلمة المرور." />
+
+  <style>
+    :root{
+      --brand:#016C66;
+      --brand2:#0a8e86;
+      --brand3:#00b8ad;
+      --bg1:#051412;
+      --bg2:#071b19;
+      --bg3:#0b2321;
+      --card:rgba(255,255,255,.08);
+      --card2:rgba(255,255,255,.06);
+      --stroke:rgba(255,255,255,.13);
+      --text:#F7FFFE;
+      --muted:rgba(247,255,254,.76);
+      --soft:rgba(247,255,254,.56);
+      --ok:#7ef0bf;
+      --danger:#ffb3b3;
+      --shadow:0 26px 90px rgba(0,0,0,.45);
+      --radius:28px;
+      --radius2:20px;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      min-height:100vh;
+      color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans Arabic","Noto Sans",sans-serif;
+      background:
+        radial-gradient(900px 620px at 15% 10%, rgba(0,184,173,.18), transparent 58%),
+        radial-gradient(700px 520px at 85% 20%, rgba(1,108,102,.24), transparent 58%),
+        linear-gradient(180deg, var(--bg1), var(--bg2) 46%, var(--bg3));
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:28px 18px;
+    }
+
+    .wrap{width:100%; max-width:760px;}
+
+    .card{
+      position:relative;
+      overflow:hidden;
+      border-radius:var(--radius);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.05));
+      border:1px solid var(--stroke);
+      box-shadow:var(--shadow);
+      backdrop-filter:blur(16px);
+      -webkit-backdrop-filter:blur(16px);
+    }
+
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:0 0 auto 0;
+      height:5px;
+      background:linear-gradient(90deg, var(--brand), var(--brand3), var(--brand));
+      z-index:2;
+    }
+
+    .hero{
+      position:relative;
+      padding:38px 28px 22px;
+      background:
+        radial-gradient(420px 220px at 80% 10%, rgba(255,255,255,.08), transparent 70%),
+        linear-gradient(180deg, rgba(1,108,102,.25), rgba(1,108,102,.03));
+      border-bottom:1px solid rgba(255,255,255,.08);
+    }
+
+    .heroGlow{
+      position:absolute;
+      inset:auto -120px -120px auto;
+      width:320px;
+      height:320px;
+      border-radius:999px;
+      background:radial-gradient(circle, rgba(0,184,173,.20), transparent 68%);
+      pointer-events:none;
+      filter:blur(10px);
+    }
+
+    .topRow{
+      position:relative;
+      z-index:1;
+      display:flex;
+      align-items:flex-start;
+      justify-content:flex-start;
+      gap:18px;
+      flex-wrap:wrap;
+    }
+
+    .brandBox{
+      display:flex;
+      align-items:center;
+      gap:14px;
+      min-width:0;
+      flex:1 1 100%;
+    }
+
+    .logoWrap{
+      width:72px;
+      height:72px;
+      border-radius:22px;
+      background:rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.16);
+      box-shadow:0 14px 30px rgba(0,0,0,.22);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+      flex:0 0 auto;
+    }
+
+    .logoWrap img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    .logoFallback{
+      font-size:18px;
+      font-weight:900;
+      letter-spacing:.3px;
+    }
+
+    .eyebrow{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      color:rgba(247,255,254,.92);
+      font-size:12px;
+      font-weight:800;
+      margin-bottom:12px;
+    }
+
+    .eyebrowDot{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:var(--brand3);
+      box-shadow:0 0 0 6px rgba(0,184,173,.14);
+    }
+
+    h1{
+      margin:0;
+      font-size:30px;
+      line-height:1.2;
+      letter-spacing:.2px;
+    }
+
+    .subtitle{
+      margin:10px 0 0;
+      color:var(--muted);
+      font-size:15px;
+      line-height:1.9;
+      max-width:560px;
+    }
+
+    .body{
+      padding:20px;
+      display:grid;
+      gap:14px;
+    }
+
+    .notice,
+    .status,
+    .form,
+    .supportBox{
+      border-radius:22px;
+      border:1px solid rgba(255,255,255,.10);
+      background:var(--card2);
+    }
+
+    .notice,
+    .status,
+    .supportBox{
+      padding:16px;
+    }
+
+    .notice{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+    }
+
+    .noticeIcon,
+    .statusIcon{
+      width:42px;
+      height:42px;
+      border-radius:14px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.12);
+      flex:0 0 auto;
+      font-size:18px;
+    }
+
+    .noticeTitle,
+    .statusTitle,
+    .formTitle,
+    .supportTitle{
+      font-size:16px;
+      font-weight:900;
+      margin:0 0 5px;
+    }
+
+    .noticeText,
+    .statusText,
+    .supportText{
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.9;
+      margin:0;
+    }
+
+    .status{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+    }
+
+    .spinner{
+      width:18px;
+      height:18px;
+      border-radius:999px;
+      border:2px solid rgba(255,255,255,.22);
+      border-top-color:var(--brand3);
+      animation:spin .9s linear infinite;
+    }
+
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .statusHead{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-bottom:6px;
+      flex-wrap:wrap;
+    }
+
+    .statusBadge{
+      display:none;
+      align-items:center;
+      gap:8px;
+      padding:7px 11px;
+      border-radius:999px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      color:rgba(247,255,254,.88);
+      font-size:12px;
+      font-weight:800;
+    }
+
+    .statusBadgeDot{
+      width:7px;
+      height:7px;
+      border-radius:999px;
+      background:var(--brand3);
+    }
+
+    .statusTitle.ok{color:var(--ok)}
+    .statusTitle.bad{color:var(--danger)}
+
+    .helper{
+      display:none;
+      margin-top:10px;
+      padding-top:10px;
+      border-top:1px solid rgba(255,255,255,.08);
+      color:var(--soft);
+      font-size:13px;
+      line-height:1.8;
+    }
+
+    .form{
+      display:none;
+      padding:18px;
+    }
+
+    .formTop{
+      display:flex;
+      align-items:flex-start;
+      justify-content:flex-start;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-bottom:10px;
+    }
+
+    .privacyTag{
+      padding:8px 11px;
+      border-radius:999px;
+      background:rgba(1,108,102,.16);
+      border:1px solid rgba(1,108,102,.24);
+      color:rgba(247,255,254,.92);
+      font-size:12px;
+      font-weight:850;
+      white-space:nowrap;
+    }
+
+    .maskedEmail{
+      margin-top:6px;
+      color:var(--soft);
+      font-size:13px;
+      line-height:1.8;
+    }
+
+    .field{
+      display:grid;
+      gap:7px;
+      margin-top:12px;
+    }
+
+    .label{
+      font-size:13.5px;
+      font-weight:850;
+    }
+
+    .inputWrap{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      border-radius:18px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.12);
+      padding:12px 12px;
+    }
+
+    input{
+      width:100%;
+      border:0;
+      outline:none;
+      background:transparent;
+      color:var(--text);
+      font-size:14.5px;
+      padding:2px 0;
+    }
+
+    input::placeholder{color:rgba(247,255,254,.42)}
+
+    .toggleBtn{
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      color:var(--text);
+      border-radius:12px;
+      padding:8px 11px;
+      font-size:12.5px;
+      font-weight:850;
+      cursor:pointer;
+      transition:.18s ease;
+      flex:0 0 auto;
+    }
+
+    .toggleBtn:hover{background:rgba(255,255,255,.10)}
+
+    .meter{
+      margin-top:12px;
+      height:10px;
+      border-radius:999px;
+      overflow:hidden;
+      background:rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.10);
+    }
+
+    .meterBar{
+      height:100%;
+      width:0%;
+      border-radius:999px;
+      background:linear-gradient(90deg, rgba(255,135,135,.96), rgba(0,184,173,.96));
+      transition:.2s ease;
+    }
+
+    .rules{
+      margin-top:12px;
+      display:grid;
+      gap:8px;
+    }
+
+    .rule{
+      display:flex;
+      gap:9px;
+      align-items:flex-start;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.7;
+    }
+
+    .tick{
+      width:20px;
+      height:20px;
+      border-radius:7px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.10);
+      font-size:12px;
+      font-weight:900;
+      flex:0 0 auto;
+      margin-top:1px;
+    }
+
+    .tick.ok{
+      background:rgba(126,240,191,.12);
+      border-color:rgba(126,240,191,.30);
+      color:var(--ok);
+    }
+
+    .hintLine{
+      margin-top:10px;
+      color:var(--soft);
+      font-size:12.8px;
+      line-height:1.8;
+    }
+
+    .actions{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+    }
+
+    .btn,
+    .linkBtn{
+      width:100%;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.12);
+      padding:14px 14px;
+      font-size:14.5px;
+      font-weight:850;
+      color:var(--text);
+      text-decoration:none;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      background:rgba(255,255,255,.07);
+      transition:.18s ease;
+      cursor:pointer;
+    }
+
+    .btn:hover,
+    .linkBtn:hover{
+      background:rgba(255,255,255,.11);
+      transform:translateY(-1px);
+    }
+
+    .btn:disabled{
+      opacity:.58;
+      cursor:not-allowed;
+      transform:none;
+    }
+
+    .btn.primary{
+      background:linear-gradient(135deg, rgba(1,108,102,.98), rgba(0,184,173,.30));
+      border-color:rgba(1,108,102,.55);
+      box-shadow:0 14px 26px rgba(1,108,102,.18);
+    }
+
+    .supportBox{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+    }
+
+    footer{
+      padding:0 22px 22px;
+      color:var(--soft);
+      text-align:center;
+      font-size:12.5px;
+    }
+
+    @media (max-width:640px){
+      .hero{padding:28px 18px 18px}
+      h1{font-size:25px}
+      .body{padding:14px}
+    }
+
+    @media (max-width:520px){
+      .actions{grid-template-columns:1fr}
+      .logoWrap{width:64px;height:64px}
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <div class="hero">
+        <div class="heroGlow"></div>
+        <div class="topRow">
+          <div class="brandBox">
+            <div class="logoWrap">
+              <img id="logoImg" src="/wazen_logo.png" alt="شعار وازن" />
+              <div id="logoFallback" class="logoFallback" style="display:none;">وازن</div>
+            </div>
+            <div>
+              <div class="eyebrow">
+                <span class="eyebrowDot"></span>
+                <span>وازن</span>
+              </div>
+              <h1 id="headline">إجراءات الحساب</h1>
+              <p id="subtitle" class="subtitle">هذه الصفحة مخصصة لتأكيد البريد الإلكتروني أو إعادة تعيين كلمة المرور لحساب وازن.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="body">
+        <div class="notice">
+          <div class="noticeIcon">ℹ️</div>
+          <div>
+            <h2 class="noticeTitle">تنبيه مهم</h2>
+            <p class="noticeText">في حال انتهت صلاحية الرابط أو تعذر إكمال الإجراء، يرجى طلب رابط جديد من داخل تطبيق وازن أو من رسالة البريد الإلكتروني الأحدث.</p>
+          </div>
+        </div>
+
+        <div class="status" id="statusBox">
+          <div class="statusIcon"><div class="spinner" id="spin"></div></div>
+          <div style="min-width:0; width:100%;">
+            <div class="statusHead">
+              <div id="statusTitle" class="statusTitle">جاري التحقق…</div>
+              <div id="statusBadge" class="statusBadge"><span class="statusBadgeDot"></span><span id="statusBadgeText">إجراء الحساب</span></div>
+            </div>
+            <p id="statusMsg" class="statusText">يرجى الانتظار، سيتم تحديث الحالة تلقائيًا.</p>
+            <div id="helperText" class="helper"></div>
+          </div>
+        </div>
+
+        <div id="resetForm" class="form">
+          <div class="formTop">
+            <div>
+              <div class="formTitle">تعيين كلمة مرور جديدة</div>
+              <div id="resetEmail" class="maskedEmail"></div>
+            </div>
+            <div class="privacyTag">عرض مختصر وآمن للبيانات</div>
+          </div>
+
+          <div class="field">
+            <div class="label">كلمة المرور الجديدة</div>
+            <div class="inputWrap">
+              <input id="newPass" type="password" placeholder="اكتب كلمة مرور قوية" autocomplete="new-password" />
+              <button id="toggle1" class="toggleBtn" type="button">إظهار</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="label">تأكيد كلمة المرور</div>
+            <div class="inputWrap">
+              <input id="newPass2" type="password" placeholder="أعد كتابة كلمة المرور" autocomplete="new-password" />
+              <button id="toggle2" class="toggleBtn" type="button">إظهار</button>
+            </div>
+          </div>
+
+          <div class="meter"><div id="strengthBar" class="meterBar"></div></div>
+
+          <div class="rules">
+            <div class="rule"><div id="rLen" class="tick">•</div><div>تتكون من 8 أحرف على الأقل</div></div>
+            <div class="rule"><div id="rMix" class="tick">•</div><div>تحتوي على حروف وأرقام لتحسين الأمان</div></div>
+            <div class="rule"><div id="rMatch" class="tick">•</div><div>تطابق كلمة المرور مع خانة التأكيد</div></div>
+          </div>
+
+          <button id="btnSetPass" class="btn primary" type="button" style="margin-top:14px;">حفظ كلمة المرور الجديدة</button>
+          <div class="hintLine">بعد إتمام العملية بنجاح، يمكنك العودة إلى تطبيق وازن وتسجيل الدخول مباشرة بكلمة المرور الجديدة.</div>
+        </div>
+
+        <div class="actions">
+          <button id="btnCheck" class="btn" type="button">إعادة المحاولة</button>
+          <button id="btnOpen" class="btn primary" type="button" disabled>فتح تطبيق وازن</button>
+        </div>
+
+        <a class="linkBtn" href="/verify.html">إعادة تحميل الصفحة</a>
+
+        <div class="supportBox">
+          <div class="noticeIcon">✉️</div>
+          <div>
+            <div class="supportTitle">تحتاج مساعدة؟</div>
+            <p class="supportText">إذا استمرت المشكلة بعد طلب رابط جديد، يمكنك التواصل مع دعم وازن من خلال القنوات الرسمية داخل التطبيق.</p>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        © <span id="y"></span> وازن — صفحة رسمية لإجراءات الحساب.
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+
+    const logoImg = document.getElementById('logoImg');
+    const logoFallback = document.getElementById('logoFallback');
+    logoImg.addEventListener('error', () => {
+      logoImg.style.display = 'none';
+      logoFallback.style.display = 'block';
+    });
+  </script>
+
+  <script type="module">
+    const firebaseConfig = {
+      apiKey: "AIzaSyD9y9FED7L-s0unONweN-5LhmwEdipXYUo",
+      authDomain: "wazenfapp.firebaseapp.com",
+      projectId: "wazenfapp",
+      appId: "1:209409669834:web:9e33eba07509ee28a29233"
+    };
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getAuth,
+      applyActionCode,
+      checkActionCode,
+      verifyPasswordResetCode,
+      confirmPasswordReset
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+    const headline = document.getElementById('headline');
+    const subtitle = document.getElementById('subtitle');
+    const statusTitle = document.getElementById('statusTitle');
+    const statusMsg = document.getElementById('statusMsg');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusBadgeText = document.getElementById('statusBadgeText');
+    const helperText = document.getElementById('helperText');
+    const spin = document.getElementById('spin');
+
+    const resetForm = document.getElementById('resetForm');
+    const resetEmail = document.getElementById('resetEmail');
+    const newPass = document.getElementById('newPass');
+    const newPass2 = document.getElementById('newPass2');
+    const toggle1 = document.getElementById('toggle1');
+    const toggle2 = document.getElementById('toggle2');
+    const strengthBar = document.getElementById('strengthBar');
+    const rLen = document.getElementById('rLen');
+    const rMix = document.getElementById('rMix');
+    const rMatch = document.getElementById('rMatch');
+
+    const btnCheck = document.getElementById('btnCheck');
+    const btnOpen = document.getElementById('btnOpen');
+    const btnSetPass = document.getElementById('btnSetPass');
+
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
+    const oobCode = params.get('oobCode');
+
+    let togglesWired = false;
+    let openAppWired = false;
+
+    function normalizeMode(value) {
+      if (value === 'verifyBeforeUpdateEmail') return 'verifyAndChangeEmail';
+      return value;
+    }
+
+    const effectiveMode = normalizeMode(mode);
+
+    function setBadge(text) {
+      if (!text) {
+        statusBadge.style.display = 'none';
+        statusBadgeText.textContent = '';
+        return;
+      }
+      statusBadgeText.textContent = text;
+      statusBadge.style.display = 'inline-flex';
+    }
+
+    function setState({ title, msg, kind = 'loading', help = '' }) {
+      statusTitle.textContent = title;
+      statusMsg.textContent = msg;
+      helperText.textContent = help || '';
+      helperText.style.display = help ? 'block' : 'none';
+
+      if (kind === 'ok') {
+        spin.style.display = 'none';
+        statusTitle.classList.add('ok');
+        statusTitle.classList.remove('bad');
+      } else if (kind === 'bad') {
+        spin.style.display = 'none';
+        statusTitle.classList.add('bad');
+        statusTitle.classList.remove('ok');
+      } else {
+        spin.style.display = 'block';
+        statusTitle.classList.remove('ok', 'bad');
+      }
+    }
+
+    function updateHeader() {
+      if (effectiveMode === 'verifyEmail') {
+        headline.textContent = 'تأكيد البريد الإلكتروني';
+        subtitle.textContent = 'سيتم تأكيد بريدك الإلكتروني تلقائيًا بعد التحقق من صلاحية الرابط.';
+        setBadge('تأكيد البريد الإلكتروني');
+      } else if (effectiveMode === 'verifyAndChangeEmail') {
+        headline.textContent = 'تأكيد البريد الإلكتروني الجديد';
+        subtitle.textContent = 'سيتم اعتماد البريد الإلكتروني الجديد وتحديثه على حسابك بشكل آمن.';
+        setBadge('تأكيد تغيير البريد');
+      } else if (effectiveMode === 'resetPassword') {
+        headline.textContent = 'إعادة تعيين كلمة المرور';
+        subtitle.textContent = 'أدخل كلمة مرور جديدة وآمنة لإكمال استعادة الوصول إلى حسابك.';
+        setBadge('تغيير كلمة المرور');
+      } else {
+        headline.textContent = 'رابط غير صالح';
+        subtitle.textContent = 'تعذر التعرف على هذا الطلب. يرجى فتح الرابط الصحيح من الرسالة الرسمية.';
+        setBadge('إجراء غير متاح');
+      }
+    }
+
+    function enableOpenApp() {
+      btnOpen.disabled = false;
+      if (openAppWired) return;
+      openAppWired = true;
+      btnOpen.addEventListener('click', () => {
+        window.location.href = 'wazen://open';
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1100);
+      });
+    }
+
+    function genericHelp(code) {
+      if (!code) return 'يرجى المحاولة مرة أخرى باستخدام أحدث رابط مرسل إليك.';
+      if (code === 'auth/expired-action-code' || code === 'auth/invalid-action-code') {
+        return 'انتهت صلاحية هذا الرابط أو لم يعد صالحًا للاستخدام. اطلب رابطًا جديدًا ثم افتحه مباشرة.';
+      }
+      if (code === 'auth/unauthorized-domain') {
+        return 'تعذر إكمال العملية من هذا النطاق حاليًا. يرجى المحاولة من الصفحة الرسمية الخاصة بوازن.';
+      }
+      if (code === 'auth/weak-password') {
+        return 'يرجى اختيار كلمة مرور أقوى ثم إعادة المحاولة.';
+      }
+      return 'تعذر إكمال العملية حاليًا. حاول مرة أخرى أو اطلب رابطًا جديدًا إذا لزم الأمر.';
+    }
+
+    function maskEmail(email) {
+      if (!email || !email.includes('@')) return '';
+      const [name, domain] = email.split('@');
+      const safeName = name.length <= 2 ? name[0] + '•' : name.slice(0, 2) + '•••' + name.slice(-1);
+      const domainParts = domain.split('.');
+      const first = domainParts[0] || '';
+      const rest = domainParts.slice(1).join('.');
+      const safeDomain = first.length <= 2 ? first[0] + '•' : first.slice(0, 2) + '••';
+      return `${safeName}@${safeDomain}${rest ? '.' + rest : ''}`;
+    }
+
+    function scorePassword(password) {
+      let score = 0;
+      if (!password) return 0;
+      if (password.length >= 8) score += 35;
+      if (password.length >= 12) score += 15;
+      if (/[a-zA-Z]/.test(password)) score += 20;
+      if (/[0-9]/.test(password)) score += 20;
+      if (/[^a-zA-Z0-9]/.test(password)) score += 10;
+      return Math.min(score, 100);
+    }
+
+    function setTick(element, ok) {
+      if (ok) {
+        element.textContent = '✓';
+        element.classList.add('ok');
+      } else {
+        element.textContent = '•';
+        element.classList.remove('ok');
+      }
+    }
+
+    function validateLive() {
+      const p1 = newPass.value || '';
+      const p2 = newPass2.value || '';
+      const lenOk = p1.length >= 8;
+      const mixOk = /[a-zA-Z]/.test(p1) && /[0-9]/.test(p1);
+      const matchOk = p1.length > 0 && p1 === p2;
+
+      setTick(rLen, lenOk);
+      setTick(rMix, mixOk);
+      setTick(rMatch, matchOk);
+      strengthBar.style.width = scorePassword(p1) + '%';
+
+      return { lenOk, mixOk, matchOk };
+    }
+
+    function wirePasswordControls() {
+      if (togglesWired) return;
+      togglesWired = true;
+
+      toggle1.addEventListener('click', () => {
+        const hidden = newPass.type === 'password';
+        newPass.type = hidden ? 'text' : 'password';
+        toggle1.textContent = hidden ? 'إخفاء' : 'إظهار';
+      });
+
+      toggle2.addEventListener('click', () => {
+        const hidden = newPass2.type === 'password';
+        newPass2.type = hidden ? 'text' : 'password';
+        toggle2.textContent = hidden ? 'إخفاء' : 'إظهار';
+      });
+
+      newPass.addEventListener('input', validateLive);
+      newPass2.addEventListener('input', validateLive);
+    }
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    async function run() {
+      updateHeader();
+      helperText.style.display = 'none';
+      helperText.textContent = '';
+      btnOpen.disabled = true;
+      resetForm.style.display = 'none';
+
+      if (!effectiveMode || !oobCode) {
+        setState({
+          title: 'الرابط غير مكتمل',
+          msg: 'تعذر قراءة بيانات الطلب من هذا الرابط.',
+          kind: 'bad',
+          help: 'يرجى فتح أحدث رسالة رسمية من وازن والضغط على الرابط مرة أخرى.'
+        });
+        return;
+      }
+
+      if (effectiveMode === 'resetPassword') {
+        try {
+          setState({
+            title: 'جارٍ التحقق من الطلب…',
+            msg: 'نقوم بالتأكد من صلاحية الرابط قبل عرض نموذج تعيين كلمة المرور.',
+            kind: 'loading'
+          });
+
+          const email = await verifyPasswordResetCode(auth, oobCode);
+          resetForm.style.display = 'block';
+          resetEmail.textContent = email ? `الحساب المرتبط: ${maskEmail(email)}` : 'تم التحقق من الحساب بنجاح.';
+          wirePasswordControls();
+          validateLive();
+
+          setState({
+            title: 'تم التحقق بنجاح',
+            msg: 'يمكنك الآن إدخال كلمة المرور الجديدة ثم حفظها لإكمال العملية.',
+            kind: 'ok'
+          });
+        } catch (error) {
+          console.error('verifyPasswordResetCode error:', error);
+          setState({
+            title: 'تعذر فتح نموذج إعادة التعيين',
+            msg: 'لم نتمكن من تأكيد صلاحية هذا الرابط.',
+            kind: 'bad',
+            help: genericHelp(error?.code)
+          });
+        }
+        return;
+      }
+
+      if (effectiveMode !== 'verifyEmail' && effectiveMode !== 'verifyAndChangeEmail') {
+        setState({
+          title: 'هذا الإجراء غير متاح',
+          msg: 'تعذر إكمال الطلب من خلال هذا الرابط.',
+          kind: 'bad',
+          help: 'يرجى استخدام الرابط الرسمي المرسل من وازن أو طلب رابط جديد إذا لزم الأمر.'
+        });
+        return;
+      }
+
+      try {
+        setState({
+          title: 'جارٍ تنفيذ الطلب…',
+          msg: 'يرجى الانتظار للحظات حتى يتم تحديث حالة حسابك.',
+          kind: 'loading'
+        });
+
+        await checkActionCode(auth, oobCode);
+        await applyActionCode(auth, oobCode);
+
+        const doneTitle = effectiveMode === 'verifyAndChangeEmail'
+          ? 'تم اعتماد البريد الإلكتروني الجديد'
+          : 'تم تأكيد البريد الإلكتروني بنجاح';
+
+        setState({
+          title: doneTitle,
+          msg: 'تم تنفيذ الطلب بنجاح. يمكنك الآن العودة إلى تطبيق وازن ومتابعة استخدام حسابك.',
+          kind: 'ok'
+        });
+        enableOpenApp();
+      } catch (error) {
+        console.error('applyActionCode error:', error);
+        setState({
+          title: 'تعذر إكمال العملية',
+          msg: 'لم نتمكن من تنفيذ هذا الطلب في الوقت الحالي.',
+          kind: 'bad',
+          help: genericHelp(error?.code)
+        });
+      }
+    }
+
+    btnCheck.addEventListener('click', run);
+
+    btnSetPass.addEventListener('click', async () => {
+      const { lenOk, mixOk, matchOk } = validateLive();
+      const password = newPass.value || '';
+
+      if (!lenOk || !mixOk || !matchOk) {
+        setState({
+          title: 'يرجى مراجعة البيانات',
+          msg: 'تأكد من استيفاء متطلبات كلمة المرور ثم أعد المحاولة.',
+          kind: 'bad',
+          help: 'يجب أن تتكون كلمة المرور من 8 أحرف على الأقل وأن تحتوي على حروف وأرقام وأن تتطابق مع خانة التأكيد.'
+        });
+        return;
+      }
+
+      try {
+        btnSetPass.disabled = true;
+        setState({
+          title: 'جارٍ حفظ كلمة المرور…',
+          msg: 'يرجى الانتظار حتى يتم تحديث بيانات الدخول الخاصة بك.',
+          kind: 'loading'
+        });
+
+        await confirmPasswordReset(auth, oobCode, password);
+
+        setState({
+          title: 'تم تحديث كلمة المرور بنجاح',
+          msg: 'يمكنك الآن فتح تطبيق وازن وتسجيل الدخول باستخدام كلمة المرور الجديدة.',
+          kind: 'ok'
+        });
+        enableOpenApp();
+      } catch (error) {
+        console.error('confirmPasswordReset error:', error);
+        setState({
+          title: 'تعذر تحديث كلمة المرور',
+          msg: 'لم نتمكن من إتمام العملية في الوقت الحالي.',
+          kind: 'bad',
+          help: genericHelp(error?.code)
+        });
+      } finally {
+        btnSetPass.disabled = false;
+      }
+    });
+
+    run();
+  </script>
+</body>
+</html>

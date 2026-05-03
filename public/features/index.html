@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>مميزات تطبيق وازن</title>
+  <meta name="description" content="وازن هو تطبيق صحي عربي متكامل يجمع تتبع السعرات والماكروز، تحليل الطعام بالذكاء الاصطناعي، الماء والصيام، تتبع الوزن، الوصفات، النادي الافتراضي، المدربين، الإشعارات، والاشتراك في تجربة واحدة أنيقة." />
+
+  <meta property="og:title" content="مميزات تطبيق وازن" />
+  <meta property="og:description" content="كل مميزات وازن مرتبة بشكل أفخم: التغذية، الذكاء الاصطناعي، الماء والصيام، التقدم، الوصفات، الصالة الافتراضية، المدربين، الاشتراك، والتخصيص." />
+  <meta property="og:type" content="website" />
+
+  <style>
+    :root{
+      --brand:#016C66;
+      --brand2:#03897f;
+      --brand3:#e8fbf8;
+      --brand4:#0d3e3b;
+      --text:#0b1f1d;
+      --muted:#4d6461;
+      --line:rgba(5,30,28,.10);
+      --white:#ffffff;
+      --bg:
+        radial-gradient(1100px 800px at 0% 0%, rgba(255,255,255,.22), transparent 48%),
+        radial-gradient(900px 650px at 100% 15%, rgba(1,108,102,.20), transparent 45%),
+        linear-gradient(180deg, #025952 0%, #014642 100%);
+      --shadow:0 28px 90px rgba(0,0,0,.22);
+      --shadow-soft:0 16px 40px rgba(1,108,102,.10);
+      --radius:28px;
+      --radius-sm:18px;
+      --gold:#ffd98d;
+    }
+
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans Arabic","Noto Sans",sans-serif;
+      color:var(--text);
+      background:var(--bg);
+      min-height:100vh;
+    }
+
+    a{color:inherit}
+
+    .page{
+      width:min(1180px, calc(100% - 28px));
+      margin:28px auto;
+    }
+
+    .shell{
+      position:relative;
+      border-radius:var(--radius);
+      background:rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.16);
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      overflow:hidden;
+    }
+
+    .shell::before,
+    .shell::after{
+      content:"";
+      position:absolute;
+      inset:auto;
+      border-radius:999px;
+      pointer-events:none;
+      filter:blur(18px);
+      opacity:.8;
+    }
+    .shell::before{
+      width:220px;height:220px;
+      top:-70px;left:-50px;
+      background:rgba(255,255,255,.10);
+    }
+    .shell::after{
+      width:260px;height:260px;
+      bottom:-90px;right:-90px;
+      background:rgba(0,0,0,.08);
+    }
+
+    .panel{
+      margin:10px;
+      background:linear-gradient(180deg, rgba(255,255,255,.98), rgba(249,253,252,.98));
+      border:1px solid rgba(0,0,0,.05);
+      border-radius:calc(var(--radius) - 6px);
+      overflow:hidden;
+    }
+
+    .topbar{
+      padding:16px 22px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      border-bottom:1px solid rgba(0,0,0,.05);
+      background:linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.72));
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .brandRow{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:0;
+    }
+
+    .logo{
+      width:52px;height:52px;
+      border-radius:18px;
+      background:linear-gradient(135deg, rgba(1,108,102,.12), rgba(1,108,102,.22));
+      border:1px solid rgba(1,108,102,.18);
+      display:grid;place-items:center;
+      font-size:24px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.55);
+    }
+
+    .eyebrow{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:7px 12px;
+      border-radius:999px;
+      background:rgba(1,108,102,.08);
+      border:1px solid rgba(1,108,102,.14);
+      color:var(--brand4);
+      font-size:12px;
+      font-weight:900;
+      margin-bottom:8px;
+    }
+
+    h1{
+      margin:0;
+      font-size:21px;
+      font-weight:950;
+      letter-spacing:.2px;
+      line-height:1.3;
+    }
+
+    .sub{
+      margin-top:4px;
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    .actions{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .btn{
+      text-decoration:none;
+      font-weight:900;
+      border-radius:15px;
+      padding:11px 14px;
+      transition:.18s ease;
+      border:1px solid transparent;
+      white-space:nowrap;
+    }
+    .btn:hover{transform:translateY(-1px)}
+    .btn.primary{
+      color:#fff;
+      background:linear-gradient(135deg, var(--brand), var(--brand2));
+      box-shadow:0 10px 28px rgba(1,108,102,.20);
+    }
+    .btn.ghost{
+      color:var(--brand);
+      background:rgba(1,108,102,.06);
+      border-color:rgba(1,108,102,.14);
+    }
+
+    .hero{
+      position:relative;
+      padding:26px 24px 18px;
+      background:
+        radial-gradient(700px 300px at 15% 0%, rgba(1,108,102,.07), transparent 60%),
+        linear-gradient(180deg, rgba(1,108,102,.03), rgba(1,108,102,0));
+      border-bottom:1px solid rgba(0,0,0,.05);
+    }
+
+    .heroGrid{
+      display:grid;
+      grid-template-columns: 1.25fr .9fr;
+      gap:18px;
+      align-items:stretch;
+    }
+
+    .heroCard{
+      border:1px solid rgba(0,0,0,.06);
+      border-radius:24px;
+      background:linear-gradient(180deg, #ffffff, #f8fffd);
+      box-shadow:var(--shadow-soft);
+      padding:22px;
+      min-height:100%;
+    }
+
+    .hero h2{
+      margin:0;
+      font-size:34px;
+      line-height:1.25;
+      font-weight:1000;
+      letter-spacing:-.3px;
+    }
+
+    .lead{
+      margin:14px 0 0;
+      font-size:15px;
+      line-height:2;
+      color:var(--muted);
+    }
+
+    .stats{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:10px;
+      margin-top:18px;
+    }
+
+    .stat{
+      border-radius:18px;
+      padding:14px 12px;
+      background:linear-gradient(180deg, rgba(1,108,102,.06), rgba(1,108,102,.02));
+      border:1px solid rgba(1,108,102,.10);
+    }
+    .stat strong{
+      display:block;
+      font-size:22px;
+      font-weight:1000;
+      color:var(--brand4);
+      margin-bottom:4px;
+    }
+    .stat span{font-size:12.5px;color:var(--muted);line-height:1.7;display:block}
+
+    .miniList{
+      display:grid;
+      gap:10px;
+    }
+
+    .miniItem{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      border-radius:18px;
+      padding:14px;
+      background:linear-gradient(180deg, rgba(1,108,102,.05), rgba(255,255,255,.85));
+      border:1px solid rgba(1,108,102,.10);
+    }
+
+    .miniIcon{
+      width:42px;height:42px;
+      border-radius:14px;
+      display:grid;place-items:center;
+      background:linear-gradient(135deg, rgba(1,108,102,.10), rgba(1,108,102,.20));
+      font-size:20px;
+      flex:0 0 auto;
+    }
+
+    .miniItem strong{display:block;font-size:14px;margin-bottom:3px}
+    .miniItem p{margin:0;color:var(--muted);font-size:12.8px;line-height:1.8}
+
+    .sectionWrap{padding:18px 22px 24px}
+
+    .sectionHead{
+      display:flex;
+      align-items:end;
+      justify-content:space-between;
+      gap:16px;
+      margin-bottom:16px;
+      flex-wrap:wrap;
+    }
+
+    .sectionHead h3{
+      margin:0;
+      font-size:25px;
+      font-weight:1000;
+    }
+
+    .sectionHead p{
+      margin:6px 0 0;
+      color:var(--muted);
+      line-height:1.9;
+      font-size:14px;
+      max-width:760px;
+    }
+
+    .badgeRow{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+
+    .softBadge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 12px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:900;
+      color:var(--brand4);
+      background:rgba(1,108,102,.08);
+      border:1px solid rgba(1,108,102,.14);
+    }
+
+    .featuresGrid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:14px;
+    }
+
+    .feature{
+      border:1px solid rgba(0,0,0,.08);
+      background:linear-gradient(180deg, #ffffff, #fbfefd);
+      border-radius:24px;
+      padding:18px;
+      box-shadow:var(--shadow-soft);
+      position:relative;
+      overflow:hidden;
+    }
+    .feature::after{
+      content:"";
+      position:absolute;
+      inset:auto auto -40px -40px;
+      width:130px;height:130px;
+      border-radius:999px;
+      background:radial-gradient(circle, rgba(1,108,102,.08), transparent 70%);
+      pointer-events:none;
+    }
+
+    .featureTop{
+      display:flex;
+      align-items:flex-start;
+      gap:12px;
+      margin-bottom:12px;
+    }
+
+    .featureIcon{
+      width:52px;height:52px;
+      border-radius:18px;
+      display:grid;place-items:center;
+      background:linear-gradient(135deg, rgba(1,108,102,.10), rgba(1,108,102,.18));
+      border:1px solid rgba(1,108,102,.14);
+      font-size:24px;
+      flex:0 0 auto;
+    }
+
+    .feature h4{
+      margin:0;
+      font-size:18px;
+      font-weight:1000;
+      line-height:1.35;
+    }
+
+    .feature p.desc{
+      margin:4px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.85;
+    }
+
+    .subTitle{
+      margin:14px 0 10px;
+      font-size:12px;
+      color:var(--brand);
+      font-weight:1000;
+      letter-spacing:.2px;
+    }
+
+    .chipList{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-bottom:12px;
+    }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:7px;
+      padding:8px 10px;
+      border-radius:13px;
+      background:rgba(1,108,102,.06);
+      border:1px solid rgba(1,108,102,.10);
+      font-size:12.4px;
+      font-weight:800;
+      color:var(--brand4);
+      line-height:1.55;
+    }
+
+    .list{
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:grid;
+      gap:9px;
+    }
+
+    .list li{
+      position:relative;
+      padding:0 18px 0 0;
+      font-size:13.6px;
+      line-height:1.95;
+      color:#15302d;
+    }
+
+    .list li::before{
+      content:"";
+      width:8px;height:8px;
+      border-radius:999px;
+      background:linear-gradient(135deg, var(--brand), var(--brand2));
+      position:absolute;
+      top:.78em;
+      right:0;
+      box-shadow:0 0 0 4px rgba(1,108,102,.10);
+    }
+
+    .callout{
+      margin-top:16px;
+      border-radius:22px;
+      padding:18px;
+      background:linear-gradient(135deg, rgba(1,108,102,.08), rgba(255,255,255,.95));
+      border:1px solid rgba(1,108,102,.12);
+      display:grid;
+      grid-template-columns:1.2fr .8fr;
+      gap:14px;
+      align-items:center;
+    }
+
+    .callout h4{margin:0;font-size:20px;font-weight:1000}
+    .callout p{margin:8px 0 0;color:var(--muted);line-height:1.95;font-size:14px}
+    .callout .side{
+      border-radius:18px;
+      background:#fff;
+      border:1px solid rgba(0,0,0,.06);
+      padding:14px;
+    }
+
+    .side .line{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 0;
+      border-bottom:1px dashed rgba(0,0,0,.08);
+      font-size:13px;
+    }
+    .side .line:last-child{border-bottom:0;padding-bottom:0}
+    .side strong{font-weight:1000;color:var(--brand4)}
+
+    .note{
+      margin-top:18px;
+      border:1px dashed rgba(1,108,102,.28);
+      background:rgba(1,108,102,.05);
+      border-radius:18px;
+      padding:14px 16px;
+      color:#24423f;
+      font-size:13.2px;
+      line-height:1.95;
+    }
+
+    .footer{
+      padding:16px 22px 24px;
+      border-top:1px solid rgba(0,0,0,.05);
+      color:var(--muted);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      font-size:12.8px;
+    }
+
+    .email{
+      color:var(--brand);
+      text-decoration:none;
+      font-weight:900;
+    }
+
+    @media (max-width:980px){
+      .heroGrid,.callout,.featuresGrid{grid-template-columns:1fr}
+      .hero h2{font-size:30px}
+    }
+
+    @media (max-width:640px){
+      .page{width:min(100%, calc(100% - 16px)); margin:16px auto}
+      .topbar,.hero,.sectionWrap,.footer{padding-inline:16px}
+      .panel{margin:7px}
+      .hero h2{font-size:26px}
+      .stats{grid-template-columns:1fr}
+      .actions{width:100%}
+      .btn{flex:1;text-align:center}
+      h1{font-size:18px}
+      .sectionHead h3{font-size:22px}
+      .feature{padding:16px}
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="shell">
+      <div class="panel">
+        <header class="topbar">
+          <div class="brandRow">
+            <div class="logo">✨</div>
+            <div>
+              <div class="eyebrow">وازن • تجربة صحية عربية متكاملة</div>
+              <h1>مميزات تطبيق وازن</h1>
+              <div class="sub"> مميزات وازن الفعلية مرتبة تحت كل قسم رئيسي.</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <a class="btn primary" href="https://apps.apple.com/sa/app/%D9%88%D8%A7%D8%B2%D9%86/id6757410841" target="_blank" rel="noopener">تحميل من App Store</a>
+            <a class="btn ghost" href="/">الرجوع لروابط وازن</a>
+          </div>
+        </header>
+
+        <section class="hero">
+          <div class="heroGrid">
+            <div class="heroCard">
+              <div class="eyebrow">كل ما تحتاجه في تطبيق واحد</div>
+              <h2>وازن ليس مجرد عدّاد سعرات، بل نظام صحي عربي كامل لمتابعة أكلك، تقدمك، التزامك، وتمرينك يوميًا.</h2>
+              <p class="lead">
+                يجمع وازن بين تتبع التغذية والماكروز، تحليل الطعام بالذكاء الاصطناعي، متابعة الوزن، الماء والصيام،
+                الوصفات، الجداول الرياضية، المدربين، والاشتراك — مع تجربة عربية أنيقة ومريحة للاستخدام اليومي.
+              </p>
+
+              <div class="stats">
+                <div class="stat">
+                  <strong>10+</strong>
+                  <span>أقسام رئيسية تجمع رحلة التغذية والرياضة والمتابعة اليومية في مكان واحد.</span>
+                </div>
+                <div class="stat">
+                  <strong>AI</strong>
+                  <span>تحليل بالصورة والنص، مع مساعد ذكي واقتراحات أقرب لسلوك المستخدم.</span>
+                </div>
+                <div class="stat">
+                  <strong>Premium</strong>
+                  <span>اشتراك شهري أو سنوي يفتح مزايا أعمق وتجربة أكثر تخصيصًا.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="heroCard">
+              <div class="miniList">
+                <div class="miniItem">
+                  <div class="miniIcon">🍽️</div>
+                  <div>
+                    <strong>تغذية + ماكروز + تسجيل يومي</strong>
+                    <p>سعرات، بروتين، كارب، دهون، تفاصيل وجبات، ومتابعة واضحة لما أخذته وما تبقّى لك.</p>
+                  </div>
+                </div>
+                <div class="miniItem">
+                  <div class="miniIcon">🤖</div>
+                  <div>
+                    <strong>ذكاء اصطناعي فعلي داخل التجربة</strong>
+                    <p>تحليل صورة الطعام، تحليل بالنص، ومساعد ذكي يقدّم اقتراحات وتوجيهات حسب هدفك.</p>
+                  </div>
+                </div>
+                <div class="miniItem">
+                  <div class="miniIcon">🏋️</div>
+                  <div>
+                    <strong>رياضة، صيام، ماء، ووصفات</strong>
+                    <p>وازن يغطي يومك الصحي كاملًا: تمرين، وصفات، تقدم، تذكيرات، وإنجازات تحفّزك على الاستمرار.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <main class="sectionWrap">
+          <div class="sectionHead">
+            <div>
+              <h3>كل مميزات وازن بشكل مرتب وواضح</h3>
+              <p>تحت كل ميزة رئيسية ستجد المزايا الفرعية التابعة لها، .</p>
+            </div>
+            <div class="badgeRow">
+              <span class="softBadge">عربي بالكامل</span>
+              <span class="softBadge">ذكاء اصطناعي</span>
+              <span class="softBadge">اشتراك ومزايا Premium</span>
+              <span class="softBadge">رياضة + تغذية + متابعة</span>
+            </div>
+          </div>
+
+          <div class="featuresGrid">
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🥗</div>
+                <div>
+                  <h4>التغذية وتتبع السعرات والماكروز</h4>
+                  <p class="desc">القسم الأساسي في وازن لمتابعة أكلك اليومي وحساب أهدافك ومقدار ما استهلكته من عناصر غذائية.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">تحديد الهدف: تنشيف / ثبات / زيادة</span>
+                <span class="chip">سعرات يومية مخصصة</span>
+                <span class="chip">بروتين / كارب / دهون</span>
+                <span class="chip">تقسيم الوجبات اليومية</span>
+                <span class="chip">تفاصيل المكونات</span>
+                <span class="chip">مفضلات ووجبات جاهزة</span>
+              </div>
+              <ul class="list">
+                <li>حساب احتياجك اليومي حسب بياناتك وهدفك الغذائي.</li>
+                <li>متابعة واضحة لما تم تناوله وما تبقى من السعرات والماكروز خلال اليوم.</li>
+                <li>عرض تفاصيل الوجبة والمكونات والكميات والحصص بشكل مبسط.</li>
+                <li>إعادة استخدام وجباتك المتكررة لتسجيل أسرع وأكثر راحة.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🍴</div>
+                <div>
+                  <h4>إضافة الطعام بأكثر من طريقة</h4>
+                  <p class="desc">وازن لا يعتمد على طريقة واحدة للإضافة؛ بل يعطي المستخدم عدة مسارات أسرع وأسهل حسب نوع الوجبة.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">بحث من قاعدة البيانات</span>
+                <span class="chip">وجبات جاهزة</span>
+                <span class="chip">باركود</span>
+                <span class="chip">مطاعم ومقاهي</span>
+                <span class="chip">تحليل بالنص</span>
+                <span class="chip">تحليل بالصورة</span>
+              </div>
+              <ul class="list">
+                <li>البحث عن عناصر غذائية وإضافتها بسرعة مع تعديل الحصة والكمية.</li>
+                <li>إضافة الوجبات الجاهزة والمنتجات المتكررة بشكل أسرع من كل مرة.</li>
+                <li>إمكانية مسح الباركود عند توفر بيانات المنتج لإدخاله مباشرة.</li>
+                <li>إضافة وجبات المطاعم والمقاهي من داخل التطبيق عند توفرها في الحساب.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🤖</div>
+                <div>
+                  <h4>الذكاء الاصطناعي وتحليل الطعام</h4>
+                  <p class="desc">من أبرز مزايا وازن: فهم الوجبة من وصف مكتوب أو صورة، ثم إعطاء تقدير أقرب للواقع مع تفصيل أوضح.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">تحليل بالنص</span>
+                <span class="chip">تحليل بالصورة</span>
+                <span class="chip">تفصيل العناصر</span>
+                <span class="chip">تقدير الكمية</span>
+                <span class="chip">أسئلة توضيحية</span>
+                <span class="chip">مساعد وازن الذكي</span>
+              </div>
+              <ul class="list">
+                <li>كتابة وصف بسيط للوجبة ليتم تحليلها واستخراج السعرات والماكروز.</li>
+                <li>تصوير الوجبة لتحليل المكونات بشكل أسرع للمستخدم الذي لا يريد الكتابة اليدوية.</li>
+                <li>إظهار العناصر أو المكونات التابعة للوجبة بدل الاكتفاء باسم عام فقط.</li>
+                <li>إعطاء تقدير للكميات حتى لو لم تُذكر الجرامات بشكل صريح.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">💧</div>
+                <div>
+                  <h4>الماء والصيام والعادات اليومية</h4>
+                  <p class="desc">ميزات يومية تدعم الالتزام الصحي خارج الوجبات، وتساعد المستخدم على بناء روتين ثابت.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">تتبع شرب الماء</span>
+                <span class="chip">هدف يومي للماء</span>
+                <span class="chip">مؤقت الصيام</span>
+                <span class="chip">سجل الصيام</span>
+                <span class="chip">تذكيرات يومية</span>
+              </div>
+              <ul class="list">
+                <li>إدخال سريع لكميات الماء مع متابعة هدفك اليومي.</li>
+                <li>مؤقت للصيام مناسب للصيام المتقطع أو رمضان مع سجل للفترات السابقة.</li>
+                <li>ربط الإشعارات بسلوكك اليومي لزيادة الالتزام بالماء والصيام.</li>
+                <li>متابعة العادات الصحية بشكل مبسط داخل نفس التطبيق.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">⚖️</div>
+                <div>
+                  <h4>الوزن، التقدم، والتقارير</h4>
+                  <p class="desc">قسم متابعة النتائج الفعلية، حتى يرى المستخدم هل رحلته ماشية بالشكل الصحيح أم تحتاج تعديل.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">تسجيل الوزن</span>
+                <span class="chip">رسوم بيانية</span>
+                <span class="chip">سجل السعرات</span>
+                <span class="chip">تقرير PDF</span>
+                <span class="chip">تاريخ التقدم</span>
+              </div>
+              <ul class="list">
+                <li>إدخال الوزن بشكل دوري ومشاهدة التغيرات بوضوح.</li>
+                <li>عرض بصري للتقدم عبر رسوم بيانية سهلة الفهم.</li>
+                <li>الرجوع لسجل الأيام السابقة لمعرفة نمط الالتزام.</li>
+                <li>إمكانية تصدير تقرير PDF للمشاركة أو الاحتفاظ به كمرجع.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🏋️</div>
+                <div>
+                  <h4>الصالة الافتراضية والجداول الرياضية</h4>
+                  <p class="desc">وازن لا يقف عند التغذية فقط، بل يدعم النشاط الرياضي عبر جداول وتمارين ومتابعة للحصص.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">الصالة الافتراضية</span>
+                <span class="chip">جداول جاهزة</span>
+                <span class="chip">إنشاء جدول خاص</span>
+                <span class="chip">جلسات التمرين</span>
+                <span class="chip">اختيار أيام التمرين</span>
+                <span class="chip">تمارين حسب العضلة</span>
+              </div>
+              <ul class="list">
+                <li>استعراض تمارين وتمييزها ضمن واجهة خاصة بالنادي الافتراضي.</li>
+                <li>اختيار جداول جاهزة أو إنشاء خطة تناسب أيامك وأهدافك.</li>
+                <li>تنظيم الجلسات التدريبية وتتبع تنفيذها داخل التطبيق.</li>
+                <li>ربط جانب التمرين مع بقية النظام الصحي في نفس التجربة.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">📍</div>
+                <div>
+                  <h4>النوادي القريبة والمواقع المفيدة</h4>
+                  <p class="desc">ميزة تساعد المستخدم في الوصول إلى أماكن النشاط القريبة منه بدل الاكتفاء بالمحتوى النظري فقط.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">خريطة النوادي</span>
+                <span class="chip">أماكن قريبة</span>
+                <span class="chip">تفاصيل النادي</span>
+                <span class="chip">فتح الموقع الخارجي</span>
+              </div>
+              <ul class="list">
+                <li>استعراض النوادي القريبة من المستخدم من خلال الخريطة.</li>
+                <li>مشاهدة معلومات النادي أو المكان قبل الذهاب إليه.</li>
+                <li>الوصول الأسرع إلى الموقع الفعلي من داخل التطبيق.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🍳</div>
+                <div>
+                  <h4>الوصفات والمحتوى الغذائي</h4>
+                  <p class="desc">قسم غني يساعد المستخدم على اكتشاف أفكار أكل جديدة، أو حتى مشاركة وصفاته الخاصة داخل النظام.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">استكشاف الوصفات</span>
+                <span class="chip">إنشاء وصفة</span>
+                <span class="chip">إضافة صورة</span>
+                <span class="chip">الخطوات والمكونات</span>
+                <span class="chip">الماكروز لكل وصفة</span>
+                <span class="chip">إعجابات ومفضلة</span>
+              </div>
+              <ul class="list">
+                <li>اكتشاف وصفات متنوعة داخل التطبيق بدل البحث خارجًا.</li>
+                <li>إنشاء وصفة خاصة بك مع صورة، مكونات، خطوات، وقيم غذائية.</li>
+                <li>عرض الماكروز والسعرات لكل وصفة لتناسب متابعي الأهداف الصحية.</li>
+                <li>إمكانية حفظ الوصفات المفضلة والرجوع لها لاحقًا.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">👥</div>
+                <div>
+                  <h4>المجتمع، المدربون، والتواصل الذكي</h4>
+                  <p class="desc">وازن يتوسع من تطبيق فردي إلى تجربة فيها تفاعل، توجيه، ومدربون وخدمات أقرب للمستخدم.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">مجتمع داخل التطبيق</span>
+                <span class="chip">ملفات شخصية عامة</span>
+                <span class="chip">مدرب وازن الذكي</span>
+                <span class="chip">سوق المدربين</span>
+                <span class="chip">طلب مدرب</span>
+                <span class="chip">التواصل مع المدرب</span>
+              </div>
+              <ul class="list">
+                <li>مشاركة التجارب والمحتوى داخل المجتمع عند تفعيل الميزة.</li>
+                <li>الاستفادة من مدرب وازن الذكي للإرشاد والنصائح اليومية.</li>
+                <li>استعراض المدربين والخدمات المرتبطة بهم داخل المنصة.</li>
+                <li>دعم رحلة المستخدم بتجربة أكثر قربًا وتخصيصًا.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🏅</div>
+                <div>
+                  <h4>التحفيز، الإنجازات، والنقاط</h4>
+                  <p class="desc">عناصر تحفيزية تزيد العودة اليومية للتطبيق وتجعل الالتزام أكثر متعة واستمرارية.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">إنجازات وشارات</span>
+                <span class="chip">نقاط ومكافآت</span>
+                <span class="chip">لوحة صدارة</span>
+                <span class="chip">تحفيز يومي</span>
+              </div>
+              <ul class="list">
+                <li>الحصول على شارات أو إنجازات عند الاستمرار وتحقيق أهداف معينة.</li>
+                <li>نظام نقاط ومكافآت يعطي إحساسًا بالتقدم، لا بالأرقام فقط.</li>
+                <li>لوحة صدارة أو عناصر منافسة خفيفة عند تفعيلها داخل الحساب.</li>
+                <li>رفع الحماس للعودة اليومية والاستمرار في الروتين الصحي.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">💎</div>
+                <div>
+                  <h4>الاشتراك والباقات والمزايا المدفوعة</h4>
+                  <p class="desc">وازن مبني بطريقة مرنة تسمح بفتح مزايا إضافية للمشتركين وتجربة أكثر قوة مع الاستخدام المتقدم.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">اشتراك شهري</span>
+                <span class="chip">اشتراك سنوي</span>
+                <span class="chip">تجربة مجانية</span>
+                <span class="chip">استعادة المشتريات</span>
+                <span class="chip">قفل مزايا Premium</span>
+              </div>
+              <ul class="list">
+                <li>فتح مزايا إضافية مثل أقسام أو أدوات متقدمة للمشتركين.</li>
+                <li>تجربة أكثر قوة للمستخدم الذي يريد الاستفادة الكاملة من وازن.</li>
+                <li>تنظيم واضح للباقات والاشتراكات واستعادة الشراء من داخل التطبيق.</li>
+                <li>ربط بعض المزايا بالحساب النشط لتقديم قيمة أعلى للبريميوم.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🎨</div>
+                <div>
+                  <h4>التخصيص، الثيمات، والإشعارات</h4>
+                  <p class="desc">الهدف ليس فقط الوظيفة، بل أيضًا راحة المستخدم والشعور أن التطبيق يناسبه هو شخصيًا.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">واجهة عربية RTL</span>
+                <span class="chip">ثيم رمضان</span>
+                <span class="chip">تخصيص المظهر</span>
+                <span class="chip">حجم الخط</span>
+                <span class="chip">إشعارات الماء</span>
+                <span class="chip">إشعارات التمرين والوزن</span>
+              </div>
+              <ul class="list">
+                <li>تصميم عربي أنيق ومناسب لليمين إلى اليسار.</li>
+                <li>إمكانية تخصيص الشكل والثيم بما يناسب ذوق المستخدم.</li>
+                <li>وجود ثيم رمضاني وتجارب موسمية تضيف هوية محلية جميلة.</li>
+                <li>إشعارات ذكية للماء والتمرين والوزن والسعرات حسب إعداداتك.</li>
+              </ul>
+            </section>
+
+            <section class="feature">
+              <div class="featureTop">
+                <div class="featureIcon">🔐</div>
+                <div>
+                  <h4>الأمان، المزامنة، والدعم</h4>
+                  <p class="desc">حتى مع كثرة المزايا، يبقى أساس التجربة مهمًا: دخول آمن، مزامنة، وصفحات قانونية، ودعم مباشر.</p>
+                </div>
+              </div>
+              <div class="subTitle">يشمل تحت هذه الميزة</div>
+              <div class="chipList">
+                <span class="chip">تسجيل عبر Apple / Google / البريد</span>
+                <span class="chip">مزامنة سحابية</span>
+                <span class="chip">سياسة الخصوصية</span>
+                <span class="chip">الشروط والأحكام</span>
+                <span class="chip">دعم فني</span>
+              </div>
+              <ul class="list">
+                <li>خيارات دخول آمنة تناسب المستخدم وتسهّل بدء الاستخدام.</li>
+                <li>حفظ البيانات ومزامنتها ليبقى تقدمك محفوظًا عبر الجلسات.</li>
+                <li>صفحات خصوصية وشروط واضحة داخل التطبيق.</li>
+                <li>وسيلة تواصل مباشرة مع الدعم لأي استفسار أو مشكلة.</li>
+              </ul>
+            </section>
+          </div>
+
+          <div class="note">
+            <strong>ملاحظة:</strong>
+            بعض المزايا قد تختلف حسب نسخة التطبيق، البلد، أو حالة الاشتراك والتفعيل داخل الحساب.
+            وإذا واجهت أي مشكلة أو كان لديك اقتراح، تواصل معنا عبر
+            <a class="email" href="mailto:support@wazensapp.com">support@wazensapp.com</a>.
+          </div>
+        </main>
+
+        <footer class="footer">
+          <div>© <span id="y"></span> وازن — جميع الحقوق محفوظة.</div>
+          <div>الدعم: <a class="email" href="mailto:support@wazensapp.com">support@wazensapp.com</a></div>
+        </footer>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

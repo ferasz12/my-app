@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>سياسة الخصوصية - وازن</title>
+  <meta name="description" content="سياسة الخصوصية الرسمية لتطبيق وازن." />
+
+  <meta property="og:title" content="سياسة الخصوصية - وازن" />
+  <meta property="og:description" content="سياسة الخصوصية الرسمية لتطبيق وازن." />
+  <meta property="og:type" content="website" />
+
+  <style>
+    :root{
+      --brand:#016C66;
+      --brandDark:#004642;
+      --brandLight:#017C75;
+
+      --bg1: radial-gradient(900px 650px at 15% 10%, rgba(255,255,255,.16), transparent 55%),
+             radial-gradient(900px 700px at 85% 30%, rgba(0,0,0,.18), transparent 60%),
+             linear-gradient(180deg, var(--brand), var(--brandDark));
+
+      --card:#ffffff;
+      --text:#0b1f1d;
+      --muted:rgba(11,31,29,.72);
+      --stroke:rgba(0,0,0,.10);
+      --shadow: 0 22px 90px rgba(0,0,0,.25);
+      --radius: 22px;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Noto Sans Arabic","Noto Sans",sans-serif;
+      background: var(--bg1);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:28px;
+      color:var(--text);
+    }
+
+    .wrap{width:100%; max-width:820px;}
+
+    .card{
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      overflow:hidden;
+      position:relative;
+    }
+
+    .inner{
+      background: var(--card);
+      border-radius: calc(var(--radius) - 6px);
+      margin: 10px;
+      overflow:hidden;
+      border:1px solid rgba(0,0,0,.06);
+    }
+
+    header{
+      padding: 18px 18px 12px;
+      border-bottom: 1px solid rgba(0,0,0,.06);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+
+    .title{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+
+    .pill{
+      width:44px;
+      height:44px;
+      border-radius: 14px;
+      background: rgba(1,108,102,.10);
+      border: 1px solid rgba(1,108,102,.22);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:20px;
+    }
+
+    h1{
+      margin:0;
+      font-size:18px;
+      font-weight:900;
+      letter-spacing:.2px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .sub{
+      margin:2px 0 0;
+      font-size:13px;
+      color:var(--muted);
+    }
+
+    a.back{
+      text-decoration:none;
+      color: var(--brand);
+      font-weight:800;
+      padding:10px 12px;
+      border-radius: 14px;
+      border:1px solid rgba(1,108,102,.18);
+      background: rgba(1,108,102,.06);
+      transition:.18s ease;
+      white-space:nowrap;
+    }
+    a.back:hover{transform: translateY(-1px); background: rgba(1,108,102,.10)}
+
+    main{padding: 14px 16px 20px;}
+
+    .lead{
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    .sec{
+      border: 1px solid rgba(0,0,0,.08);
+      border-radius: 16px;
+      padding: 14px 14px 10px;
+      margin: 10px 0;
+      background: #fff;
+    }
+
+    .secHead{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-bottom: 8px;
+    }
+
+    .num{
+      width:28px;
+      height:28px;
+      border-radius: 999px;
+      background: var(--brand);
+      color:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:900;
+      font-size: 13px;
+      flex: 0 0 auto;
+    }
+
+    .secTitle{
+      font-weight:900;
+      font-size: 15px;
+      margin:0;
+    }
+
+    ul{margin: 0; padding: 0 18px 0 0;}
+    li{margin: 0 0 8px; line-height:1.9; color: rgba(11,31,29,.92);}
+
+    .foot{
+      padding: 10px 16px 18px;
+      border-top: 1px solid rgba(0,0,0,.06);
+      color: var(--muted);
+      font-size: 12.5px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+
+    .email{color: var(--brand); font-weight:900; text-decoration:none}
+
+    @media (max-width:520px){
+      body{padding:18px}
+      .wrap{max-width:100%}
+      header{flex-direction:column; align-items:flex-start}
+      a.back{align-self:stretch; text-align:center}
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <section class="card">
+      <div class="inner">
+        <header>
+          <div class="title">
+            <div class="pill">🔒</div>
+            <div style="min-width:0">
+              <h1>سياسة الخصوصية</h1>
+              <div class="sub">آخر تحديث: 5 فبراير 2026.</div>
+            </div>
+          </div>
+          <!-- عدّل الرابط حسب مكان صفحة روابط وازن عندك (مثلاً / أو ../) -->
+          <a class="back" href="/">الرجوع لروابط وازن</a>
+        </header>
+
+        <main>
+          <p class="lead">
+            نلتزم في تطبيق وازن بحماية خصوصيتك وشفافية طريقة معالجة بياناتك.
+            توضح هذه السياسة ما نجمعه من بيانات، وكيف نستخدمه، ومع من نشاركه، وخياراتك للتحكّم.
+            هذه السياسة جزء من شروط وأحكام الاستخدام.
+          </p>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">1</div><h2 class="secTitle">مقدّمة</h2></div>
+            <ul>
+              <li>آخر تحديث: 5 فبراير 2026.</li>
+              <li>نلتزم في تطبيق وازن بحماية خصوصيتك وشفافية طريقة معالجة بياناتك.</li>
+              <li>توضح هذه السياسة ما نجمعه من بيانات، وكيف نستخدمه، ومع من نشاركه، وخياراتك للتحكّم.</li>
+              <li>هذه السياسة جزء من شروط وأحكام الاستخدام.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">2</div><h2 class="secTitle">البيانات التي نجمعها</h2></div>
+            <ul>
+              <li>بيانات الحساب: الاسم، البريد الإلكتروني، رقم الهاتف (إن وُجد)، صورة الملف الشخصي (اختياري)، ومعرّفات تسجيل الدخول (Apple/Google).</li>
+              <li>بيانات الصحة واللياقة التي تدخلها: الوزن، الماء، الوجبات، الماكروز، الأهداف، الصيام، الجداول، جلسات التمرين، والتقدّم.</li>
+              <li>بيانات من مزامنة الصحة (اختياري): عند ربط Apple Health أو Google Fit قد نقرأ بيانات مثل الخطوات/النشاط/الوزن بحسب إذنك.</li>
+              <li>الصور والوسائط (اختياري): صور الوجبات للتحليل، وصور الملف الشخصي، وأي وسائط تشاركها بالمجتمع.</li>
+              <li>محتوى المجتمع: منشورات، تعليقات، رسائل، وإبلاغات عن محتوى.</li>
+              <li>بيانات الاشتراك والمعاملات: حالة الاشتراك، معرّف المعاملة/المنتج، وتواريخ التجديد (لا نصل عادةً لبيانات بطاقتك؛ تتم عبر المتجر).</li>
+              <li>بيانات فنية وتشغيلية: نوع الجهاز، إصدار النظام، اللغة، معرّفات الإشعارات، عنوان IP بصورة عامة، سجلات الأعطال، وبيانات الأداء.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">3</div><h2 class="secTitle">كيف نستخدم بياناتك</h2></div>
+            <ul>
+              <li>تقديم الخدمة الأساسية: إنشاء الحساب، حفظ السجلات، عرض التقارير، وتفعيل التذكيرات.</li>
+              <li>تحليل الطعام بالذكاء الاصطناعي: معالجة الصور/النصوص لإرجاع تقديرات المكوّنات والماكروز.</li>
+              <li>الاشتراكات: التحقق من حالة الاشتراك وتمكين المزايا المدفوعة ومنع الاحتيال.</li>
+              <li>تحسين التجربة: تخصيص المحتوى، تحسين الأداء، إصلاح الأخطاء، وتطوير الميزات.</li>
+              <li>الأمان ومنع إساءة الاستخدام: اكتشاف النشاط غير الطبيعي وحماية الحسابات والمجتمع.</li>
+              <li>الدعم الفني: الرد على الاستفسارات ومعالجة الطلبات.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">4</div><h2 class="secTitle">أساس المعالجة</h2></div>
+            <ul>
+              <li>تنفيذ العقد: لتشغيل الحساب والميزات التي تطلبها.</li>
+              <li>الموافقة: للميزات الاختيارية مثل الإشعارات، الكاميرا/الصور، ومزامنة الصحة.</li>
+              <li>المصلحة المشروعة: لتحسين الأمان والجودة ومنع الاحتيال مع احترام حقوقك.</li>
+              <li>الالتزام القانوني: عند طلب جهة مختصة وفق الأنظمة.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">5</div><h2 class="secTitle">مكان التخزين وفترات الاحتفاظ</h2></div>
+            <ul>
+              <li>قد تُخزّن البيانات محليًا على جهازك، وقد تُخزّن سحابيًا عند تفعيل المزامنة/الحساب.</li>
+              <li>نحتفظ ببياناتك طالما كان حسابك نشطًا أو حسب الحاجة لتقديم الخدمة والالتزامات القانونية.</li>
+              <li>يمكنك طلب حذف الحساب والبيانات. قد نحتفظ بنسخ احتياطية لفترة محدودة لأغراض الأمان والاستعادة ثم تُحذف تلقائيًا.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">6</div><h2 class="secTitle">مشاركة البيانات</h2></div>
+            <ul>
+              <li>لا نبيع بياناتك الشخصية.</li>
+              <li>قد نشارك بيانات محدودة مع مزوّدي خدمات موثوقين لمعالجة البيانات بالنيابة عنا (مثل الاستضافة، التحليلات، الأعطال).</li>
+              <li>مزودو خدمات شائعون داخل التطبيق: Firebase/Google (مصادقة، قاعدة بيانات، وظائف سحابية، تخزين، تحليلات، Crashlytics)، ومزوّدو إشعارات محلية على الجهاز.</li>
+              <li>مصادر غذائية/باركود: قد نستعلم من قواعد بيانات عامة مثل OpenFoodFacts أو مصادر تغذية رسمية (مثل USDA/FoodData Central) لإكمال المعلومات.</li>
+              <li>مزودو الذكاء الاصطناعي: قد تتم معالجة محتوى التحليل (نص/صورة) عبر مزوّد نماذج (مثل Google Gemini أو OpenAI أو بدائل مماثلة) لتقديم النتيجة.</li>
+              <li>المدفوعات والاشتراكات: تتم عبر App Store/Google Play، وقد نتلقى فقط بيانات حالة الاشتراك/التحقق.</li>
+              <li>قد نكشف بيانات إذا طُلب منا نظاميًا من جهة مختصة أو لحماية حقوقنا/المستخدمين.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">7</div><h2 class="secTitle">الأذونات والميزات الاختيارية</h2></div>
+            <ul>
+              <li>الإشعارات: لإرسال تذكيرات الماء/التمارين/الصيام والتنبيهات التي تفعّلها.</li>
+              <li>الكاميرا/الصور: لمسح الباركود وتحليل صور الوجبات وتحديث صورة الملف الشخصي.</li>
+              <li>الصحة (Apple Health/Google Fit): لقراءة/مزامنة بيانات النشاط والوزن وغيرها حسب إذنك.</li>
+              <li>يمكنك سحب الموافقة أو تغيير الأذونات من إعدادات جهازك في أي وقت.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">8</div><h2 class="secTitle">تحليلات وذكاء اصطناعي</h2></div>
+            <ul>
+              <li>نستخدم أدوات تحليل وأعطال لتحسين الاستقرار (مثل Analytics وCrashlytics) وقد تجمع بيانات فنية غير مباشرة.</li>
+              <li>عند استخدام ميزات الذكاء الاصطناعي، قد نرسل المدخلات اللازمة فقط لإتمام التحليل. لا تستخدم هذه الميزة لمشاركة معلومات حساسة جدًا.</li>
+              <li>بيانات Apple Health/HealthKit لا نستخدمها للإعلانات ولا نبيعها، ولا نشاركها لأغراض تسويقية.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">9</div><h2 class="secTitle">حقوقك وخياراتك</h2></div>
+            <ul>
+              <li>الوصول والتصحيح: يمكنك تعديل بعض بياناتك داخل التطبيق.</li>
+              <li>سحب الموافقة: يمكنك إيقاف الأذونات (إشعارات/صحة/كاميرا) من إعدادات الجهاز.</li>
+              <li>الحذف: يمكنك طلب حذف الحساب والبيانات عبر التواصل معنا.</li>
+              <li>الاعتراض/التقييد: يمكنك الاعتراض على بعض أنواع المعالجة وفق الأنظمة المعمول بها.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">10</div><h2 class="secTitle">الأطفال</h2></div>
+            <ul>
+              <li>التطبيق غير موجّه للأطفال دون 16 عامًا.</li>
+              <li>إذا تبيّن لنا جمع بيانات طفل دون السن المسموح، سنحذفها عند التأكد.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">11</div><h2 class="secTitle">النقل الدولي للبيانات</h2></div>
+            <ul>
+              <li>قد تتم معالجة بياناتك أو تخزينها على خوادم تقع خارج بلدك بحسب مزوّدي الخدمات (مثل Google Cloud).</li>
+              <li>نتخذ تدابير تعاقدية وتقنية لحماية البيانات عند النقل الدولي وفق الأنظمة.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">12</div><h2 class="secTitle">التحديثات على السياسة</h2></div>
+            <ul>
+              <li>قد نحدّث هذه السياسة من وقت لآخر. سنعرض النسخة المحدّثة داخل التطبيق.</li>
+              <li>استمرارك في استخدام التطبيق بعد التحديث يعني اطلاعك وموافقتك على السياسة المحدثة.</li>
+            </ul>
+          </section>
+
+          <section class="sec">
+            <div class="secHead"><div class="num">13</div><h2 class="secTitle">التواصل</h2></div>
+            <ul>
+              <li>للاستفسارات أو طلبات الخصوصية/الحذف: support@wazensapp.com</li>
+              <li>قد نطلب معلومات للتحقق من هويتك قبل تنفيذ الطلب.</li>
+            </ul>
+          </section>
+        </main>
+
+        <div class="foot">
+          <div>آخر تحديث: 5 فبراير 2026.</div>
+          <div>الدعم: <a class="email" href="mailto:support@wazensapp.com">support@wazensapp.com</a></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

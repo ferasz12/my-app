@@ -1,0 +1,46 @@
+{
+  "functions": [
+    {
+      "codebase": "default",
+      "source": "functions",
+      "runtime": "nodejs20",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix functions run lint",
+        "npm --prefix functions run build"
+      ]
+    }
+  ],
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "attend/**",
+        "destination": "/attend/index.html"
+      },
+      {
+        "source": "admin/**",
+        "destination": "/admin/index.html"
+      },
+      {
+        "source": "privacy/**",
+        "destination": "/privacy/index.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
