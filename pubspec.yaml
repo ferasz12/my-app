@@ -100,9 +100,6 @@ flutter:
   uses-material-design: true
 
   assets:
-    # ملف البيئة (حسب اختيارك الحالي)
-    - .env
-
     # بيانات قديمة/محتوى التطبيق
     - assets/foods.json
     - assets/restaurant_meals_579.csv
