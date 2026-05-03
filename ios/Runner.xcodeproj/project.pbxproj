@@ -365,7 +365,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "#!/bin/sh\n# ===== Flutter Thin Binary (fixed) =====\nset -e -x\n\n# أضف Flutter للـ PATH\nexport FLUTTER_ROOT=\"/Users/ferasalyami/flutter\"\nexport PATH=\"$FLUTTER_ROOT/bin:$PATH\"\n\necho \"===== DEBUG (THIN) =====\"\necho \"PATH: $PATH\"\necho \"which flutter: $(which flutter || echo 'NOT FOUND')\"\nflutter --version\necho \"=========================\"\n\n# شغّل سكربت Flutter الرسمي\n\"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" embed_and_thin\n\n";
+			shellScript = "#!/bin/sh
+/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" embed_and_thin
+";
 		};
 		438DCD3C2E60690D00CEBF11 /* Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -384,7 +386,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "#!/bin/sh\n# ===== Flutter Run Script (fixed) =====\nset -e -x\n\n# أضف Flutter للـ PATH\nexport FLUTTER_ROOT=\"/Users/ferasalyami/flutter\"\nexport PATH=\"$FLUTTER_ROOT/bin:$PATH\"\n\necho \"===== DEBUG (FIXED) =====\"\necho \"PATH: $PATH\"\necho \"which flutter: $(which flutter || echo 'NOT FOUND')\"\nflutter --version\necho \"=========================\"\n\n# شغّل سكربت Flutter الرسمي\n\"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build\n\n";
+			shellScript = "#!/bin/sh
+/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build
+";
 		};
 		762BB7F679CBEBA0D3737428 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
