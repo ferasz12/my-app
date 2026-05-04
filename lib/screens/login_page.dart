@@ -290,7 +290,7 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // زر رجوع بسيط (لما تجي من welcome)
+                      // زر رجوع بسيط فقط — بدون شارة علوية
                       Row(
                         children: [
                           _IconCircle(
@@ -298,17 +298,12 @@ class _LoginPageState extends State<LoginPage> {
                             onTap: () => Navigator.of(context).maybePop(),
                           ),
                           const Spacer(),
-                          _Pill(
-                            icon: Icons.shield_rounded,
-                            label: 'تسجيل آمن',
-                            textTheme: tt,
-                          ),
                         ],
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 12),
 
-                      Center(child: OnboardingKit.logo(width: 230, height: 84)),
-                      const SizedBox(height: 16),
+                      Center(child: OnboardingKit.logo(width: 310, height: 118)),
+                      const SizedBox(height: 10),
 
                       Text(
                         'تسجيل الدخول',

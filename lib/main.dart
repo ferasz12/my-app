@@ -53,6 +53,7 @@ import 'models/weight_goal.dart';
 import 'settings/subscription_page.dart';
 import 'app/app_nav.dart';
 import 'notifications/fcm_marketing_push.dart';
+import 'services/app_review_service.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'fasting/fasting_notifications.dart';
@@ -274,6 +275,13 @@ void main() {
     // 4. شغّل الخدمات الاختيارية بعد ظهور أول واجهة حتى لا تسبب شاشة بيضاء عند الإقلاع.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_startOptionalServicesAfterFirstFrame());
+
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        final context = AppNav.key.currentContext;
+        if (context != null) {
+          unawaited(AppReviewService.maybeShowPeriodicPrompt(context));
+        }
+      });
     });
   }, (Object error, StackTrace stack) {
     debugPrint('❌ UNCAUGHT ERROR: $error');

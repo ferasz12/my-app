@@ -554,6 +554,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // زر رجوع بسيط فقط — بدون شارة علوية
                       Row(
                         children: [
                           _IconCircle(
@@ -561,13 +562,12 @@ class _RegisterPageState extends State<RegisterPage> {
                             onTap: () => Navigator.of(context).maybePop(),
                           ),
                           const Spacer(),
-                          _Pill(icon: Icons.person_add_alt_1_rounded, label: 'حساب جديد', textTheme: tt),
                         ],
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 10),
 
-                      Center(child: OnboardingKit.logo(width: 230, height: 84)),
-                      const SizedBox(height: 12),
+                      Center(child: OnboardingKit.logo(width: 310, height: 118)),
+                      const SizedBox(height: 8),
 
                       Text(
                         'إنشاء حساب',

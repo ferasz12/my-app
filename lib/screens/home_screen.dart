@@ -362,7 +362,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   final double tF = _toD(m?['fat']);
 
   final String? waterStr = prefs.getString('water_total_${email}_$ymd');
-  final double waterLiters = waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
+  final double waterLiters = waterStr != null ? _parseLocalizedDouble(waterStr) : 0.0;
 
   final reachedCalories = (tK > 0) && (sumK >= (tK * _kCalorieCompletionRatio));
   final closeMacros = _macrosClose(targetP: tP, targetC: tC, targetF: tF, sumP: sumP, sumC: sumC, sumF: sumF);
@@ -402,8 +402,100 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     return raw is bool ? raw : false;
   }
 
-  double _toD(dynamic v) =>
-      (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+  String _normalizeLocalizedNumberText(dynamic value) {
+    final raw = (value ?? '').toString().trim();
+    if (raw.isEmpty) return '';
+
+    final buffer = StringBuffer();
+    for (final rune in raw.runes) {
+      // ٠١٢٣٤٥٦٧٨٩
+      if (rune >= 0x0660 && rune <= 0x0669) {
+        buffer.writeCharCode(0x30 + (rune - 0x0660));
+        continue;
+      }
+      // ۰۱۲۳۴۵۶۷۸۹
+      if (rune >= 0x06F0 && rune <= 0x06F9) {
+        buffer.writeCharCode(0x30 + (rune - 0x06F0));
+        continue;
+      }
+      // 0-9
+      if (rune >= 0x30 && rune <= 0x39) {
+        buffer.writeCharCode(rune);
+        continue;
+      }
+
+      final ch = String.fromCharCode(rune);
+      if (ch == '.' || ch == ',' || ch == '٫' || ch == '،') {
+        buffer.write('.');
+        continue;
+      }
+
+      // فواصل آلاف ومسافات
+      if (ch == '٬' || ch == ' ' || ch == '\u00A0' || ch == '\u202F' || ch == '_') {
+        continue;
+      }
+
+      // ناقص عربي/إنجليزي
+      if ((ch == '-' || ch == '−') && buffer.isEmpty) {
+        buffer.write('-');
+      }
+    }
+
+    final canonical = buffer.toString();
+    final sepPositions = <int>[];
+    for (var i = 0; i < canonical.length; i++) {
+      if (canonical[i] == '.') sepPositions.add(i);
+    }
+
+    if (sepPositions.isEmpty) return canonical;
+
+    final lastSep = sepPositions.last;
+    final digitsBefore = canonical
+        .substring(0, lastSep)
+        .replaceAll(RegExp(r'[^0-9]'), '')
+        .length;
+    final digitsAfter = canonical
+        .substring(lastSep + 1)
+        .replaceAll(RegExp(r'[^0-9]'), '')
+        .length;
+
+    // مثال: 1,200 أو ١٬٢٠٠ تعتبر فاصل آلاف، وليست 1.2
+    final singleSeparatorLooksLikeThousands =
+        sepPositions.length == 1 && digitsBefore > 0 && digitsAfter == 3;
+
+    if (singleSeparatorLooksLikeThousands) {
+      return canonical.replaceAll('.', '');
+    }
+
+    // إذا فيه أكثر من فاصل، خل آخر فاصل هو العشري واحذف الباقي.
+    final out = StringBuffer();
+    var decimalWritten = false;
+    for (var i = 0; i < canonical.length; i++) {
+      final ch = canonical[i];
+      if (ch == '.') {
+        if (i == lastSep && !decimalWritten) {
+          out.write('.');
+          decimalWritten = true;
+        }
+      } else {
+        out.write(ch);
+      }
+    }
+    return out.toString();
+  }
+
+  double? _tryParseLocalizedDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    final normalized = _normalizeLocalizedNumberText(value);
+    if (normalized.isEmpty || normalized == '-' || normalized == '.') return null;
+    return double.tryParse(normalized);
+  }
+
+  double _parseLocalizedDouble(dynamic value) =>
+      _tryParseLocalizedDouble(value) ?? 0.0;
+
+  double _toD(dynamic v) => _parseLocalizedDouble(v);
 
   // ===== تحميل مُرتّب يمنع تصفير غير مقصود =====
   Future<void> _initialLoad() async {
@@ -1035,7 +1127,7 @@ loadPredefinedFoods();
     // ماء اليوم
     final String? waterStr = prefs.getString('water_total_${email}_$ymd');
     final double waterLiters =
-        waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
+        waterStr != null ? _parseLocalizedDouble(waterStr) : 0.0;
 
     final List<Map<String, dynamic>> pending = [];
 
@@ -1391,7 +1483,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
   // ====== محوّل JSON -> FoodItem ======
   List<FoodItem> mapFoodsFromJson(List<Map<String, dynamic>> src) {
     double toD(dynamic v) =>
-        (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+        (v is num) ? v.toDouble() : _parseLocalizedDouble(v);
 
     return src.map((m) {
       final id = (m['id'] ?? m['code'] ?? m['name'] ?? UniqueKey().toString())
@@ -2129,9 +2221,9 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
     bool autoCalc = true;
 
     double _calcKcal() {
-      final p = double.tryParse(proteinController.text) ?? 0.0;
-      final c = double.tryParse(carbController.text) ?? 0.0;
-      final f = double.tryParse(fatController.text) ?? 0.0;
+      final p = _parseLocalizedDouble(proteinController.text);
+      final c = _parseLocalizedDouble(carbController.text);
+      final f = _parseLocalizedDouble(fatController.text);
       return (p * 4) + (c * 4) + (f * 9);
     }
 
@@ -2214,7 +2306,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                     TextField(
                       controller: calController,
                       enabled: !autoCalc,
-                      keyboardType: TextInputType.number,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       decoration: const InputDecoration(
                         labelText: 'السعرات',
                         border: OutlineInputBorder(),
@@ -2226,7 +2318,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                         Expanded(
                           child: TextField(
                             controller: proteinController,
-                            keyboardType: TextInputType.number,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(
                               labelText: 'بروتين (غ)',
                               border: OutlineInputBorder(),
@@ -2238,7 +2330,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                         Expanded(
                           child: TextField(
                             controller: carbController,
-                            keyboardType: TextInputType.number,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(
                               labelText: 'كارب (غ)',
                               border: OutlineInputBorder(),
@@ -2250,7 +2342,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                         Expanded(
                           child: TextField(
                             controller: fatController,
-                            keyboardType: TextInputType.number,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(
                               labelText: 'دهون (غ)',
                               border: OutlineInputBorder(),
@@ -2270,13 +2362,13 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                               enteredName.isEmpty ? 'وجبة مخصصة' : enteredName;
 
                           double cal =
-                              double.tryParse(calController.text) ?? 0.0;
+                              _parseLocalizedDouble(calController.text);
                           final double p =
-                              double.tryParse(proteinController.text) ?? 0.0;
+                              _parseLocalizedDouble(proteinController.text);
                           final double c =
-                              double.tryParse(carbController.text) ?? 0.0;
+                              _parseLocalizedDouble(carbController.text);
                           final double f =
-                              double.tryParse(fatController.text) ?? 0.0;
+                              _parseLocalizedDouble(fatController.text);
 
                           if (autoCalc) cal = _calcKcal();
 
@@ -2647,7 +2739,7 @@ if (mounted) Navigator.pop(context);
               final kk = e is Map ? (e['k'] ?? e['cal']) : 0;
               final kNum = (kk is num)
                   ? kk.toDouble()
-                  : double.tryParse('$kk') ?? 0.0;
+                  : _parseLocalizedDouble(kk);
               totalK += kNum;
             }
           } catch (_) {}
@@ -2983,12 +3075,12 @@ IconButton(
               _buildMacrosSection(),
               const SizedBox(height: 14),
 
-              const _SectionHeader(title: 'السجلات', icon: Icons.receipt_long),
+              const _SectionHeader(title: 'السجلات'),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
-                    child: FilledButton.tonalIcon(
+                    child: FilledButton.tonal(
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -2996,13 +3088,12 @@ IconButton(
                               builder: (_) => const CaloriesHistoryScreen()),
                         );
                       },
-                      icon: const Icon(Icons.history),
-                      label: const Text(" سجل السعرات"),
+                      child: const Text('سجل السعرات'),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: FilledButton.tonalIcon(
+                    child: FilledButton.tonal(
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -3010,8 +3101,7 @@ IconButton(
                               builder: (_) => const WaterHistoryPage()),
                         );
                       },
-                      icon: const Icon(Icons.water_drop),
-                      label: const Text('سجل الماء'),
+                      child: const Text('سجل الماء'),
                     ),
                   ),
                 ],
@@ -3062,7 +3152,7 @@ IconButton(
 
   String _fmt(dynamic v) => (v is num)
       ? v.toStringAsFixed(0)
-      : double.tryParse('$v')?.toStringAsFixed(0) ?? '0';
+      : _tryParseLocalizedDouble(v)?.toStringAsFixed(0) ?? '0';
 
   /// قراءة وزن المستخدم (كجم) لاستخدامه في تقدير "كم خطوة لحرق الوجبة".
   /// نحاول عدة مفاتيح لأن التطبيق مرّ بعدة نسخ تخزين.
@@ -3075,7 +3165,7 @@ IconButton(
       double? readAsDouble(dynamic v) {
         if (v == null) return null;
         if (v is num) return v.toDouble();
-        return double.tryParse(v.toString());
+        return _tryParseLocalizedDouble(v);
       }
 
       // أولوية: weight_<uid>
@@ -3441,8 +3531,8 @@ IconButton(
 
 class _SectionHeader extends StatelessWidget {
   final String title;
-  final IconData icon;
-  const _SectionHeader({required this.title, required this.icon});
+  final IconData? icon;
+  const _SectionHeader({required this.title, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -3451,15 +3541,17 @@ class _SectionHeader extends StatelessWidget {
       textDirection: TextDirection.ltr,
       child: Row(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(10),
+          if (icon != null) ...[
+            Container(
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.all(6),
+              child: Icon(icon, size: 16, color: cs.primary),
             ),
-            padding: const EdgeInsets.all(6),
-            child: Icon(icon, size: 16, color: cs.primary),
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
+          ],
           Text(
             title,
             style: Theme.of(context)
@@ -4368,7 +4460,47 @@ final List<Map<String, dynamic>> clarificationsList = (clarRaw is List)
       final fCtrl = TextEditingController(text: fmt0(editedFat));
 
       double? _parseNum(String s) {
-        final v = s.trim().replaceAll(',', '.');
+        var v = s.trim();
+        if (v.isEmpty) return null;
+
+        const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+        const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+        final b = StringBuffer();
+
+        for (var i = 0; i < v.length; i++) {
+          final ch = v[i];
+          final ai = arabicDigits.indexOf(ch);
+          if (ai >= 0) {
+            b.write(ai);
+            continue;
+          }
+          final pi = persianDigits.indexOf(ch);
+          if (pi >= 0) {
+            b.write(pi);
+            continue;
+          }
+          if (ch == '٫' || ch == ',') {
+            b.write('.');
+            continue;
+          }
+          if (ch == '٬' || ch == ' ') {
+            continue;
+          }
+          b.write(ch);
+        }
+
+        v = b.toString();
+        final lastDot = v.lastIndexOf('.');
+        if (lastDot >= 0) {
+          final out = StringBuffer();
+          for (var i = 0; i < v.length; i++) {
+            final ch = v[i];
+            if (ch == '.' && i != lastDot) continue;
+            out.write(ch);
+          }
+          v = out.toString();
+        }
+
         return double.tryParse(v);
       }
 

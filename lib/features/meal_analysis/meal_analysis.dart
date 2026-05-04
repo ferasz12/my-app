@@ -804,7 +804,7 @@ class _PreAnalysisQuestion {
 }
 
 class AnalyzeMeal {
-  /// تفتح شاشة التحليل النصي. عند الضغط على "إضافة للسجل" ترجع Map جاهز
+  /// تفتح شاشة التحليل النصي. عند الضغط على "إضافة الوجبة" ترجع Map جاهز
   /// لنفس صيغة MealTextUI.sheetFromMap في الصفحة الرئيسية.
   static Future<Map<String, dynamic>?> launch(BuildContext context) async {
     return await Navigator.of(context).push<Map<String, dynamic>>(
@@ -1292,45 +1292,121 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
 
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Column(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant),
+          boxShadow: [
+            BoxShadow(
+              color: cs.shadow.withOpacity(0.06),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Text('ملخص الوجبة',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w900)),
+                const Spacer(),
+                Text('🎯 $confText',
+                    style: theme.textTheme.labelLarge
+                        ?.copyWith(fontWeight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            GridView.count(
+              crossAxisCount: 2,
+              childAspectRatio: 2.25,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                _macroTile(title: 'السعرات', emoji: '🔥', valueText: '$cal', unit: 'kcal'),
+                _macroTile(title: 'البروتين', emoji: '🥩', valueText: '$p', unit: 'غ'),
+                _macroTile(title: 'الكارب', emoji: '🍞', valueText: '$c', unit: 'غ'),
+                _macroTile(title: 'الدهون', emoji: '🥑', valueText: '$f', unit: 'غ'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: conf ?? 0,
+                minHeight: 8,
+                backgroundColor: cs.surfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _macroTile({
+    required String title,
+    required String emoji,
+    required String valueText,
+    required String unit,
+  }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Row(
         children: [
-          _macroLine(
-              title: 'السعرات', emoji: '🔥', valueText: '$cal', unit: 'kcal'),
-          Divider(height: 1, color: cs.outlineVariant),
-          _macroLine(
-              title: 'البروتين', emoji: '🥩', valueText: '$p', unit: 'غ'),
-          Divider(height: 1, color: cs.outlineVariant),
-          _macroLine(
-              title: 'الكربوهيدرات', emoji: '🍞', valueText: '$c', unit: 'غ'),
-          Divider(height: 1, color: cs.outlineVariant),
-          _macroLine(title: 'الدهون', emoji: '🥑', valueText: '$f', unit: 'غ'),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Text(
-                'نسبة الثقة',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
+          Text(emoji, style: _emojiStyle(20)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text('🎯', style: _emojiStyle(18)),
-              const Spacer(),
-              Text(
-                confText,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
+                const SizedBox(height: 2),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        valueText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 1),
+                      child: Text(unit, style: theme.textTheme.labelSmall),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: conf ?? 0,
-              minHeight: 10,
-              backgroundColor: cs.surfaceVariant,
+              ],
             ),
           ),
         ],
@@ -1572,6 +1648,24 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
     );
   }
 
+
+  Widget _smallInfoChip(String label, String value) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Text(
+        '$label: $value',
+        style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+
   Widget _buildIngredientsCard() {
     final cs = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
@@ -1599,34 +1693,61 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
               const SizedBox(height: 10),
               ..._breakdown.map((b) {
                 final kcal = b.caloriesKcal.isFinite ? b.caloriesKcal : 0;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
+                final qty = b.quantityLabel.trim().isEmpty
+                    ? (b.grams > 0 ? '${b.grams.toStringAsFixed(0)} جم' : 'حصة تقديرية')
+                    : b.quantityLabel.trim();
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHighest.withOpacity(0.45),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: cs.outlineVariant),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
                               b.nameAr,
-                              style: theme.textTheme.bodyMedium
-                                  ?.copyWith(fontWeight: FontWeight.w800),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyLarge
+                                  ?.copyWith(fontWeight: FontWeight.w900),
                             ),
-                            if (b.confidence > 0)
-                              Text(
-                                'الثقة: ${(b.confidence * 100).toStringAsFixed(0)}%',
-                                style: theme.textTheme.labelSmall
-                                    ?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: cs.primary.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${kcal.toStringAsFixed(0)} kcal',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: cs.primary,
+                                fontWeight: FontWeight.w900,
                               ),
-                          ],
-                        ),
+                            ),
+                          ),
+                        ],
                       ),
-                      Text('${kcal.toStringAsFixed(0)} kcal',
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w900)),
-                      const SizedBox(width: 10),
-                      Text(b.quantityLabel,
-                          style: theme.textTheme.labelLarge),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _smallInfoChip('الكمية', qty),
+                          _smallInfoChip('بروتين', '${b.proteinG.toStringAsFixed(0)}غ'),
+                          _smallInfoChip('كارب', '${b.carbsG.toStringAsFixed(0)}غ'),
+                          _smallInfoChip('دهون', '${b.fatG.toStringAsFixed(0)}غ'),
+                          if (b.confidence > 0)
+                            _smallInfoChip('الثقة', '${(b.confidence * 100).toStringAsFixed(0)}%'),
+                        ],
+                      ),
                     ],
                   ),
                 );
@@ -1683,7 +1804,7 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final hasGoodResult = _result != null && _analysis != null && _analysis!.ok;
 
     return PremiumGate(
       feature: PremiumFeature.aiText,
@@ -1695,101 +1816,129 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
             padding: const EdgeInsets.all(16),
             child: Directionality(
               textDirection: TextDirection.rtl,
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _ctrl,
-                    maxLines: 5,
-                    textDirection: TextDirection.rtl,
-                    textAlign: TextAlign.right,
-                    textInputAction: TextInputAction.newline,
-                    decoration: InputDecoration(
-                      hintText:
-                          'اكتب وصف الوجبة بالتفصيل (الكمية/المكونات/الصَلصات ...)',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _loading ? null : () => _analyze(),
-                      icon: const Icon(Icons.analytics_rounded),
-                      label: const Text('حلّل الوصف'),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (_loading)
-                    const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: CircularProgressIndicator(),
-                    ),
-                  if (_error != null)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.errorContainer,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: cs.error.withOpacity(.25)),
-                      ),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(color: cs.onErrorContainer),
-                      ),
-                    ),
-                  if (_preQuestions.isNotEmpty && _result == null)
-                    _buildPreClarificationCard(),
-                  if (_result != null)
-                    Expanded(
-                      child: ListView(
-                        children: [
-                          if (_analysis != null && _analysis!.ok) ...[
-                            _buildHeaderCard(),
-                            const SizedBox(height: 12),
-                            _buildInlineMacrosCard(),
-                            const SizedBox(height: 12),
-                            _buildIngredientsCard(),
-                            const SizedBox(height: 12),
-                            _buildClarificationsCard(),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: () {
-                                  final payload = _toHomeSheetMap();
-                                  Navigator.of(context).pop(payload);
-                                },
-                                icon: const Icon(Icons.add),
-                                label: const Text('إضافة للسجل'),
-                              ),
-                            ),
-                          ] else ...[
-                            ..._result!.entries.map((e) {
-                              return Card(
-                                elevation: 0.6,
-                                child: ListTile(
-                                  title: Text(
-                                    e.key,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700),
-                                  ),
-                                  subtitle: Text(e.value.toString()),
-                                ),
-                              );
-                            }).toList(),
-                          ],
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+              child: hasGoodResult ? _buildResultBody() : _buildAnalyzeBody(),
             ),
           ),
         ),
+        bottomNavigationBar: hasGoodResult
+            ? SafeArea(
+                minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: FilledButton.icon(
+                  onPressed: () {
+                    final payload = _toHomeSheetMap();
+                    Navigator.of(context).pop(payload);
+                  },
+                  icon: const Icon(Icons.add_circle_rounded),
+                  label: const Text('إضافة الوجبة'),
+                ),
+              )
+            : null,
       ),
+    );
+  }
+
+  Widget _buildAnalyzeBody() {
+    final cs = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        TextField(
+          controller: _ctrl,
+          minLines: 3,
+          maxLines: 4,
+          textDirection: TextDirection.rtl,
+          textAlign: TextAlign.right,
+          textInputAction: TextInputAction.newline,
+          decoration: InputDecoration(
+            hintText: 'اكتب وصف الوجبة بالتفصيل (الكمية/المكونات/الصَلصات ...)',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _loading ? null : () => _analyze(),
+            icon: const Icon(Icons.analytics_rounded),
+            label: const Text('حلّل الوصف'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.all(8),
+            child: CircularProgressIndicator(),
+          ),
+        if (_error != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: cs.errorContainer,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: cs.error.withOpacity(.25)),
+            ),
+            child: Text(
+              _error!,
+              style: TextStyle(color: cs.onErrorContainer),
+            ),
+          ),
+        if (_preQuestions.isNotEmpty && _result == null)
+          _buildPreClarificationCard(),
+        if (_result != null && (_analysis == null || !_analysis!.ok))
+          Expanded(
+            child: ListView(
+              children: _result!.entries.map((e) {
+                return Card(
+                  elevation: 0.6,
+                  child: ListTile(
+                    title: Text(
+                      e.key,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(e.value.toString()),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildResultBody() {
+    return ListView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      children: [
+        _buildHeaderCard(),
+        const SizedBox(height: 12),
+        _buildInlineMacrosCard(),
+        const SizedBox(height: 12),
+        _buildIngredientsCard(),
+        const SizedBox(height: 12),
+        _buildClarificationsCard(),
+        const SizedBox(height: 12),
+        TextButton.icon(
+          onPressed: _loading
+              ? null
+              : () {
+                  setState(() {
+                    _result = null;
+                    _analysis = null;
+                    _breakdown = <_IngredientBreakdown>[];
+                    _clarifications = <_Clarification>[];
+                    _preQuestions = <_PreAnalysisQuestion>[];
+                    _preAnswers.clear();
+                    _error = null;
+                  });
+                },
+          icon: const Icon(Icons.edit_note_rounded),
+          label: const Text('تعديل الوصف أو تحليل وجبة جديدة'),
+        ),
+        const SizedBox(height: 76),
+      ],
     );
   }
 }

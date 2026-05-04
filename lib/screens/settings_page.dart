@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../shared/session_manager.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:in_app_review/in_app_review.dart';
+import '../services/app_review_service.dart';
 
 // Firebase (للحذف الشامل وتسجيل الخروج الحقيقي)
 import 'package:firebase_auth/firebase_auth.dart';
@@ -432,17 +431,11 @@ Future<void> _deleteUserFirestore(String uid) async {
 
   // ======= إجراءات أخرى =======
   Future<void> _rateApp() async {
-    final inAppReview = InAppReview.instance;
-    if (await inAppReview.isAvailable()) {
-      await inAppReview.requestReview();
-    } else {
-      final uri = Uri.parse('https://play.google.com/store/apps/details?id=my.app.id');
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await AppReviewService.openReviewPage();
   }
 
   Future<void> _shareApp() async {
-    await Share.share('حمّل تطبيقنا الآن: https://play.google.com/store/apps/details?id=my.app.id');
+    await AppReviewService.shareApp();
   }
 
   Future<void> _openUrl(String url) async {
