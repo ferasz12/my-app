@@ -4672,6 +4672,8 @@ export const registerLaunchAttendance = onCall(
     region: "europe-west1",
     timeoutSeconds: 20,
     memory: "256MiB",
+    maxInstances: 1,
+    cpu: "gcf_gen1",
     enforceAppCheck: false,
     cors: true,
   },
@@ -5387,6 +5389,8 @@ export const createWebPaymentSession = onRequest(
     secrets: [MOYASAR_PUBLISHABLE_KEY, WEB_PAYMENTS_BASE_URL],
     timeoutSeconds: 30,
     memory: "256MiB",
+    maxInstances: 1,
+    cpu: "gcf_gen1",
   },
   async (req, res) => {
     setWebPaymentsCors(req, res);
@@ -5507,6 +5511,8 @@ export const verifyWebPayment = onRequest(
     secrets: [MOYASAR_SECRET_KEY],
     timeoutSeconds: 45,
     memory: "256MiB",
+    maxInstances: 1,
+    cpu: "gcf_gen1",
   },
   async (req, res) => {
     setWebPaymentsCors(req, res);
@@ -5727,6 +5733,8 @@ export const adminSaveWebCoupon = onRequest(
     region: "europe-west1",
     timeoutSeconds: 30,
     memory: "256MiB",
+    maxInstances: 1,
+    cpu: "gcf_gen1",
   },
   async (req, res) => {
     setWebPaymentsCors(req, res);
@@ -5942,6 +5950,531 @@ export const assertCouponAdminAccess = onRequest(
         return;
       }
       jsonError(res, 500, "تعذر التحقق من صلاحيات الحساب.", "admin_check_failed");
+    }
+  }
+);
+
+// ================== Wazen Owner / Support Enhancements ==================
+type StaffAccess = {
+  uid: string;
+  email: string;
+  role: string;
+  decoded: any;
+};
+
+function normalizeStaffRole(value: any): string {
+  const role = String(value || "").trim().toLowerCase();
+  return ["owner", "admin", "support"].includes(role) ? role : "user";
+}
+
+async function assertStaffAccess(req: any, ownerOnly = false): Promise<StaffAccess> {
+  const decoded = await readFirebaseUserFromBearer(req);
+  const uid = String(decoded.uid || "");
+  let role = WEB_PAYMENT_ADMIN_UIDS.has(uid) ? "owner" : "user";
+  const snap = await db.collection("users").doc(uid).get();
+  const data = snap.exists ? (snap.data() as any) : {};
+  const storedRole = normalizeStaffRole(data?.role || data?.adminRole);
+  if (storedRole !== "user") role = storedRole;
+  if (data?.isOwner === true || data?.owner === true) role = "owner";
+  if (role === "user" && data?.isAdmin === true) role = "admin";
+  const allowed = ["owner", "admin", "support"].includes(role);
+  if (!allowed) throw new Error("not_admin");
+  if (ownerOnly && role !== "owner") throw new Error("owner_only");
+  return {uid, email: String(decoded.email || data?.email || ""), role, decoded};
+}
+
+function isRecentActivity(data: any, windowMs: number): boolean {
+  const d = readDateFromAny(data?.lastSeen || data?.lastActiveAt || data?.lastLoginAt || data?.updatedAt);
+  return !!d && Date.now() - d.getTime() <= windowMs;
+}
+
+async function collectUserFcmTokens(uid: string): Promise<string[]> {
+  const out = new Set<string>();
+  const userRef = db.collection("users").doc(uid);
+  const userSnap = await userRef.get();
+  const user = userSnap.exists ? (userSnap.data() as any) : {};
+  const direct = [
+    user?.fcmToken,
+    user?.fcm_token,
+    user?.deviceToken,
+    user?.pushToken,
+    ...(Array.isArray(user?.fcmTokens) ? user.fcmTokens : []),
+    ...(Array.isArray(user?.deviceTokens) ? user.deviceTokens : []),
+  ];
+  direct.forEach((t) => {
+    const v = String(t || "").trim();
+    if (v.length > 20) out.add(v);
+  });
+  const sub = await userRef.collection("fcmTokens").limit(500).get();
+  sub.docs.forEach((d) => {
+    const x = d.data() as any;
+    const v = String(x?.token || d.id || "").trim();
+    if (v.length > 20) out.add(v);
+  });
+  return Array.from(out).slice(0, 500);
+}
+
+function safeTicketId(value: any): string {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40);
+}
+
+function makePublicTicketId(): string {
+  const a = Date.now().toString(36).toUpperCase();
+  const b = Math.random().toString(36).slice(2, 7).toUpperCase();
+  return `WZ-${a}-${b}`;
+}
+
+function cleanSmallText(value: any, max = 160): string {
+  const raw = String(value || "");
+  let out = "";
+  for (const ch of raw) {
+    const code = ch.charCodeAt(0);
+    out += code < 32 || code === 127 ? " " : ch;
+  }
+  return out.trim().slice(0, max);
+}
+
+function publicTicketPayload(doc: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>) {
+  const t = doc.data() as any;
+  const replies = Array.isArray(t?.replyHistory) ? t.replyHistory.slice(-10).map((r: any) => ({
+    message: cleanSmallText(r?.message, 1200),
+    supportName: cleanSmallText(r?.supportName || r?.supportEmail || "دعم وازن", 90),
+    supportRole: cleanSmallText(r?.supportRole || "support", 40),
+    createdAt: readDateFromAny(r?.createdAt)?.toISOString() || "",
+    status: cleanSmallText(r?.status || "", 40),
+  })) : [];
+  return {
+    id: doc.id,
+    publicTicketId: t?.publicTicketId || doc.id,
+    status: t?.status || "open",
+    statusLabel: t?.publicStatusMessage || "",
+    subject: t?.subject || "",
+    category: t?.category || "other",
+    priority: t?.priority || "normal",
+    message: t?.message || "",
+    adminReply: t?.adminReply || t?.lastPublicMessage || "",
+    handledByName: t?.handledByName || t?.assignedToName || "",
+    handledByEmail: t?.handledByEmail || t?.assignedToEmail || "",
+    closedByName: t?.closedByName || "",
+    closedByEmail: t?.closedByEmail || "",
+    createdAt: readDateFromAny(t?.createdAt)?.toISOString() || "",
+    updatedAt: readDateFromAny(t?.updatedAt || t?.createdAt)?.toISOString() || "",
+    resolvedAt: readDateFromAny(t?.resolvedAt || t?.closedAt)?.toISOString() || "",
+    replies,
+  };
+}
+
+export const ownerDashboardSummary = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 45,
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    try {
+      await assertStaffAccess(req, true);
+      const usersSnap = await db.collection("users").limit(5000).get();
+      const users = usersSnap.docs.map((d) => ({id: d.id, data: d.data() as any}));
+      const active15 = users.filter((u) => isRecentActivity(u.data, 15 * 60 * 1000)).length;
+      const active24h = users.filter((u) => isRecentActivity(u.data, 24 * 60 * 60 * 1000)).length;
+      const premium = users.filter((u) => u.data?.isPremium === true || u.data?.subscription?.active === true).length;
+      const banned = users.filter((u) => u.data?.isBanned === true).length;
+      const staff = users.filter((u) => ["owner", "admin", "support"].includes(normalizeStaffRole(u.data?.role || u.data?.adminRole))).length;
+      const sessionsSnap = await db.collection("web_payment_sessions").orderBy("createdAt", "desc").limit(500).get();
+      const sessions = sessionsSnap.docs.map((d) => d.data() as any);
+      const webPaid = sessions.filter((s) => String(s?.status || "") === "paid");
+      const webRevenue = webPaid.reduce((sum, s) => sum + Number(s?.amount || 0), 0);
+      res.status(200).json({
+        ok: true,
+        users: {
+          total: users.length,
+          activeNow: active15,
+          active24h,
+          premium,
+          banned,
+          staff,
+        },
+        webPayments: {
+          sessions: sessions.length,
+          paid: webPaid.length,
+          revenueHalalas: webRevenue,
+          revenueSar: amountToSar(webRevenue),
+        },
+      });
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "owner_only" || code === "not_admin") {
+        jsonError(res, 403, "هذه العملية للمالك فقط.", "permission_denied");
+        return;
+      }
+      logger.error("ownerDashboardSummary failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر تحميل ملخص المالك.", "summary_failed");
+    }
+  }
+);
+
+export const adminListWebPayments = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 45,
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    try {
+      await assertStaffAccess(req, true);
+      const limit = Math.min(Math.max(Number(req.body?.limit || 200), 1), 500);
+      const snap = await db.collection("web_payment_sessions").orderBy("createdAt", "desc").limit(limit).get();
+      const sessions = snap.docs.map((doc) => {
+        const s = doc.data() as any;
+        return {
+          id: doc.id,
+          sessionId: s?.sessionId || doc.id,
+          uid: s?.uid || "",
+          email: s?.email || "",
+          planId: s?.planId || "",
+          productId: s?.productId || "",
+          status: s?.status || "created",
+          amount: Number(s?.amount || 0),
+          originalAmount: Number(s?.originalAmount || 0),
+          amountSar: amountToSar(Number(s?.amount || 0)),
+          currency: s?.currency || "SAR",
+          couponCode: s?.couponCode || s?.coupon?.code || "",
+          paymentId: s?.paymentId || "",
+          createdAt: readDateFromAny(s?.createdAt)?.toISOString() || "",
+          paidAt: readDateFromAny(s?.paidAt)?.toISOString() || "",
+          subscriptionExpiry: readDateFromAny(s?.subscriptionExpiry)?.toISOString() || "",
+        };
+      });
+      const paid = sessions.filter((s) => s.status === "paid");
+      const uniquePaidUsers = new Set(paid.map((s) => s.uid).filter(Boolean)).size;
+      const revenue = paid.reduce((sum, s) => sum + s.amount, 0);
+      res.status(200).json({
+        ok: true,
+        summary: {
+          totalSessions: sessions.length,
+          paidCount: paid.length,
+          uniquePaidUsers,
+          revenueHalalas: revenue,
+          revenueSar: amountToSar(revenue),
+        },
+        sessions,
+      });
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "owner_only" || code === "not_admin") {
+        jsonError(res, 403, "هذه الصفحة للمالك فقط.", "permission_denied");
+        return;
+      }
+      logger.error("adminListWebPayments failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر جلب اشتراكات صفحة الدفع.", "payments_list_failed");
+    }
+  }
+);
+
+export const adminRevokeUserSubscription = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 30,
+    memory: "256MiB",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+    try {
+      const admin = await assertStaffAccess(req, true);
+      const uid = String(req.body?.uid || "").trim();
+      const reason = cleanSmallText(req.body?.reason || "تم إلغاء صلاحية الاشتراك من لوحة المالك", 260);
+      if (!uid) {
+        jsonError(res, 400, "UID المستخدم مطلوب.", "missing_uid");
+        return;
+      }
+      const now = new Date();
+      const userRef = db.collection("users").doc(uid);
+      await userRef.set({
+        isPremium: false,
+        premium: false,
+        premiumSource: "REVOKED_BY_OWNER",
+        subscriptionExpiry: now,
+        subscription: {
+          active: false,
+          status: "revoked",
+          revokedAt: FieldValue.serverTimestamp(),
+          revokedBy: admin.uid,
+          revokedByEmail: admin.email,
+          revokeReason: reason,
+          expiry: now,
+          expiryMillis: now.getTime(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+      await db.collection("admin_audit_logs").add({
+        action: "revoke_subscription",
+        targetUid: uid,
+        byUid: admin.uid,
+        byEmail: admin.email,
+        role: admin.role,
+        reason,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      await db.collection("notifications").doc(uid).collection("inbox").add({
+        title: "تم تحديث حالة اشتراكك",
+        body: "تم إيقاف صلاحية الاشتراك داخل وازن من الإدارة. إذا تعتقد أن هناك خطأ، تواصل مع الدعم.",
+        type: "subscription_revoked",
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+        fromUid: admin.uid,
+        fromRole: admin.role,
+      });
+      res.status(200).json({ok: true, message: "تم إلغاء صلاحية الاشتراك داخل وازن."});
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "owner_only" || code === "not_admin") {
+        jsonError(res, 403, "إلغاء الاشتراك متاح للمالك فقط.", "permission_denied");
+        return;
+      }
+      logger.error("adminRevokeUserSubscription failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر إلغاء صلاحية الاشتراك.", "revoke_failed");
+    }
+  }
+);
+
+export const adminSendUserPushNotification = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 45,
+    memory: "256MiB",
+    maxInstances: 1,
+    cpu: "gcf_gen1",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+    try {
+      const admin = await assertStaffAccess(req, false);
+      const uid = String(req.body?.uid || "").trim();
+      const title = cleanSmallText(req.body?.title, 90);
+      const body = cleanSmallText(req.body?.body, 900);
+      const deeplink = cleanSmallText(req.body?.deeplink || "/notifications", 180);
+      if (!uid || !title || !body) {
+        jsonError(res, 400, "UID والعنوان والنص مطلوبة.", "missing_fields");
+        return;
+      }
+      const inboxRef = await db.collection("notifications").doc(uid).collection("inbox").add({
+        title,
+        body,
+        deeplink,
+        read: false,
+        type: "admin_push",
+        fromRole: admin.role,
+        fromUid: admin.uid,
+        fromEmail: admin.email,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      const tokens = await collectUserFcmTokens(uid);
+      let successCount = 0;
+      let failureCount = 0;
+      if (tokens.length) {
+        const response = await getMessaging().sendEachForMulticast({
+          tokens,
+          notification: {title, body},
+          data: {
+            type: "admin_push",
+            uid,
+            notificationId: inboxRef.id,
+            deeplink,
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+          android: {
+            priority: "high",
+            notification: {channelId: "wazen_marketing_fcm_v2", sound: "default"},
+          },
+          apns: {
+            payload: {aps: {sound: "default", badge: 1}},
+          },
+        });
+        successCount = response.successCount;
+        failureCount = response.failureCount;
+        const invalidTokens: string[] = [];
+        response.responses.forEach((r, i) => {
+          const code = String((r.error as any)?.code || "");
+          if (!r.success && /registration-token-not-registered|invalid-registration-token/i.test(code)) {
+            invalidTokens.push(tokens[i]);
+          }
+        });
+        await Promise.allSettled(invalidTokens.map((t) => db.collection("users").doc(uid).collection("fcmTokens").doc(t).delete()));
+      }
+      await db.collection("admin_audit_logs").add({
+        action: "send_user_push",
+        targetUid: uid,
+        title,
+        byUid: admin.uid,
+        byEmail: admin.email,
+        role: admin.role,
+        tokenCount: tokens.length,
+        successCount,
+        failureCount,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.status(200).json({
+        ok: true,
+        message: tokens.length ? "تم إرسال الإشعار الفعلي وحفظه داخل التطبيق." : "تم حفظ الإشعار داخل التطبيق، لكن لا توجد توكنات Push لهذا المستخدم.",
+        tokenCount: tokens.length,
+        successCount,
+        failureCount,
+        inboxId: inboxRef.id,
+      });
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "not_admin") {
+        jsonError(res, 403, "الإرسال متاح للمالك أو الدعم فقط.", "permission_denied");
+        return;
+      }
+      logger.error("adminSendUserPushNotification failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر إرسال الإشعار الفعلي.", "push_failed");
+    }
+  }
+);
+
+export const createPublicSupportTicket = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 30,
+    memory: "256MiB",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+    try {
+      if (cleanSmallText(req.body?.company, 120)) {
+        res.status(200).json({ok: true, ignored: true});
+        return;
+      }
+      const email = cleanSmallText(req.body?.email, 140).toLowerCase();
+      const customerName = cleanSmallText(req.body?.customerName || req.body?.name, 90);
+      const subject = cleanSmallText(req.body?.subject, 140);
+      const message = cleanSmallText(req.body?.message, 2400);
+      if (!customerName || !email || !subject || message.length < 12) {
+        jsonError(res, 400, "عبّئ الاسم والبريد والعنوان وتفاصيل المشكلة.", "missing_fields");
+        return;
+      }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        jsonError(res, 400, "البريد الإلكتروني غير صحيح.", "invalid_email");
+        return;
+      }
+      const publicTicketId = makePublicTicketId();
+      const ref = await db.collection("supportTickets").add({
+        publicTicketId,
+        customerName,
+        accountName: cleanSmallText(req.body?.accountName || req.body?.account, 90),
+        email,
+        phone: cleanSmallText(req.body?.phone, 40),
+        category: cleanSmallText(req.body?.category || "other", 60),
+        priority: cleanSmallText(req.body?.priority || "normal", 40),
+        subject,
+        message,
+        status: "open",
+        source: "links_ticket_page",
+        publicStatusMessage: "تم استلام تذكرتك وهي بانتظار فريق الدعم.",
+        adminReply: "",
+        replyHistory: [],
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        handledBy: null,
+        handledByName: "",
+        handledByEmail: "",
+      });
+      res.status(200).json({ok: true, ticketId: ref.id, publicTicketId});
+    } catch (e: any) {
+      logger.error("createPublicSupportTicket failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر إنشاء التذكرة الآن.", "ticket_create_failed");
+    }
+  }
+);
+
+export const getPublicSupportTicket = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 30,
+    memory: "256MiB",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+    try {
+      const publicTicketId = safeTicketId(req.body?.publicTicketId || req.body?.ticketNo);
+      const email = cleanSmallText(req.body?.email, 140).toLowerCase();
+      if (!publicTicketId || !email) {
+        jsonError(res, 400, "اكتب رقم التذكرة والبريد.", "missing_fields");
+        return;
+      }
+      const snap = await db.collection("supportTickets")
+        .where("publicTicketId", "==", publicTicketId)
+        .where("email", "==", email)
+        .limit(1)
+        .get();
+      if (snap.empty) {
+        jsonError(res, 404, "لم نجد تذكرة بهذا الرقم والبريد.", "ticket_not_found");
+        return;
+      }
+      res.status(200).json({ok: true, ticket: publicTicketPayload(snap.docs[0])});
+    } catch (e: any) {
+      logger.error("getPublicSupportTicket failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر تحميل التذكرة.", "ticket_get_failed");
     }
   }
 );

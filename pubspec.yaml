@@ -2,7 +2,7 @@ name: my_app
 description: تطبيق صحي لحساب السعرات والبروتين والكارب والدهون.
 publish_to: 'none'
 
-version: 1.7.0+23
+version: 1.7.0+24
 
 
 environment:
@@ -100,6 +100,9 @@ flutter:
   uses-material-design: true
 
   assets:
+    # ملف إعدادات التطبيق غير السرية (روابط/Region فقط)
+    - .env
+
     # بيانات قديمة/محتوى التطبيق
     - assets/foods.json
     - assets/restaurant_meals_579.csv

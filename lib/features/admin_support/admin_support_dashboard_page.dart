@@ -1,7 +1,10 @@
 // lib/features/admin_support/admin_support_dashboard_page.dart
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 
 import '../../core/auth/roles_service.dart'; // AppRole, RolesService
 import '../announcement/announcement_editor_page.dart';
@@ -1459,15 +1462,63 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
           const SnackBar(content: Text('اكتب عنوان ونص الإشعار')));
       return;
     }
+
     try {
-      await _roles.sendInboxNotification(toUid: widget.uid, title: title, body: body);
+      // مهم: الإرسال القديم كان يكتب فقط داخل Firestore Inbox، لذلك ما كان يوصل Push فعلي.
+      // الآن نستدعي Cloud Function التي ترسل FCM وتحفظ نسخة داخل صندوق المستخدم.
+      final current = FirebaseAuth.instance.currentUser;
+      final idToken = await current?.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('سجّل دخولك مرة أخرى حتى نقدر نرسل الإشعار.');
+      }
+
+      final uri = Uri.parse(
+        'https://europe-west1-wazenfapp.cloudfunctions.net/adminSendUserPushNotification',
+      );
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode({
+          'uid': widget.uid,
+          'title': title,
+          'body': body,
+          'deeplink': '/notifications',
+        }),
+      );
+
+      final raw = response.body.trim();
+      Map<String, dynamic> data = const <String, dynamic>{};
+      if (raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) data = Map<String, dynamic>.from(decoded);
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final msg = (data['message'] ?? data['error'] ?? raw).toString();
+        throw Exception(msg.isEmpty ? 'فشل إرسال الإشعار' : msg);
+      }
+
       if (!mounted) return;
       _notifyTitle.clear();
       _notifyBody.clear();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('تم إرسال الإشعار')));
+
+      final tokenCount = data['tokenCount'] ?? 0;
+      final successCount = data['successCount'] ?? 0;
+      final message = (data['message'] ?? '').toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            message.isNotEmpty
+                ? '$message التوكنات: $tokenCount — الناجحة: $successCount'
+                : 'تم إرسال الإشعار الفعلي. التوكنات: $tokenCount — الناجحة: $successCount',
+          ),
+        ),
+      );
     } catch (e) {
-      _err('خطأ الإشعار', e);
+      _err('خطأ الإشعار الفعلي', e);
     }
   }
 
@@ -1804,7 +1855,7 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
               // ===== الإشعارات =====
               _SheetSection(
                 icon: Icons.notifications_active_rounded,
-                title: 'إشعار داخل التطبيق',
+                title: 'إشعار فعلي للتطبيق',
                 child: Column(
                   children: [
                     TextField(
@@ -1829,7 +1880,7 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
                       child: FilledButton.icon(
                         onPressed: _sendNotification,
                         icon: const Icon(Icons.send_rounded),
-                        label: const Text('إرسال الإشعار'),
+                        label: const Text('إرسال Push فعلي'),
                       ),
                     ),
                   ],
