@@ -40,6 +40,7 @@ class _MyDataPageState extends State<MyDataPage> {
   String macroPlanId = '';
 
   int _lastMacrosUpdatedAtMs = 0;
+  int _lastProfileUpdatedAtMs = 0;
 
   // أهداف يومية
   int waterMlTarget = 2000;
@@ -141,6 +142,46 @@ class _MyDataPageState extends State<MyDataPage> {
     return null;
   }
 
+  static int _timestampToMs(dynamic v) {
+    if (v == null) return 0;
+    if (v is Timestamp) return v.millisecondsSinceEpoch;
+    if (v is DateTime) return v.millisecondsSinceEpoch;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim()) ?? 0;
+    return 0;
+  }
+
+  Future<void> _mirrorCorePrefs(
+    SharedPreferences prefs,
+    String storageKey, {
+    required int stamp,
+  }) async {
+    if (storageKey.trim().isEmpty || storageKey == 'unknown_user') return;
+    await prefs.setString('${_Prefs.gender}_$storageKey', gender);
+    await prefs.setInt('${_Prefs.age}_$storageKey', age);
+    await prefs.setDouble('${_Prefs.height}_$storageKey', height);
+    await prefs.setDouble('${_Prefs.weight}_$storageKey', weight);
+    await prefs.setString('${_Prefs.goal}_$storageKey', goal);
+    await prefs.setBool('${_Prefs.goalFatShred}_$storageKey', goalFatShred);
+    await prefs.setInt('${_Prefs.lifestyleScore}_$storageKey', lifestyleScore);
+    await prefs.setDouble('${_Prefs.caloriesNeeded}_$storageKey', targetCalories);
+    await prefs.setDouble('${_Prefs.maintenanceCalories}_$storageKey', maintenanceCalories);
+    await prefs.setDouble('${_Prefs.protein}_$storageKey', proteinG);
+    await prefs.setDouble('${_Prefs.carbs}_$storageKey', carbsG);
+    await prefs.setDouble('${_Prefs.fat}_$storageKey', fatG);
+    await prefs.setString('macroMode_$storageKey', macroMode);
+    await prefs.setString('macroPlanId_$storageKey', macroPlanId);
+    await prefs.setInt('${_Prefs.waterMlTarget}_$storageKey', waterMlTarget);
+    await prefs.setInt('${_Prefs.stepsTarget}_$storageKey', stepsTarget);
+    await prefs.setDouble('${_Prefs.sleepHoursTarget}_$storageKey', sleepHoursTarget);
+    if (_lastWeightChangeAtMs != null) {
+      await prefs.setInt('${_Prefs.lastWeightChangeAt}_$storageKey', _lastWeightChangeAtMs!);
+    }
+    await prefs.setInt('profileUpdatedAt_$storageKey', stamp);
+    await prefs.setInt('macrosUpdatedAt_$storageKey', stamp);
+  }
+
   /// يسحب أحدث بيانات من users/{uid} ويخزنها في SharedPreferences
   /// عشان تكون الأرقام ثابتة بين الأجهزة (Mac / iPhone / iPad…)
   Future<void> _seedFromCloud(SharedPreferences prefs, String storageKey) async {
@@ -155,6 +196,23 @@ class _MyDataPageState extends State<MyDataPage> {
       final metrics = (data['metrics'] is Map)
           ? Map<String, dynamic>.from(data['metrics'] as Map)
           : <String, dynamic>{};
+
+      final cloudStamp = math.max(
+        _timestampToMs(data['updatedAt']),
+        math.max(
+          _timestampToMs(metrics['updatedAt']),
+          _timestampToMs(metrics['updatedAtMs'] ?? data['profileUpdatedAtMs']),
+        ),
+      );
+      final localStamp = math.max(
+        prefs.getInt('profileUpdatedAt_$storageKey') ?? 0,
+        prefs.getInt('macrosUpdatedAt_$storageKey') ?? 0,
+      );
+
+      // أهم إصلاح: لا تخلي بيانات Firestore القديمة ترجع وتغطي حفظ المستخدم المحلي.
+      // إذا حفظ المستخدم بيانات جديدة ثم رجع للتطبيق، القديم ما راح يرجع يطغى عليه.
+      if (localStamp > 0 && cloudStamp > 0 && cloudStamp < localStamp) return;
+      if (localStamp > 0 && cloudStamp == 0) return;
 
       final lifestyleMap = (data['lifestyle'] is Map)
           ? Map<String, dynamic>.from(data['lifestyle'] as Map)
@@ -242,6 +300,12 @@ class _MyDataPageState extends State<MyDataPage> {
         macroPlanId = cloudMacroPlanId;
         await prefs.setString('macroPlanId_$storageKey', cloudMacroPlanId);
       }
+      if (cloudStamp > 0) {
+        _lastProfileUpdatedAtMs = cloudStamp;
+        _lastMacrosUpdatedAtMs = math.max(_lastMacrosUpdatedAtMs, cloudStamp);
+        await prefs.setInt('profileUpdatedAt_$storageKey', cloudStamp);
+        await prefs.setInt('macrosUpdatedAt_$storageKey', cloudStamp);
+      }
     } catch (e) {
       debugPrint('[MyDataPage] cloud seed skipped: $e');
     }
@@ -254,19 +318,42 @@ class _MyDataPageState extends State<MyDataPage> {
     });
     try {
       final prefs = await SharedPreferences.getInstance();
-      final rawEmail =
-          prefs.getString(_Prefs.currentEmail) ?? _auth.currentUser?.email ?? 'unknown_user';
-      final uid = _auth.currentUser?.uid;
-      final storageKey =
-          (rawEmail == 'unknown_user' || rawEmail.trim().isEmpty) ? (uid ?? rawEmail) : rawEmail;
+      final authEmail = (_auth.currentUser?.email ?? '').trim();
+      final uid = (_auth.currentUser?.uid ?? '').trim();
+      final legacyKey = (prefs.getString(_Prefs.currentEmail) ?? '').trim();
+      final candidates = <String>[authEmail, uid, legacyKey]
+        ..removeWhere((k) => k.trim().isEmpty || k == 'unknown_user');
 
-      // نخلي المفتاح ثابت بين الأجهزة قدر الإمكان
+      bool hasSavedData(String k) {
+        return prefs.getDouble('${_Prefs.height}_$k') != null ||
+            prefs.getDouble('${_Prefs.weight}_$k') != null ||
+            prefs.getDouble('${_Prefs.caloriesNeeded}_$k') != null ||
+            prefs.getString('macroMode_$k') != null;
+      }
+
+      int savedStamp(String k) => math.max(
+            prefs.getInt('profileUpdatedAt_$k') ?? 0,
+            prefs.getInt('macrosUpdatedAt_$k') ?? 0,
+          );
+
+      String storageKey = candidates.isNotEmpty ? candidates.first : 'unknown_user';
+      for (final k in candidates) {
+        final currentHas = hasSavedData(storageKey);
+        final nextStamp = savedStamp(k);
+        final currentStamp = savedStamp(storageKey);
+        if ((!currentHas && hasSavedData(k)) || nextStamp > currentStamp) {
+          storageKey = k;
+        }
+      }
+
+      // نخلي المفتاح ثابت ونحفظ UID كذلك حتى لا تضيع القيم بين تسجيل الدخول/الخروج.
       if (prefs.getString(_Prefs.currentEmail) != storageKey) {
         await prefs.setString(_Prefs.currentEmail, storageKey);
       }
+      if (uid.isNotEmpty) await prefs.setString('currentUid', uid);
 
-      email = storageKey;
-      displayName = _auth.currentUser?.displayName ?? storageKey;
+      email = authEmail.isNotEmpty ? authEmail : storageKey;
+      displayName = _auth.currentUser?.displayName ?? email;
       gender = prefs.getString('${_Prefs.gender}_$storageKey') ?? gender;
       age = prefs.getInt('${_Prefs.age}_$storageKey') ?? age;
       height = prefs.getDouble('${_Prefs.height}_$storageKey') ?? height;
@@ -290,7 +377,7 @@ class _MyDataPageState extends State<MyDataPage> {
           ? MacroPlanEngine.defaultPlanIdForGoal(effectiveGoal)
           : macroPlanId;
 
-      _recalculate(useStoredIfAvailable: true);
+      await _recalculate(useStoredIfAvailable: true);
       setState(() => _loading = false);
     } catch (e) {
       setState(() {
@@ -344,9 +431,9 @@ class _MyDataPageState extends State<MyDataPage> {
     } catch (_) {}
   }
 
-  void _recalculate({bool useStoredIfAvailable = false}) async {
+  Future<void> _recalculate({bool useStoredIfAvailable = false}) async {
     final prefs = await SharedPreferences.getInstance();
-    final activityKey = email ?? prefs.getString(_Prefs.currentEmail) ?? 'unknown_user';
+    final activityKey = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
     final activityFactor = prefs.getDouble('activityFactor_$activityKey') ?? _activityFromScore(lifestyleScore);
 
     maintenanceCalories = calculateCalories(
@@ -420,7 +507,7 @@ class _MyDataPageState extends State<MyDataPage> {
 
     if (useStoredIfAvailable) {
       final prefs = await SharedPreferences.getInstance();
-      final currentEmail = email ?? prefs.getString(_Prefs.currentEmail) ?? 'unknown_user';
+      final currentEmail = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
       targetCalories =
           prefs.getDouble('${_Prefs.caloriesNeeded}_$currentEmail') ?? targetCalories;
       proteinG = prefs.getDouble('${_Prefs.protein}_$currentEmail') ?? proteinG;
@@ -467,9 +554,15 @@ class _MyDataPageState extends State<MyDataPage> {
 
   Future<void> _persistAll() async {
     final prefs = await SharedPreferences.getInstance();
-    final currentEmail = email ?? prefs.getString(_Prefs.currentEmail) ?? 'unknown_user';
+    final currentEmail = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
+    final uid = (_auth.currentUser?.uid ?? '').trim();
+    final authEmail = (_auth.currentUser?.email ?? '').trim();
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    _lastProfileUpdatedAtMs = stamp;
+    _lastMacrosUpdatedAtMs = stamp;
 
     await prefs.setString(_Prefs.currentEmail, currentEmail);
+    if (uid.isNotEmpty) await prefs.setString('currentUid', uid);
     await prefs.setString('${_Prefs.gender}_$currentEmail', gender);
     await prefs.setInt('${_Prefs.age}_$currentEmail', age);
     await prefs.setDouble('${_Prefs.height}_$currentEmail', height);
@@ -485,47 +578,100 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setString('macroMode_$currentEmail', macroMode);
     await prefs.setString('macroPlanId_$currentEmail', macroPlanId);
     // "نبضة" محلية لتحديد الأحدث عند المقارنة مع Firestore
-    await prefs.setInt('macrosUpdatedAt_$currentEmail', DateTime.now().millisecondsSinceEpoch);
+    await prefs.setInt('profileUpdatedAt_$currentEmail', stamp);
+    await prefs.setInt('macrosUpdatedAt_$currentEmail', stamp);
     await prefs.setInt('${_Prefs.waterMlTarget}_$currentEmail', waterMlTarget);
     await prefs.setInt('${_Prefs.stepsTarget}_$currentEmail', stepsTarget);
     await prefs.setDouble('${_Prefs.sleepHoursTarget}_$currentEmail', sleepHoursTarget);
 
+    // مرايا للمفاتيح المهمة: بعض الصفحات تقرأ بالإيميل وبعضها بالـ UID.
+    if (authEmail.isNotEmpty && authEmail != currentEmail) {
+      await _mirrorCorePrefs(prefs, authEmail, stamp: stamp);
+    }
+    if (uid.isNotEmpty && uid != currentEmail) {
+      await _mirrorCorePrefs(prefs, uid, stamp: stamp);
+    }
+
     try {
-      final uid = _auth.currentUser?.uid;
-      if (uid != null) {
+      if (uid.isNotEmpty) {
         // ✅ Legacy root (users/{uid}) هو المصدر الأساسي
         final now = Timestamp.now();
         final activityFactor = prefs.getDouble('activityFactor_$currentEmail') ?? _activityFromScore(lifestyleScore);
 
+        final patch = <String, dynamic>{
+          // ✅ حتى لو تغيّر الاسم من أي مكان، نخليه محفوظ في users/{uid}
+          if ((displayName ?? '').trim().isNotEmpty)
+            'displayName': (displayName ?? '').trim(),
+          'gender': gender,
+          'age': age,
+          'heightCm': height,
+          'height': height,
+          'currentWeightKg': weight,
+          'weightKg': weight,
+          'weight': weight,
+          'goal': goal,
+          'goalType': goal,
+          'profileUpdatedAtMs': stamp,
+          'updatedAt': now,
+          // ✅ نحدّث مفاتيح metrics بدون استبدال كامل الماب
+          'metrics.caloriesNeeded': targetCalories,
+          'metrics.maintenanceCalories': maintenanceCalories,
+          'metrics.protein': proteinG,
+          'metrics.carbs': carbsG,
+          'metrics.fat': fatG,
+          'metrics.lifestyleScore': lifestyleScore,
+          'metrics.activityFactor': activityFactor,
+          'metrics.macroMode': macroMode,
+          'metrics.macroPlanId': macroPlanId,
+          'metrics.updatedAtMs': stamp,
+          if (_lastWeightChangeAtMs != null)
+            'metrics.lastWeightChangeAtMs': _lastWeightChangeAtMs,
+          'metrics.updatedAt': now,
+          'flags.userDataEntered': true,
+          'flags.updatedAt': now,
+        };
+
         await const LegacyUserRepository().updateLegacyUserRoot(
-          patch: {
-            // ✅ حتى لو تغيّر الاسم من أي مكان، نخليه محفوظ في users/{uid}
-            if ((displayName ?? '').trim().isNotEmpty)
-              'displayName': (displayName ?? '').trim(),
-            'gender': gender,
-            'age': age,
-            'heightCm': height,
-            'currentWeightKg': weight,
-            'goal': goal,
-            'goalType': goal,
-            // ✅ نحدّث مفاتيح metrics بدون استبدال كامل الماب
-            'metrics.caloriesNeeded': targetCalories,
-            'metrics.maintenanceCalories': maintenanceCalories,
-            'metrics.protein': proteinG,
-            'metrics.carbs': carbsG,
-            'metrics.fat': fatG,
-            'metrics.lifestyleScore': lifestyleScore,
-            'metrics.activityFactor': activityFactor,
-            'metrics.macroMode': macroMode,
-            'metrics.macroPlanId': macroPlanId,
-            if (_lastWeightChangeAtMs != null)
-              'metrics.lastWeightChangeAtMs': _lastWeightChangeAtMs,
-            'metrics.updatedAt': now,
-            'flags.userDataEntered': true,
-            'flags.updatedAt': now,
-          },
+          patch: patch,
           stepAtLeast: 2,
         );
+
+        // ضمان إضافي مباشر: لو الريبو القديم ما كتب لأي سبب، هذا يحفظ القيم في users/{uid}
+        // بصيغة Map متداخلة حتى لا تُحفظ مفاتيح metrics كنص فيه نقاط.
+        await _db.collection('users').doc(uid).set({
+          if ((displayName ?? '').trim().isNotEmpty)
+            'displayName': (displayName ?? '').trim(),
+          'gender': gender,
+          'age': age,
+          'heightCm': height,
+          'height': height,
+          'currentWeightKg': weight,
+          'weightKg': weight,
+          'weight': weight,
+          'goal': goal,
+          'goalType': goal,
+          'profileUpdatedAtMs': stamp,
+          'updatedAt': now,
+          'metrics': {
+            'caloriesNeeded': targetCalories,
+            'maintenanceCalories': maintenanceCalories,
+            'protein': proteinG,
+            'carbs': carbsG,
+            'fat': fatG,
+            'lifestyleScore': lifestyleScore,
+            'activityFactor': activityFactor,
+            'macroMode': macroMode,
+            'macroPlanId': macroPlanId,
+            'updatedAtMs': stamp,
+            if (_lastWeightChangeAtMs != null)
+              'lastWeightChangeAtMs': _lastWeightChangeAtMs,
+            'updatedAt': now,
+          },
+          'flags': {
+            'userDataEntered': true,
+            'updatedAt': now,
+          },
+        }, SetOptions(merge: true));
 
         // ✅ ضمان انعكاس الاسم/الصورة فورًا في الصفحات اللي تعتمد على users/{uid}
         final profilePatch = <String, dynamic>{};
@@ -535,6 +681,7 @@ class _MyDataPageState extends State<MyDataPage> {
         if (pu.isNotEmpty) profilePatch['photoUrl'] = pu;
         if (profilePatch.isNotEmpty) {
           profilePatch['updatedAt'] = Timestamp.now();
+          profilePatch['profileUpdatedAtMs'] = stamp;
           await _db.collection('users').doc(uid).set(profilePatch, SetOptions(merge: true));
         }
       }
@@ -607,17 +754,21 @@ class _MyDataPageState extends State<MyDataPage> {
                           _Section(
                             title: 'السعرات والماكروز',
                             icon: Icons.local_fire_department_rounded,
-                            action: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                TextButton.icon(
-                                  onPressed: _openSmartMacrosBottomSheet,
-                                  icon: const Icon(Icons.tune_rounded, size: 18),
-                                  label: const Text('تخصيص'),
+                            action: PopupMenuButton<String>(
+                              tooltip: 'إدارة الخطة',
+                              icon: const Icon(Icons.more_horiz_rounded),
+                              onSelected: (v) {
+                                if (v == 'custom') _openSmartMacrosBottomSheet();
+                                if (v == 'targets') _openTargetsBottomSheet();
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'custom',
+                                  child: Text('تخصيص الماكروز'),
                                 ),
-                                TextButton(
-                                  onPressed: _openTargetsBottomSheet,
-                                  child: const Text('خيارات'),
+                                PopupMenuItem(
+                                  value: 'targets',
+                                  child: Text('خيارات الأهداف اليومية'),
                                 ),
                               ],
                             ),
@@ -650,6 +801,12 @@ class _MyDataPageState extends State<MyDataPage> {
                                       emoji: '🥑',
                                     ),
                                   ],
+                                ),
+                                const SizedBox(height: 10),
+                                _PlanActionsBar(
+                                  isCustom: macroMode == MacroPlanEngine.modeCustom,
+                                  onCustom: _openSmartMacrosBottomSheet,
+                                  onTargets: _openTargetsBottomSheet,
                                 ),
                               ],
                             ),
@@ -772,13 +929,13 @@ class _MyDataPageState extends State<MyDataPage> {
               _lastWeightChangeAtMs = now;
               final prefs = await SharedPreferences.getInstance();
               final currentEmail =
-                  email ?? prefs.getString(_Prefs.currentEmail) ?? 'unknown_user';
+                  prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
               await prefs.setInt(
                   '${_Prefs.lastWeightChangeAt}_$currentEmail', _lastWeightChangeAtMs!);
             }
           }
 
-          _recalculate();
+          await _recalculate();
           await _persistAll();
           if (mounted) setState(() {});
         },
@@ -788,264 +945,350 @@ class _MyDataPageState extends State<MyDataPage> {
 
   Future<void> _openSmartMacrosBottomSheet() async {
     final prefs = await SharedPreferences.getInstance();
-    final storageKey = email ?? prefs.getString(_Prefs.currentEmail) ?? 'unknown_user';
+    final storageKey = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
 
-    final kcalCtrl =
-        TextEditingController(text: (targetCalories > 0 ? targetCalories : 0).toStringAsFixed(0));
-    final proCtrl =
-        TextEditingController(text: (proteinG > 0 ? proteinG : 0).toStringAsFixed(0));
-    final fatCtrl =
-        TextEditingController(text: (fatG >= 0 ? fatG : 0).toStringAsFixed(0));
-    final carbCtrl =
-        TextEditingController(text: (carbsG >= 0 ? carbsG : 0).toStringAsFixed(0));
+    final kcalCtrl = TextEditingController(
+      text: (targetCalories > 0 ? targetCalories : 0).toStringAsFixed(0),
+    );
+    final proCtrl = TextEditingController(
+      text: (proteinG > 0 ? proteinG : 0).toStringAsFixed(0),
+    );
+    final fatCtrl = TextEditingController(
+      text: (fatG >= 0 ? fatG : 0).toStringAsFixed(0),
+    );
+    final carbCtrl = TextEditingController(
+      text: (carbsG >= 0 ? carbsG : 0).toStringAsFixed(0),
+    );
 
     bool autoCarbs = true;
     bool internal = false;
+    bool saving = false;
 
-    double _d(String s) => double.tryParse(s.trim()) ?? 0;
+    double readNum(String s) => double.tryParse(s.trim()) ?? 0;
 
-    void _balanceCarbs(StateSetter setModalState) {
-      final kcal = _d(kcalCtrl.text);
-      final p = _d(proCtrl.text);
-      final f = _d(fatCtrl.text);
+    void balanceCarbs(StateSetter setModalState) {
+      final kcal = readNum(kcalCtrl.text);
+      final p = readNum(proCtrl.text);
+      final f = readNum(fatCtrl.text);
       final c = ((kcal - (p * 4) - (f * 9)) / 4);
-      final safeC = c.isFinite ? c : 0;
       internal = true;
-      carbCtrl.text = math.max(0, safeC).round().toString();
+      carbCtrl.text = math.max(0, c.isFinite ? c : 0).round().toString();
       internal = false;
       setModalState(() {});
     }
 
-    void _syncUI(StateSetter setModalState) {
+    void syncUI(StateSetter setModalState) {
       if (!autoCarbs || internal) {
         setModalState(() {});
         return;
       }
-      _balanceCarbs(setModalState);
+      balanceCarbs(setModalState);
     }
 
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         final theme = Theme.of(ctx);
         final cs = theme.colorScheme;
 
+        Widget macroField({
+          required TextEditingController controller,
+          required String label,
+          required String unit,
+          required IconData icon,
+          required ValueChanged<String> onChanged,
+          bool enabled = true,
+        }) {
+          return TextField(
+            enabled: enabled,
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: false),
+            textAlign: TextAlign.right,
+            onChanged: onChanged,
+            decoration: InputDecoration(
+              labelText: label,
+              suffixText: unit,
+              prefixIcon: Icon(icon, size: 20),
+              filled: true,
+              fillColor: cs.surface,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide(color: cs.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: BorderSide(color: cs.primary, width: 1.4),
+              ),
+            ),
+          );
+        }
+
         return StatefulBuilder(builder: (ctx, setModalState) {
-          final kcal = _d(kcalCtrl.text);
-          final p = _d(proCtrl.text);
-          final c = _d(carbCtrl.text);
-          final f = _d(fatCtrl.text);
+          final kcal = readNum(kcalCtrl.text);
+          final p = readNum(proCtrl.text);
+          final c = readNum(carbCtrl.text);
+          final f = readNum(fatCtrl.text);
           final macroKcal = (p * 4) + (c * 4) + (f * 9);
           final diff = kcal - macroKcal;
+          final balanced = diff.abs() < 20;
 
-          return Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(ctx).viewInsets.bottom,
-              left: 14,
-              right: 14,
-              top: 12,
+          return Container(
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.16),
+                  blurRadius: 34,
+                  offset: const Offset(0, -12),
+                ),
+              ],
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.tune_rounded, color: cs.primary),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'تخصيص الماكروز (ذكي)',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                10,
+                16,
+                20 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: cs.outlineVariant,
+                        borderRadius: BorderRadius.circular(99),
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-                Text(
-                  'اكتب القيم بالأرقام. تقدر تخلي “حساب الكارب تلقائيًا” يوازن الكارب عشان يطابق السعرات.',
-                  textAlign: TextAlign.right,
-                  style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                ),
-                const SizedBox(height: 10),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: SwitchListTile.adaptive(
-                        contentPadding: EdgeInsets.zero,
-                        value: autoCarbs,
-                        onChanged: (v) {
-                          setModalState(() => autoCarbs = v);
-                          _syncUI(setModalState);
-                        },
-                        title: const Text('حساب الكارب تلقائيًا'),
-                      ),
-                    ),
-                  ],
-                ),
-
-                TextField(
-                  controller: kcalCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                  textAlign: TextAlign.right,
-                  onChanged: (_) => _syncUI(setModalState),
-                  decoration: InputDecoration(
-                    labelText: 'السعرات (kcal)',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    isDense: true,
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: proCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                        textAlign: TextAlign.right,
-                        onChanged: (_) => _syncUI(setModalState),
-                        decoration: InputDecoration(
-                          labelText: 'بروتين (جم)',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: fatCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                        textAlign: TextAlign.right,
-                        onChanged: (_) => _syncUI(setModalState),
-                        decoration: InputDecoration(
-                          labelText: 'دهون (جم)',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: carbCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                  textAlign: TextAlign.right,
-                  onChanged: (_) => setModalState(() {}),
-                  decoration: InputDecoration(
-                    labelText: 'كارب (جم)',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    isDense: true,
-                    helperText: autoCarbs ? 'يتم حسابه تلقائيًا من السعرات + بروتين + دهون' : null,
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: cs.outlineVariant),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                  const SizedBox(height: 14),
+                  Row(
                     children: [
-                      Text(
-                        'سعرات الماكروز: ${macroKcal.toStringAsFixed(0)} kcal',
-                        textAlign: TextAlign.right,
-                        style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(Icons.tune_rounded, color: cs.primary),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        diff.abs() < 20
-                            ? '✅ متوازن تقريبًا'
-                            : 'الفرق عن الهدف: ${diff.toStringAsFixed(0)} kcal',
-                        textAlign: TextAlign.right,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: diff.abs() < 20 ? cs.primary : cs.onSurfaceVariant,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'تخصيص الماكروز',
+                              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'رتّب سعراتك وبروتينك ودهونك، ووازن يحسب الكارب لك.',
+                              style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        alignment: WrapAlignment.end,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () => _balanceCarbs(setModalState),
-                            icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
-                            label: const Text('وازن الكارب'),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              final newK = macroKcal.isFinite ? macroKcal : 0;
-                              kcalCtrl.text = newK.round().toString();
-                              setModalState(() {});
-                            },
-                            icon: const Icon(Icons.calculate_rounded, size: 18),
-                            label: const Text('اجعل السعرات = الماكروز'),
-                          ),
-                        ],
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        icon: const Icon(Icons.close_rounded),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [
+                          cs.primaryContainer.withOpacity(0.70),
+                          cs.surfaceContainerHighest,
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: cs.outlineVariant.withOpacity(0.55)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('معاينة الخطة', style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 4),
+                              Text('${kcal.toStringAsFixed(0)} سعرة', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 4),
+                              Text(
+                                'P ${p.toStringAsFixed(0)}g • C ${c.toStringAsFixed(0)}g • F ${f.toStringAsFixed(0)}g',
+                                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: balanced ? cs.primary.withOpacity(0.14) : cs.errorContainer.withOpacity(0.60),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            balanced ? 'متوازن' : 'فرق ${diff.toStringAsFixed(0)}',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: balanced ? cs.primary : cs.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHighest.withOpacity(0.70),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: cs.outlineVariant),
+                    ),
+                    child: SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: autoCarbs,
+                      onChanged: (v) {
+                        setModalState(() => autoCarbs = v);
+                        syncUI(setModalState);
+                      },
+                      title: const Text('حساب الكارب تلقائيًا'),
+                      subtitle: const Text('الأفضل عند تحديد السعرات والبروتين والدهون.'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  macroField(
+                    controller: kcalCtrl,
+                    label: 'السعرات اليومية',
+                    unit: 'kcal',
+                    icon: Icons.local_fire_department_rounded,
+                    onChanged: (_) => syncUI(setModalState),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: macroField(
+                          controller: proCtrl,
+                          label: 'البروتين',
+                          unit: 'جم',
+                          icon: Icons.fitness_center_rounded,
+                          onChanged: (_) => syncUI(setModalState),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: macroField(
+                          controller: fatCtrl,
+                          label: 'الدهون',
+                          unit: 'جم',
+                          icon: Icons.spa_rounded,
+                          onChanged: (_) => syncUI(setModalState),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  macroField(
+                    controller: carbCtrl,
+                    label: 'الكارب',
+                    unit: 'جم',
+                    icon: Icons.bakery_dining_rounded,
+                    enabled: !autoCarbs,
+                    onChanged: (_) => setModalState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => balanceCarbs(setModalState),
+                        icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+                        label: const Text('وازن الكارب'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          kcalCtrl.text = macroKcal.isFinite ? macroKcal.round().toString() : '0';
+                          setModalState(() {});
+                        },
+                        icon: const Icon(Icons.calculate_rounded, size: 18),
+                        label: const Text('اجعل السعرات = الماكروز'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 54,
+                    child: FilledButton.icon(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              final kcal = readNum(kcalCtrl.text);
+                              final p = readNum(proCtrl.text);
+                              final c = readNum(carbCtrl.text);
+                              final f = readNum(fatCtrl.text);
 
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: () async {
-                    final kcal = _d(kcalCtrl.text);
-                    final p = _d(proCtrl.text);
-                    final c = _d(carbCtrl.text);
-                    final f = _d(fatCtrl.text);
+                              if (kcal <= 0 || p <= 0 || c < 0 || f < 0) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('تأكد من إدخال قيم صحيحة.')),
+                                );
+                                return;
+                              }
 
-                    if (kcal <= 0 || p <= 0 || c < 0 || f < 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('تأكد من إدخال قيم صحيحة.')),
-                      );
-                      return;
-                    }
+                              setModalState(() => saving = true);
+                              setState(() {
+                                macroMode = MacroPlanEngine.modeCustom;
+                                macroPlanId = 'custom_smart';
+                                targetCalories = kcal;
+                                proteinG = p;
+                                carbsG = c;
+                                fatG = f;
+                              });
 
-                    setState(() {
-                      macroMode = MacroPlanEngine.modeCustom;
-                      macroPlanId = 'custom_smart';
-                      targetCalories = kcal;
-                      proteinG = p;
-                      carbsG = c;
-                      fatG = f;
-                    });
+                              final stamp = DateTime.now().millisecondsSinceEpoch;
+                              await prefs.setDouble('${_Prefs.caloriesNeeded}_$storageKey', kcal);
+                              await prefs.setDouble('${_Prefs.protein}_$storageKey', p);
+                              await prefs.setDouble('${_Prefs.carbs}_$storageKey', c);
+                              await prefs.setDouble('${_Prefs.fat}_$storageKey', f);
+                              await prefs.setString('macroMode_$storageKey', macroMode);
+                              await prefs.setString('macroPlanId_$storageKey', macroPlanId);
+                              await prefs.setInt('profileUpdatedAt_$storageKey', stamp);
+                              await prefs.setInt('macrosUpdatedAt_$storageKey', stamp);
 
-                    // تحديث فوري للتزامن بين الصفحات
-                    await prefs.setDouble('${_Prefs.caloriesNeeded}_$storageKey', kcal);
-                    await prefs.setDouble('${_Prefs.protein}_$storageKey', p);
-                    await prefs.setDouble('${_Prefs.carbs}_$storageKey', c);
-                    await prefs.setDouble('${_Prefs.fat}_$storageKey', f);
-                    await prefs.setString('macroMode_$storageKey', macroMode);
-                    await prefs.setString('macroPlanId_$storageKey', macroPlanId);
-                    await prefs.setInt('macrosUpdatedAt_$storageKey', DateTime.now().millisecondsSinceEpoch);
-
-                    await _persistAll();
-                    if (mounted) {
-                      await _refreshMacrosFromPrefs(force: true);
-                    }
-                    if (Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
-                  },
-                  child: const Text('اعتماد التخصيص'),
-                ),
-                const SizedBox(height: 16),
-              ],
+                              await _persistAll();
+                              if (mounted) await _refreshMacrosFromPrefs(force: true);
+                              if (Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
+                            },
+                      icon: saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.check_rounded),
+                      label: const Text('اعتماد التخصيص'),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         });
@@ -1059,7 +1302,7 @@ class _MyDataPageState extends State<MyDataPage> {
   }
 
 
-Future<void> _openTargetsBottomSheet() async {
+  Future<void> _openTargetsBottomSheet() async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1158,23 +1401,41 @@ class _Section extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Card(
-      color: cs.surfaceContainerHighest,
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: cs.surface,
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.70)),
+        boxShadow: [
+          BoxShadow(
+            color: cs.shadow.withOpacity(0.06),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                Icon(icon ?? Icons.widgets_rounded, color: cs.primary, size: 20),
-                const SizedBox(width: 8),
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withOpacity(0.11),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon ?? Icons.widgets_rounded, color: cs.primary, size: 20),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     title,
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                    textAlign: TextAlign.right,
                   ),
                 ),
                 if (action != null) action!,
@@ -1903,6 +2164,75 @@ class _KcalChip extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
         ),
+      ),
+    );
+  }
+}
+
+
+class _PlanActionsBar extends StatelessWidget {
+  const _PlanActionsBar({
+    required this.isCustom,
+    required this.onCustom,
+    required this.onTargets,
+  });
+
+  final bool isCustom;
+  final VoidCallback onCustom;
+  final VoidCallback onTargets;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.70)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isCustom ? Icons.edit_rounded : Icons.auto_awesome_rounded,
+                color: cs.primary,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isCustom ? 'الخطة الحالية: تخصيص يدوي' : 'الخطة الحالية: تلقائية حسب الهدف',
+                  style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: onCustom,
+                  icon: const Icon(Icons.tune_rounded, size: 18),
+                  label: const Text('تخصيص'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onTargets,
+                  icon: const Icon(Icons.flag_rounded, size: 18),
+                  label: const Text('الأهداف'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
