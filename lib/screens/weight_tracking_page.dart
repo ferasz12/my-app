@@ -1159,10 +1159,11 @@ final dir = await getApplicationDocumentsDirectory();
     final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
 
-    // الأداء: لا ننتظر Firestore أثناء بناء الرسوم حتى لا تعلق صفحة التتبع.
-    unawaited(TrackerStore.syncFromCloud(limit: daysBack + 30));
-    unawaited(WaterStore.syncFromCloud(limit: daysBack + 30));
-    final remoteDays = <Map<String, dynamic>>[];
+    // بعد حذف التطبيق وإعادة تثبيته: رجّع السعرات والماء من Firestore إلى المحلي قبل بناء الرسوم.
+    await TrackerStore.syncFromCloud(limit: daysBack + 30);
+    await WaterStore.syncFromCloud(limit: daysBack + 30);
+    final remoteDays = await AppRepository.readDays(limit: daysBack + 30)
+        .timeout(const Duration(milliseconds: 900), onTimeout: () => <Map<String, dynamic>>[]);
 
     // -------------------------
     // 1) الأوزان (حديث + قديم)
@@ -1898,7 +1899,7 @@ class _CaloriesHistoryScreenState extends State<_CaloriesHistoryScreen> with Wid
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _tick?.cancel();
-    _tick = Timer.periodic(const Duration(seconds: 30), (_) => _load());
+    _tick = Timer.periodic(const Duration(seconds: 5), (_) => _load());
     _load();
     _macrosSub = MacrosLiveBus.listen(_load);
   }
@@ -2636,7 +2637,7 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadWeights();
     _weightSub = WeightLiveBus.stream.listen((_) => _loadWeights());
-    _tick = Timer.periodic(const Duration(seconds: 45), (_) => _loadWeights());
+    _tick = Timer.periodic(const Duration(seconds: 10), (_) => _loadWeights());
   }
 
   @override
@@ -3600,7 +3601,6 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
   late List<_DaySummary> last7 = [];
 
   Timer? _tick;
-  bool _loadAllBusy = false;
 
   // اسم المستخدم للعرض + التقرير
   String _displayName = '';
@@ -3611,7 +3611,7 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadAll();
-    _tick = Timer.periodic(const Duration(seconds: 60), (_) => _loadAll());
+    _tick = Timer.periodic(const Duration(seconds: 10), (_) => _loadAll());
     _auto = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!mounted) return;
       final next = (_idx + 1) % 5; // خمس شرائح
@@ -3629,18 +3629,15 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
   }
 
   Future<void> _loadAll() async {
-    if (_loadAllBusy) return;
-    _loadAllBusy = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
 
     List<Map<String, dynamic>> remoteDays = _cachedRemoteDays;
     if (!_cloudDailyRestoreDone) {
-      // لا نعلّق التبويب على الشبكة؛ المزامنة بالخلفية والقراءة من المحلي فورية.
-      unawaited(TrackerStore.syncFromCloud(limit: 45));
-      unawaited(WaterStore.syncFromCloud(limit: 45));
-      remoteDays = const <Map<String, dynamic>>[];
+      await TrackerStore.syncFromCloud(limit: 45);
+      await WaterStore.syncFromCloud(limit: 45);
+      remoteDays = await AppRepository.readDays(limit: 45)
+          .timeout(const Duration(milliseconds: 900), onTimeout: () => <Map<String, dynamic>>[]);
       _cachedRemoteDays = remoteDays;
       _cloudDailyRestoreDone = true;
     }
@@ -3787,10 +3784,7 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
 
     last7 = tmp;
 
-      if (mounted) setState(() {});
-    } finally {
-      _loadAllBusy = false;
-    }
+    if (mounted) setState(() {});
   }
 
   _CalScore get _calScore {

@@ -6,6 +6,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 
 import '../shared/premium_feature.dart';
 import '../shared/premium_gate.dart';
@@ -2976,6 +2977,7 @@ class _FoodImageWithBox extends StatelessWidget {
   }
 }
 
+
 class _AwaitingClarifierView extends StatelessWidget {
   final String imagePath;
   final VoidCallback onAddNote;
@@ -2997,65 +2999,131 @@ class _AwaitingClarifierView extends StatelessWidget {
       textDirection: TextDirection.rtl,
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: _FoodImageWithBox(
-                  filePath: imagePath,
-                  bbox: null,
-                  height: 320,
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: cs.surface.withOpacity(.94),
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: cs.primary.withOpacity(.14)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(.06),
+                      blurRadius: 28,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(22),
+                          child: _FoodImageWithBox(
+                            filePath: imagePath,
+                            bbox: null,
+                            height: 332,
+                          ),
+                        ),
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(.42),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                  color: Colors.white.withOpacity(.14)),
+                            ),
+                            child: const Text(
+                              'جاهز للتحليل',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'قبل التحليل',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'إذا تبغى ترفع دقة التحليل أكثر، أضف ملاحظة قصيرة مثل الكمية أو نوع المكونات. وإذا ما تحتاج، اضغط تحليل مباشرة.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            height: 1.5,
+                          ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: const [
+                        _PrepHintChip(label: 'مثال: 200 جم'),
+                        _PrepHintChip(label: 'مثال: بدون سكر'),
+                        _PrepHintChip(label: 'مثال: خبز بر'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: onAddNote,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              side: BorderSide(
+                                  color: cs.primary.withOpacity(.25)),
+                            ),
+                            child: const Text(
+                              'أضف توضيح',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: onAnalyze,
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: const Text(
+                              'تحليل',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              Text(
-                'توضيح اختياري لتحسين الدقة',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'إذا كانت الصورة غير واضحة أو تحب تحدد تفاصيل (مثلاً: بدون سكر / دايت / كمية معينة)، اضغط "أضف توضيح".',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: cs.onSurface.withOpacity(.8), height: 1.4),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: onAddNote,
-                      icon: const Icon(Icons.edit_note),
-                      label: const Text('أضف توضيح'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: onAnalyze,
-                      icon: const Icon(Icons.analytics_outlined),
-                      label: const Text('تحليل'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               TextButton(
                 onPressed: onClose,
                 child: const Text('إغلاق'),
@@ -3063,6 +3131,31 @@ class _AwaitingClarifierView extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PrepHintChip extends StatelessWidget {
+  final String label;
+  const _PrepHintChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(.25),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.28)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: cs.onSurfaceVariant,
+            ),
       ),
     );
   }
@@ -3090,7 +3183,7 @@ class _UsageBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'المتبقي اليوم: $used / $limit مرات',
+              'المتبقي اليوم: $left / $limit مرات',
               style: const TextStyle(fontWeight: FontWeight.w700),
               overflow: TextOverflow.ellipsis,
             ),
@@ -3100,7 +3193,6 @@ class _UsageBanner extends StatelessWidget {
     );
   }
 }
-
 
 class _AnalyzingView extends StatefulWidget {
   final String imagePath;
@@ -3114,13 +3206,21 @@ class _AnalyzingViewState extends State<_AnalyzingView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
+  static const List<String> _scanSteps = [
+    'جاري قراءة الصورة بدقة',
+    'جاري تحديد الطبق الرئيسي',
+    'جاري استخراج المكونات',
+    'جاري تقدير الأوزان والقرامات',
+    'جاري حساب السعرات والماكروز',
+  ];
+
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1350),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 2200),
+    )..repeat();
   }
 
   @override
@@ -3141,9 +3241,9 @@ class _AnalyzingViewState extends State<_AnalyzingView>
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: cs.surface.withOpacity(.92),
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: cs.primary.withOpacity(.18)),
+              color: cs.surface.withOpacity(.94),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: cs.primary.withOpacity(.16)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(.07),
@@ -3152,134 +3252,330 @@ class _AnalyzingViewState extends State<_AnalyzingView>
                 ),
               ],
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: SizedBox(
-                    height: 260,
-                    width: double.infinity,
-                    child: LayoutBuilder(
-                      builder: (context, box) {
-                        return Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.file(
-                              File(widget.imagePath),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                color: cs.surfaceContainerHighest,
-                                child: Icon(
-                                  Icons.image_not_supported_outlined,
-                                  color: cs.onSurfaceVariant,
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) {
+                final progress = _controller.value;
+                final lineY = progress;
+                final pulse = 0.92 + (math.sin(progress * math.pi * 2) * 0.08);
+                final activeIndex =
+                    ((progress * _scanSteps.length).floor()) % _scanSteps.length;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: SizedBox(
+                        height: 285,
+                        width: double.infinity,
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            final y = (box.maxHeight - 46) * lineY;
+                            return Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.file(
+                                  File(widget.imagePath),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: cs.surfaceContainerHighest,
+                                    child: Icon(
+                                      Icons.image_not_supported_outlined,
+                                      color: cs.onSurfaceVariant,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            Container(color: Colors.black.withOpacity(.16)),
-                            AnimatedBuilder(
-                              animation: _controller,
-                              builder: (context, _) {
-                                final y = (_controller.value *
-                                        (box.maxHeight - 34))
-                                    .clamp(0.0, box.maxHeight);
-                                return Positioned(
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.black.withOpacity(.12),
+                                        Colors.black.withOpacity(.24),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                // corner guides
+                                const Positioned(top: 14, right: 14, child: _ScanCorner(top: true, right: true)),
+                                const Positioned(top: 14, left: 14, child: _ScanCorner(top: true, right: false)),
+                                const Positioned(bottom: 14, right: 14, child: _ScanCorner(top: false, right: true)),
+                                const Positioned(bottom: 14, left: 14, child: _ScanCorner(top: false, right: false)),
+                                Positioned(
+                                  top: y,
                                   left: 0,
                                   right: 0,
-                                  top: y,
                                   child: Container(
-                                    height: 34,
+                                    height: 46,
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
                                         begin: Alignment.topCenter,
                                         end: Alignment.bottomCenter,
                                         colors: [
-                                          cs.primary.withOpacity(0.00),
-                                          cs.primary.withOpacity(0.30),
-                                          cs.primary.withOpacity(0.00),
+                                          cs.primary.withOpacity(0.0),
+                                          cs.primary.withOpacity(.14),
+                                          cs.primary.withOpacity(.36),
+                                          cs.primary.withOpacity(.10),
+                                          cs.primary.withOpacity(0.0),
                                         ],
                                       ),
                                     ),
                                     child: Center(
                                       child: Container(
-                                        height: 3,
-                                        margin: const EdgeInsets.symmetric(
-                                            horizontal: 16),
+                                        height: 3.4,
+                                        margin: const EdgeInsets.symmetric(horizontal: 16),
                                         decoration: BoxDecoration(
                                           color: cs.primary,
-                                          borderRadius:
-                                              BorderRadius.circular(999),
+                                          borderRadius: BorderRadius.circular(999),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: cs.primary.withOpacity(.7),
-                                              blurRadius: 16,
-                                              spreadRadius: 1,
+                                              color: cs.primary.withOpacity(.85),
+                                              blurRadius: 18,
+                                              spreadRadius: 1.2,
                                             ),
                                           ],
                                         ),
                                       ),
                                     ),
                                   ),
-                                );
-                              },
-                            ),
-                            Positioned(
-                              right: 14,
-                              left: 14,
-                              bottom: 14,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(.40),
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                      color: Colors.white.withOpacity(.16)),
                                 ),
-                                child: const Text(
-                                  'جاري فحص الصورة والمكونات…',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800,
+                                Positioned(
+                                  right: 14,
+                                  left: 14,
+                                  bottom: 14,
+                                  child: Transform.scale(
+                                    scale: pulse,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 11),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(.42),
+                                        borderRadius: BorderRadius.circular(18),
+                                        border: Border.all(
+                                          color: Colors.white.withOpacity(.18),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Text(
+                                            'جاري التحليل الآن',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 13.5,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _scanSteps[activeIndex],
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: Colors.white.withOpacity(.92),
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
+                              ],
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  'اصبر علينا بس شوي',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
+                    const SizedBox(height: 18),
+                    Text(
+                      'وازن يفحص الوجبة خطوة بخطوة',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'جاري التعرف على الطبق، استخراج المكونات، تقدير الأوزان، ثم حساب الماكروز بشكل أدق.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            height: 1.45,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AnalyzeMiniStatusCard(
+                            title: 'التعرّف',
+                            subtitle: activeIndex >= 1 ? 'تم البدء' : 'تهيئة',
+                            active: activeIndex >= 0,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _AnalyzeMiniStatusCard(
+                            title: 'المكونات',
+                            subtitle: activeIndex >= 2 ? 'قيد الفحص' : 'انتظار',
+                            active: activeIndex >= 2,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _AnalyzeMiniStatusCard(
+                            title: 'القرامات',
+                            subtitle: activeIndex >= 3 ? 'جاري التقدير' : 'انتظار',
+                            active: activeIndex >= 3,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _AnalyzeMiniStatusCard(
+                            title: 'الماكروز',
+                            subtitle: activeIndex >= 4 ? 'الحساب جارٍ' : 'انتظار',
+                            active: activeIndex >= 4,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: 0.25 + (progress * 0.70),
+                        minHeight: 9,
+                        backgroundColor: cs.surfaceVariant.withOpacity(.45),
                       ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'وازن يحلل وجبتك ويقدّر المكونات والقرامات والماكروز.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: cs.onSurfaceVariant,
-                        height: 1.45,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 18),
-                LinearProgressIndicator(
-                  minHeight: 8,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ],
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
       ),
     );
+  }
+}
+
+class _AnalyzeMiniStatusCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool active;
+
+  const _AnalyzeMiniStatusCard({
+    required this.title,
+    required this.subtitle,
+    required this.active,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(
+        color: active
+            ? cs.primary.withOpacity(.10)
+            : cs.surfaceVariant.withOpacity(.22),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: active
+              ? cs.primary.withOpacity(.18)
+              : cs.outlineVariant.withOpacity(.18),
+        ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: active ? cs.primary : cs.outlineVariant,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11.8, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10.2,
+              height: 1.2,
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScanCorner extends StatelessWidget {
+  final bool top;
+  final bool right;
+  const _ScanCorner({required this.top, required this.right});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 28,
+      height: 28,
+      child: CustomPaint(
+        painter: _ScanCornerPainter(
+          top: top,
+          right: right,
+          color: Theme.of(context).colorScheme.primary.withOpacity(.95),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScanCornerPainter extends CustomPainter {
+  final bool top;
+  final bool right;
+  final Color color;
+  _ScanCornerPainter({required this.top, required this.right, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final path = Path();
+    final x0 = right ? size.width : 0.0;
+    final x1 = right ? size.width - 12 : 12.0;
+    final y0 = top ? 0.0 : size.height;
+    final y1 = top ? 12.0 : size.height - 12;
+    path.moveTo(x0, y1);
+    path.lineTo(x0, y0);
+    path.lineTo(x1, y0);
+    canvas.drawPath(path, p);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScanCornerPainter oldDelegate) {
+    return oldDelegate.top != top ||
+        oldDelegate.right != right ||
+        oldDelegate.color != color;
   }
 }
 

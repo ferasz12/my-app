@@ -15,6 +15,7 @@ class CaloriesHistoryScreen extends StatefulWidget {
 class _CaloriesHistoryScreenState extends State<CaloriesHistoryScreen> {
   List<Map<String, dynamic>> _history = [];
   bool _loading = true;
+  bool _backgroundRefreshing = false;
 
   @override
   void initState() {
@@ -25,9 +26,10 @@ class _CaloriesHistoryScreenState extends State<CaloriesHistoryScreen> {
   // helper: yyyy-mm-dd (محلي)
   String _ymd(DateTime d) => d.toIso8601String().split('T').first;
 
-  Future<void> _loadHistory() async {
-    setState(() => _loading = true);
+  Future<void> _loadHistory({bool showLoader = true}) async {
+    if (showLoader && mounted) setState(() => _loading = true);
     try {
+      // قراءة محلية فقط وسريعة؛ السحابة تتزامن بالخلفية داخل TrackerStore.
       final data = await TrackerStore.getAllDays();
 
       // ترتيب من الأحدث إلى الأقدم
@@ -59,16 +61,26 @@ class _CaloriesHistoryScreenState extends State<CaloriesHistoryScreen> {
         const SnackBar(content: Text('حدث خطأ أثناء تحميل سجلّ السعرات')),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && showLoader) setState(() => _loading = false);
     }
   }
 
-  Future<void> _refresh() async => _loadHistory();
+  Future<void> _refresh() async {
+    if (_backgroundRefreshing) return;
+    setState(() => _backgroundRefreshing = true);
+    try {
+      await TrackerStore.syncFromCloud(limit: 90, force: true)
+          .timeout(const Duration(seconds: 7), onTimeout: () {});
+      await _loadHistory(showLoader: false);
+    } finally {
+      if (mounted) setState(() => _backgroundRefreshing = false);
+    }
+  }
 
   Future<void> _deleteDay(String date) async {
     try {
       await TrackerStore.clearDay(date);
-      await _loadHistory();
+      await _loadHistory(showLoader: false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم حذف يوم $date')));
     } catch (e) {

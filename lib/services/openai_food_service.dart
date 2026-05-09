@@ -29,6 +29,50 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 
+Uint8List? _resizeFoodImageWorker(Map<String, dynamic> args) {
+  try {
+    final input = args['bytes'] as Uint8List;
+    final maxEdge = args['maxEdge'] as int;
+    final quality = args['quality'] as int;
+    final centerCropSquare = args['centerCropSquare'] == true;
+
+    final decoded = img.decodeImage(input);
+    if (decoded == null) return null;
+
+    img.Image working = decoded;
+    if (centerCropSquare) {
+      final w0 = working.width;
+      final h0 = working.height;
+      final side = w0 < h0 ? w0 : h0;
+      final cropSide = ((side * 0.94).round().clamp(1, side)).toInt();
+      final x0 = (((w0 - cropSide) / 2).round().clamp(0, w0 - cropSide)).toInt();
+      final y0 = (((h0 - cropSide) / 2).round().clamp(0, h0 - cropSide)).toInt();
+      working = img.copyCrop(working, x: x0, y: y0, width: cropSide, height: cropSide);
+    }
+
+    final w = working.width;
+    final h = working.height;
+    final maxWH = w > h ? w : h;
+    if (maxWH <= maxEdge) {
+      return Uint8List.fromList(img.encodeJpg(working, quality: quality));
+    }
+
+    final scale = maxEdge / maxWH;
+    final nw = ((w * scale).round().clamp(1, 100000)).toInt();
+    final nh = ((h * scale).round().clamp(1, 100000)).toInt();
+    final resized = img.copyResize(
+      working,
+      width: nw,
+      height: nh,
+      interpolation: img.Interpolation.average,
+    );
+    return Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+  } catch (_) {
+    return null;
+  }
+}
+
+
 // خطأ واضح لحدود الاستخدام اليومية (Quota)
 class DailyLimitExceeded implements Exception {
   final String message;
@@ -2046,45 +2090,21 @@ final List<Map<String, dynamic>>? items =
     int quality = 90,
     bool centerCropSquare = false
   }) async {
+    final args = <String, dynamic>{
+      'bytes': input,
+      'maxEdge': maxEdge,
+      'quality': quality,
+      'centerCropSquare': centerCropSquare,
+    };
+
     try {
-      final decoded = img.decodeImage(input);
-      if (decoded == null) return null;
-
-      img.Image working = decoded;
-
-      // قصّ مركزي مربع لتقليل الخلفية وتحسين التعرف (يقلل أخطاء مثل شاورما ⇐⇒ بيتزا)
-      if (centerCropSquare) {
-        final w0 = working.width;
-        final h0 = working.height;
-        final side = w0 < h0 ? w0 : h0;
-        final cropSide = (side * 0.94).round().clamp(1, side);
-        final x0 = ((w0 - cropSide) / 2).round().clamp(0, w0 - cropSide);
-        final y0 = ((h0 - cropSide) / 2).round().clamp(0, h0 - cropSide);
-        working = img.copyCrop(working, x: x0, y: y0, width: cropSide, height: cropSide);
+      // أهم إصلاح للسلاسة: فك/تصغير/ضغط الصورة يتم في isolate خارج UI thread.
+      if (!kIsWeb) {
+        return await compute(_resizeFoodImageWorker, args);
       }
-
-      final w = working.width;
-      final h = working.height;
-      final maxWH = w > h ? w : h;
-
-      if (maxWH <= maxEdge) {
-        // حتى لو كانت أصغر، نعيد ترميز JPEG لتحسين الحجم/الضغط
-        return Uint8List.fromList(img.encodeJpg(working, quality: quality));
-      }
-
-      final scale = maxEdge / maxWH;
-      final nw = (w * scale).round().clamp(1, 100000);
-      final nh = (h * scale).round().clamp(1, 100000);
-
-      final resized = img.copyResize(
-        working,
-        width: nw,
-        height: nh,
-        interpolation: img.Interpolation.average,
-      );
-      return Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+      return _resizeFoodImageWorker(args);
     } catch (_) {
-      return null;
+      return _resizeFoodImageWorker(args);
     }
   }
 

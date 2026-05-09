@@ -7,8 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/app_repository.dart';
 
 class TrackerStore {
-
-  static bool _cloudSyncRunning = false;
+  static bool _cloudSyncInProgress = false;
   static DateTime? _lastCloudSyncAt;
   /// تنسيق التاريخ: YYYY-MM-DD
   static String _todayKey() {
@@ -102,13 +101,11 @@ class TrackerStore {
     );
 
     if (mirrorCloud) {
-      unawaited(
-        AppRepository.writeEntriesAndTotals(
-          ymd: date,
-          entries: entries ?? const <Map<String, dynamic>>[],
-          totals: {'k': cal, 'p': protein, 'c': carb, 'f': fat},
-        ).catchError((_) {}),
-      );
+      unawaited(AppRepository.writeEntriesAndTotals(
+        ymd: date,
+        entries: entries ?? const <Map<String, dynamic>>[],
+        totals: {'k': cal, 'p': protein, 'c': carb, 'f': fat},
+      ).catchError((_) {}));
     }
   }
 
@@ -160,16 +157,34 @@ class TrackerStore {
   }
 
   /// مزامنة أيام السجل من Firestore إلى SharedPreferences بعد إعادة تثبيت التطبيق.
-  static Future<void> syncFromCloud({int limit = 370}) async {
-    if (_cloudSyncRunning) return;
+  /// افتراضيًا لا نوقف الواجهة: نشغل المزامنة في الخلفية ونرجع فورًا.
+  static Future<void> syncFromCloud({int limit = 60, bool force = false}) async {
+    if (!force) {
+      _scheduleCloudSync(limit: limit);
+      return;
+    }
+    await _syncFromCloudNow(limit: limit, force: true);
+  }
+
+  static void _scheduleCloudSync({int limit = 60}) {
+    final now = DateTime.now();
+    if (_cloudSyncInProgress) return;
+    final last = _lastCloudSyncAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 5)) return;
+    unawaited(_syncFromCloudNow(limit: limit).catchError((_) {}));
+  }
+
+  static Future<void> _syncFromCloudNow({int limit = 60, bool force = false}) async {
+    if (_cloudSyncInProgress) return;
     final now = DateTime.now();
     final last = _lastCloudSyncAt;
-    if (last != null && now.difference(last) < const Duration(minutes: 2)) return;
-    _cloudSyncRunning = true;
+    if (!force && last != null && now.difference(last) < const Duration(minutes: 5)) return;
+
+    _cloudSyncInProgress = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final email = await _email();
-      final days = await AppRepository.readDays(limit: limit);
+      final days = await AppRepository.readDays(limit: (limit.clamp(15, 120)).toInt());
       for (final d in days) {
         final ymd = (d['date'] ?? '').toString();
         if (ymd.isEmpty) continue;
@@ -200,8 +215,9 @@ class TrackerStore {
       }
       _lastCloudSyncAt = DateTime.now();
     } catch (_) {
+      // لا نكسر الواجهة بسبب الشبكة
     } finally {
-      _cloudSyncRunning = false;
+      _cloudSyncInProgress = false;
     }
   }
 
@@ -263,9 +279,6 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
 
-    // لا ننتظر Firestore هنا؛ سجل السعرات يفتح بسرعة من المحلي، والمزامنة بالخلفية.
-    unawaited(syncFromCloud(limit: 90));
-
     final byDate = <String, Map<String, dynamic>>{};
 
     // 1) اقرأ المجاميع النهائية الحديثة kcal_daytotals_email_yyyy-mm-dd
@@ -301,6 +314,7 @@ class TrackerStore {
           _toD(m['fat']) > 0;
     }).toList();
     list.sort((a, b) => (b['date'] as String).compareTo(a['date'] as String));
+    _scheduleCloudSync(limit: 60);
     return list;
   }
 

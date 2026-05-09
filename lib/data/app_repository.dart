@@ -28,27 +28,18 @@ class AppRepository {
     return _userDoc().collection('days').doc(ymd);
   }
 
-  static bool _metaWriteQueued = false;
-
   static Future<void> _ensureUserMeta() async {
-    // لا نخلي كل عملية يومية تنتظر كتابة وثيقة المستخدم؛ هذا كان يسبب بطء ملحوظ.
-    // نحاول نكتبها مرة واحدة بالخلفية، وفشلها لا يمنع حفظ بيانات اليوم.
-    if (_metaWriteQueued) return;
-    _metaWriteQueued = true;
+    // تأكد أن وثيقة المستخدم موجودة (merge)
     final user = FirebaseAuth.instance.currentUser;
-    try {
-      await _userDoc().set({
-        'uid': _requireUid(),
-        'email': user?.email,
-        'updatedAt': Timestamp.now(),
-      }, SetOptions(merge: true)).timeout(const Duration(seconds: 3));
-    } catch (_) {
-      _metaWriteQueued = false;
-    }
+    await _userDoc().set({
+      'uid': _requireUid(),
+      'email': user?.email,
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
   }
 
-  static void _ensureUserMetaSoon() {
-    unawaited(_ensureUserMeta());
+  static void _touchUserMetaInBackground() {
+    unawaited(_ensureUserMeta().catchError((_) {}));
   }
 
   static double _toD(dynamic v) => (v is num) ? v.toDouble() : 0.0;
@@ -59,7 +50,7 @@ class AppRepository {
     required int steps,
     required int burned,
   }) async {
-    _ensureUserMetaSoon();
+    _touchUserMetaInBackground();
     await _dayDoc(ymd).set({
       'activity': {
         'steps': steps,
@@ -74,7 +65,7 @@ class AppRepository {
     required String ymd,
     required double liters,
   }) async {
-    _ensureUserMetaSoon();
+    _touchUserMetaInBackground();
     await _dayDoc(ymd).set({
       'water': {
         'liters': liters,
@@ -88,7 +79,7 @@ class AppRepository {
     required String ymd,
     required List<Map<String, dynamic>> meals,
   }) async {
-    _ensureUserMetaSoon();
+    _touchUserMetaInBackground();
     await _dayDoc(ymd).set({
       'meals': meals,
       'mealsUpdatedAt': Timestamp.now(),
@@ -102,7 +93,7 @@ class AppRepository {
     required List<Map<String, dynamic>> entries,
     required Map<String, dynamic> totals, // {k,p,c,f}
   }) async {
-    _ensureUserMetaSoon();
+    _touchUserMetaInBackground();
     await _dayDoc(ymd).set({
       'intake': {
         'entries': entries,
@@ -123,7 +114,7 @@ class AppRepository {
     required String ymd,
     required List<Map<String, dynamic>> pending, // [{id,points,message}]
   }) async {
-    _ensureUserMetaSoon();
+    _touchUserMetaInBackground();
     await _dayDoc(ymd).set({
       'rewards': {
         'pending': pending,
@@ -141,7 +132,7 @@ class AppRepository {
     required bool claimed,
     required int awardedPoints,
   }) async {
-    _ensureUserMetaSoon();
+    _touchUserMetaInBackground();
     final dayRef = _dayDoc(ymd);
     final userRef = _userDoc();
 
@@ -193,7 +184,7 @@ class AppRepository {
     try {
       final snap = await _dayDoc(ymd)
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 6));
       final data = snap.data();
       if (data == null) return null;
       return _normalizeDayData(ymd, data);
@@ -202,12 +193,15 @@ class AppRepository {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> readDays({int limit = 370}) async {
+  static Future<List<Map<String, dynamic>>> readDays({int limit = 90}) async {
     try {
-      final q = _userDoc().collection('days').limit(limit);
+      final q = _userDoc()
+          .collection('days')
+          .orderBy(FieldPath.documentId, descending: true)
+          .limit(limit);
       final snap = await q
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 6));
       final days = <Map<String, dynamic>>[];
       for (final d in snap.docs) {
         days.add(_normalizeDayData(d.id, d.data()));
@@ -267,7 +261,7 @@ class AppRepository {
 
   static Future<void> clearDayIntake({required String ymd}) async {
     try {
-      await _ensureUserMeta();
+      _touchUserMetaInBackground();
       await _dayDoc(ymd).set({
         'intake': {
           'entries': [],
@@ -287,7 +281,7 @@ class AppRepository {
     required double kg,
   }) async {
     if (kg <= 0) return;
-    _ensureUserMetaSoon();
+    _touchUserMetaInBackground();
     await _dayDoc(ymd).set({
       'tracking': {
         'weightKg': kg,
@@ -301,7 +295,7 @@ class AppRepository {
     }, SetOptions(merge: true));
   }
 
-  static Future<Map<String, double>> readWeightLogs({int limit = 370}) async {
+  static Future<Map<String, double>> readWeightLogs({int limit = 120}) async {
     final out = <String, double>{};
     try {
       final days = await readDays(limit: limit);
@@ -315,7 +309,7 @@ class AppRepository {
       // fallback: لو المستخدم عنده وزن محفوظ في جذر وثيقة المستخدم فقط
       final root = await _userDoc()
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 6));
       final data = root.data() ?? <String, dynamic>{};
       final rootKg = _toD(data['currentWeightKg']);
       if (rootKg > 0) {
