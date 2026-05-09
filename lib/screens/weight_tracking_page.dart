@@ -25,6 +25,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ✅ المصدر الموحّد لاستهلاك اليوم (كما في الصفحة الرئيسية)
 import '../services/tracker_store.dart';
+import '../water/water_store.dart';
+import '../data/app_repository.dart';
 
 
 // ==== Global helpers for insights ====
@@ -541,6 +543,11 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
   // اسم المستخدم للعرض + التقرير
   String _displayName = '';
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userNameSub;
+
+  // كاش استرجاع بيانات الأيام من السحابة لهذه التبويبة.
+  // كان موجود في تبويبة سجل السعرات فقط، لذلك صار الخطأ عند البناء.
+  bool _cloudDailyRestoreDone = false;
+  List<Map<String, dynamic>> _cachedRemoteDays = const <Map<String, dynamic>>[];
 
   @override
   void initState() {
@@ -1152,6 +1159,11 @@ final dir = await getApplicationDocumentsDirectory();
     final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
 
+    // بعد حذف التطبيق وإعادة تثبيته: رجّع السعرات والماء من Firestore إلى المحلي قبل بناء الرسوم.
+    await TrackerStore.syncFromCloud(limit: daysBack + 30);
+    await WaterStore.syncFromCloud(limit: daysBack + 30);
+    final remoteDays = await AppRepository.readDays(limit: daysBack + 30);
+
     // -------------------------
     // 1) الأوزان (حديث + قديم)
     // -------------------------
@@ -1198,6 +1210,18 @@ final dir = await getApplicationDocumentsDirectory();
       weightMap[todayYmd] = current;
     }
 
+    // الوزن السحابي من users/{uid}/days/{ymd}/tracking.weightKg
+    for (final d in remoteDays) {
+      final ymd = (d['date'] ?? '').toString();
+      final tracking = d['tracking'];
+      final kg = tracking is Map && tracking['weightKg'] is num
+          ? (tracking['weightKg'] as num).toDouble()
+          : 0.0;
+      if (ymd.isNotEmpty && kg > 0) {
+        weightMap.putIfAbsent(ymd, () => kg);
+      }
+    }
+
     // -------------------------
     // 2) الماء (ليتر) -> (مل)
     // -------------------------
@@ -1210,6 +1234,16 @@ final dir = await getApplicationDocumentsDirectory();
           waterLitersMap[e.key] = (e.value as num).toDouble();
         }
       } catch (_) {}
+    }
+    for (final d in remoteDays) {
+      final ymd = (d['date'] ?? '').toString();
+      final water = d['water'];
+      final liters = water is Map && water['liters'] is num
+          ? (water['liters'] as num).toDouble()
+          : 0.0;
+      if (ymd.isNotEmpty && liters > 0) {
+        waterLitersMap.putIfAbsent(ymd, () => liters);
+      }
     }
 
     // -------------------------
@@ -1856,6 +1890,8 @@ class _CaloriesHistoryScreenState extends State<_CaloriesHistoryScreen> with Wid
   // اسم المستخدم للعرض + التقرير
   String _displayName = '';
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userNameSub;
+  bool _cloudDailyRestoreDone = false;
+  List<Map<String, dynamic>> _cachedRemoteDays = const <Map<String, dynamic>>[];
 
   @override
   void initState() {
@@ -2585,6 +2621,8 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
   double? targetWeight;
 
   StreamSubscription<void>? _weightSub; // ✅ اشتراك البث اللحظي
+  bool _cloudWeightsRestored = false;
+  Map<String, double> _cachedRemoteWeights = <String, double>{};
 
   Timer? _tick;
 
@@ -2627,6 +2665,15 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
     targetWeight = prefs.getDouble('goal_target_$email') ??
         prefs.getDouble('targetWeight_$email');
 
+    // بعد حذف التطبيق: استرجع قراءات الوزن من السحابة مرة واحدة ثم ادمجها مع المحلي.
+    final remoteWeights = !_cloudWeightsRestored
+        ? await AppRepository.readWeightLogs(limit: 370)
+        : _cachedRemoteWeights;
+    if (!_cloudWeightsRestored) {
+      _cachedRemoteWeights = remoteWeights;
+      _cloudWeightsRestored = true;
+    }
+
     // نجمع كل القراءات من المصدرين
     final map = <String, double>{};
 
@@ -2666,6 +2713,15 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
             .first;
     if (currentWeight != null && !map.containsKey(ymd)) {
       map[ymd] = currentWeight!;
+    }
+
+    for (final e in remoteWeights.entries) {
+      map.putIfAbsent(e.key, () => e.value);
+    }
+    if (currentWeight == null && remoteWeights.isNotEmpty) {
+      final sortedRemoteDates = remoteWeights.keys.toList()..sort();
+      currentWeight = remoteWeights[sortedRemoteDates.last];
+      await prefs.setDouble('weight_$email', currentWeight!);
     }
 
     // تحويل إلى نقاط مرتبة (مع تحمّل أي مفاتيح غير صالحة)
@@ -3524,6 +3580,10 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
   int _idx = 0;
   Timer? _auto;
 
+  // كاش مؤقت لاسترجاع بيانات السعرات/الماء/الوزن من السحابة مرة واحدة فقط داخل تبويب التتبع.
+  bool _cloudDailyRestoreDone = false;
+  List<Map<String, dynamic>> _cachedRemoteDays = const <Map<String, dynamic>>[];
+
   // البيانات الأساسية
   double? heightCm;
   double? weightKg;
@@ -3571,6 +3631,15 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
 
+    List<Map<String, dynamic>> remoteDays = _cachedRemoteDays;
+    if (!_cloudDailyRestoreDone) {
+      await TrackerStore.syncFromCloud(limit: 45);
+      await WaterStore.syncFromCloud(limit: 45);
+      remoteDays = await AppRepository.readDays(limit: 45);
+      _cachedRemoteDays = remoteDays;
+      _cloudDailyRestoreDone = true;
+    }
+
     // -------- بيانات أساسية (قراءة مرنة للمفاتيح) --------
     heightCm = prefs.getDouble('height_$email') ??
         prefs.getDouble('height_cm_$email') ??
@@ -3606,6 +3675,16 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
         }
       } catch (_) {}
     }
+    for (final d in remoteDays) {
+      final ymd = (d['date'] ?? '').toString();
+      final water = d['water'];
+      final liters = water is Map && water['liters'] is num
+          ? (water['liters'] as num).toDouble()
+          : 0.0;
+      if (ymd.isNotEmpty && liters > 0) {
+        waterLitersMap.putIfAbsent(ymd, () => liters);
+      }
+    }
 
     final weightMap = <String, double>{};
     final weightLogRaw = prefs.getString('weight_log_$email');
@@ -3640,6 +3719,16 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
         prefs.getDouble('weight_$email');
     if (currentW != null && !weightMap.containsKey(todayYmd)) {
       weightMap[todayYmd] = currentW;
+    }
+    for (final d in remoteDays) {
+      final ymd = (d['date'] ?? '').toString();
+      final tracking = d['tracking'];
+      final kg = tracking is Map && tracking['weightKg'] is num
+          ? (tracking['weightKg'] as num).toDouble()
+          : 0.0;
+      if (ymd.isNotEmpty && kg > 0) {
+        weightMap.putIfAbsent(ymd, () => kg);
+      }
     }
 
     // -------- آخر 7 أيام (أقدم -> أحدث) --------

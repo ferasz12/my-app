@@ -92,6 +92,191 @@ Map<String, dynamic> _itemNutritionCompat(Map<String, dynamic> item) {
   };
 }
 
+
+String _latinDigits(String input) {
+  return input
+      .replaceAll('٠', '0')
+      .replaceAll('١', '1')
+      .replaceAll('٢', '2')
+      .replaceAll('٣', '3')
+      .replaceAll('٤', '4')
+      .replaceAll('٥', '5')
+      .replaceAll('٦', '6')
+      .replaceAll('٧', '7')
+      .replaceAll('٨', '8')
+      .replaceAll('٩', '9')
+      .replaceAll('٫', '.')
+      .replaceAll(',', '.')
+      .replaceAll('،', '.');
+}
+
+String _photoItemName(Map<String, dynamic> item) {
+  return (item['name_ar'] ??
+          item['nameAr'] ??
+          item['name'] ??
+          item['label'] ??
+          item['name_en'] ??
+          item['food_name'] ??
+          '')
+      .toString()
+      .trim();
+}
+
+double _photoItemGrams(Map<String, dynamic> item) {
+  final direct = _numFromAny(item['grams'] ??
+      item['estimated_weight_g'] ??
+      item['quantity_g'] ??
+      item['portion_grams'] ??
+      item['serving_size_g'] ??
+      item['weight_g'] ??
+      item['weight']);
+  if (direct > 0) return direct;
+
+  final text = [
+    _photoItemName(item),
+    item['quantity_label'],
+    item['portion_desc_ar'],
+    item['serving'],
+    item['desc'],
+  ].where((e) => e != null).join(' ');
+  final m = RegExp(
+    r'([0-9٠-٩]+(?:[\.,٫][0-9٠-٩]+)?)\s*(?:g|جم|غ|جرام|غرام)',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (m != null) {
+    return double.tryParse(_latinDigits(m.group(1) ?? '')) ?? 0;
+  }
+  return 0;
+}
+
+int _photoTextCount(String text) {
+  final t = text.toLowerCase();
+  if (RegExp(r'\b2\b|٢|اثنين|إثنين|حبتين|بيضتين|شريحتين|قطعتين')
+      .hasMatch(t)) {
+    return 2;
+  }
+  if (RegExp(r'\b3\b|٣|ثلاث|ثلاثة|ثلاث حبات|ثلاث شرائح').hasMatch(t)) {
+    return 3;
+  }
+  if (RegExp(r'\b4\b|٤|اربع|أربع').hasMatch(t)) return 4;
+  return 1;
+}
+
+double _estimatePhotoItemGrams(Map<String, dynamic> item) {
+  final known = _photoItemGrams(item);
+  if (known > 0) return known;
+
+  final name = _photoItemName(item).toLowerCase();
+  final all = '$name ${item['quantity_label'] ?? ''} ${item['serving'] ?? ''}';
+  final count = _photoTextCount(all);
+
+  if (name.contains('بيض')) return 50.0 * count;
+  if (name.contains('تونة') || name.contains('تونه') || name.contains('tuna')) {
+    return 95.0;
+  }
+  if (name.contains('جبن') || name.contains('cheese') || name.contains('فيلاد') || name.contains('فلاف')) {
+    return 30.0 * count;
+  }
+  if (name.contains('توست')) return 28.0 * count;
+  if (name.contains('خبز') || name.contains('bread') || name.contains('صامولي')) {
+    return 60.0 * count;
+  }
+  if (name.contains('رز') || name.contains('rice')) return 150.0;
+  if (name.contains('دجاج') || name.contains('chicken')) return 120.0;
+  if (name.contains('لحم') || name.contains('beef') || name.contains('meat')) return 100.0;
+  if (name.contains('بطاط') || name.contains('fries') || name.contains('potato')) {
+    return 90.0;
+  }
+  if (name.contains('خيار') || name.contains('cucumber')) return 30.0;
+  if (name.contains('طماطم') || name.contains('tomato')) return 40.0;
+  if (name.contains('فلفل')) return 20.0;
+  if (name.contains('صلصة') || name.contains('مايونيز') || name.contains('زبد') || name.contains('sauce')) {
+    return 15.0;
+  }
+  if (name.contains('ساندويتش') || name.contains('sandwich')) return 180.0;
+  return 35.0;
+}
+
+Map<String, dynamic> _normalizePhotoItemForUi(Map<String, dynamic> item) {
+  final out = Map<String, dynamic>.from(item);
+  final name = _photoItemName(out);
+  if (name.isNotEmpty) {
+    out['name_ar'] = name;
+    out['name'] = name;
+  }
+
+  final grams = _estimatePhotoItemGrams(out);
+  if (grams > 0) {
+    final rounded = double.parse(grams.toStringAsFixed(0));
+    out['grams'] = rounded;
+    out['estimated_weight_g'] = rounded;
+    out['portion_grams'] = rounded;
+  }
+
+  final nutr = _itemNutritionCompat(out);
+  final kcal = _numFromAny(nutr['kcal']);
+  final p = _numFromAny(nutr['protein_g']);
+  final c = _numFromAny(nutr['carbs_g']);
+  final f = _numFromAny(nutr['fat_g']);
+  out['calories_kcal'] = double.parse(kcal.toStringAsFixed(0));
+  out['protein_g'] = double.parse(p.toStringAsFixed(1));
+  out['carbs_g'] = double.parse(c.toStringAsFixed(1));
+  out['fat_g'] = double.parse(f.toStringAsFixed(1));
+  out['calories'] = out['calories_kcal'];
+  out['protein'] = out['protein_g'];
+  out['carbs'] = out['carbs_g'];
+  out['fat'] = out['fat_g'];
+
+  final conf = _numFromAny(out['ingredient_confidence'] ?? out['confidence']);
+  if (conf <= 0 || (conf - 0.72).abs() < 0.001 || (conf - 72).abs() < 0.01) {
+    out['confidence'] = _smartPhotoItemConfidence(out);
+  }
+  return out;
+}
+
+double _smartPhotoItemConfidence(Map<String, dynamic> item) {
+  final grams = _photoItemGrams(item);
+  final nutr = _itemNutritionCompat(item);
+  final hasName = _photoItemName(item).isNotEmpty;
+  final hasMacros = _numFromAny(nutr['kcal']) > 0 ||
+      _numFromAny(nutr['protein_g']) > 0 ||
+      _numFromAny(nutr['carbs_g']) > 0 ||
+      _numFromAny(nutr['fat_g']) > 0;
+  var score = 0.54;
+  if (hasName) score += 0.10;
+  if (grams > 0) score += 0.12;
+  if (hasMacros) score += 0.10;
+  final src = (item['source'] ?? '').toString().toLowerCase();
+  if (src.contains('visual') || src.contains('gemini')) score += 0.04;
+  return score.clamp(0.55, 0.91).toDouble();
+}
+
+int _smartPhotoConfidencePct(Map<String, dynamic> food) {
+  final raw = _numFromAny(food['confidence'] ?? food['conf']);
+  final rawPct = raw > 1 ? raw : raw * 100.0;
+  final isFixedFallback = (rawPct - 72.0).abs() < 0.6;
+  if (rawPct > 0 && !isFixedFallback) return rawPct.clamp(1, 99).round();
+
+  final rawItems = food['items'];
+  final items = rawItems is List
+      ? rawItems.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+      : <Map<String, dynamic>>[];
+
+  final kcal = _numFromAny(food['calories'] ?? food['kcal']);
+  final grams = _numFromAny(food['portion_grams']);
+  final hasName = _displayNameArabic(food).trim().isNotEmpty ||
+      (food['label'] ?? '').toString().trim().isNotEmpty;
+
+  var score = 58.0;
+  if (hasName) score += 6;
+  if (kcal > 0) score += 8;
+  if (grams > 0) score += 8;
+  if (items.isNotEmpty) score += 5;
+  if (items.any((e) => _photoItemGrams(e) > 0)) score += 5;
+  if (items.length >= 2) score += 3;
+  return score.clamp(60, 91).round();
+}
+
 enum _ErrorKind {
   none,
   noInternet,
@@ -330,6 +515,53 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
 
   double _snapPortion(double g) => (g / _portionStepG).round() * _portionStepG;
 
+  double _sumKnownItemsWeightG(Map<String, dynamic> food) {
+    final rawItems = food['items'] ??
+        food['ingredients_breakdown'] ??
+        food['components'] ??
+        food['detected_items'];
+    if (rawItems is! List) return 0.0;
+
+    double total = 0.0;
+    for (final raw in rawItems) {
+      if (raw is! Map) continue;
+      final item = Map<String, dynamic>.from(raw);
+      double g = _toD(
+        item['grams'] ??
+            item['estimated_weight_g'] ??
+            item['quantity_g'] ??
+            item['portion_grams'] ??
+            item['serving_size_g'] ??
+            item['weight_g'] ??
+            item['weight'],
+      );
+      if (g <= 0) {
+        final q = (item['quantity_label'] ?? item['portion_desc_ar'] ?? item['serving'] ?? '').toString();
+        final m = RegExp(r'([0-9٠-٩]+(?:[\.,٫][0-9٠-٩]+)?)\s*(?:g|جم|غ|جرام|غرام)', caseSensitive: false).firstMatch(q);
+        if (m != null) {
+          final txt = (m.group(1) ?? '')
+              .replaceAll('٠', '0')
+              .replaceAll('١', '1')
+              .replaceAll('٢', '2')
+              .replaceAll('٣', '3')
+              .replaceAll('٤', '4')
+              .replaceAll('٥', '5')
+              .replaceAll('٦', '6')
+              .replaceAll('٧', '7')
+              .replaceAll('٨', '8')
+              .replaceAll('٩', '9')
+              .replaceAll('،', '.')
+              .replaceAll('٫', '.')
+              .replaceAll(',', '.');
+          g = double.tryParse(txt) ?? 0.0;
+        }
+      }
+      if (g > 0 && g <= 1200) total += g;
+    }
+
+    return total > 0 ? total.clamp(_minPortionG, _maxPortionG).toDouble() : 0.0;
+  }
+
   ({double grams, bool assumed}) _deriveBasePortion(Map<String, dynamic> food) {
     double g = _toD(
       food['portion_grams'] ??
@@ -382,7 +614,12 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
         g = double.tryParse(_latinizeDigits(mn.group(1) ?? '')) ?? 0;
     }
 
-    // لا يوجد وزن واضح → نخليه غير محدد (0)
+    // إذا لم يرسل الـ AI وزنًا عامًا، اجمع أوزان المكونات المتوفرة.
+    if (g <= 0) {
+      g = _sumKnownItemsWeightG(food);
+    }
+
+    // لا يوجد وزن واضح حتى بعد جمع العناصر → نخليه غير محدد (0).
     if (g <= 0) {
       return (grams: 0, assumed: false);
     }
@@ -478,6 +715,129 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
     _ensureSuitabilityFields(out, force: true);
 
     return out;
+  }
+
+
+  List<Map<String, dynamic>> _extractEditablePhotoItems(
+      Map<String, dynamic> food) {
+    final raw = food['items'] ??
+        food['ingredients_breakdown'] ??
+        food['components'] ??
+        food['detected_items'];
+    final List<Map<String, dynamic>> items = [];
+
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) {
+          final normalized = _normalizePhotoItemForUi(Map<String, dynamic>.from(e));
+          if (_photoItemName(normalized).isNotEmpty ||
+              _photoItemGrams(normalized) > 0) {
+            items.add(normalized);
+          }
+        } else {
+          final name = e.toString().trim();
+          if (name.isNotEmpty) {
+            items.add(_normalizePhotoItemForUi(<String, dynamic>{'name_ar': name}));
+          }
+        }
+      }
+    }
+
+    if (items.isEmpty) {
+      final ing = food['ingredients'] ?? food['ingredients_ar'] ?? food['contents'];
+      if (ing is List) {
+        for (final e in ing) {
+          final name = e.toString().trim();
+          if (name.isNotEmpty) {
+            items.add(_normalizePhotoItemForUi(<String, dynamic>{'name_ar': name}));
+          }
+        }
+      }
+    }
+    return items;
+  }
+
+  Map<String, dynamic> _recalculatePhotoTotals(
+    Map<String, dynamic> food,
+    List<Map<String, dynamic>> items,
+  ) {
+    final out = Map<String, dynamic>.from(food);
+    final normalized = items
+        .map((e) => _normalizePhotoItemForUi(Map<String, dynamic>.from(e)))
+        .toList();
+
+    double grams = 0, kcal = 0, p = 0, c = 0, f = 0;
+    for (final item in normalized) {
+      grams += _photoItemGrams(item);
+      final nutr = _itemNutritionCompat(item);
+      kcal += _toD(nutr['kcal']);
+      p += _toD(nutr['protein_g']);
+      c += _toD(nutr['carbs_g']);
+      f += _toD(nutr['fat_g']);
+    }
+
+    if (normalized.isNotEmpty) {
+      out['items'] = normalized;
+      out['ingredients'] = normalized
+          .map((e) => _photoItemName(e))
+          .where((e) => e.trim().isNotEmpty)
+          .toList();
+    }
+    if (grams > 0) {
+      final g = double.parse(grams.toStringAsFixed(0));
+      out['portion_grams'] = g;
+      out['serving'] = '${g.toStringAsFixed(0)} جم إجمالي الوجبة';
+      out['portion_desc_ar'] = out['serving'];
+    }
+    if (kcal > 0 || p > 0 || c > 0 || f > 0) {
+      out['calories'] = double.parse(kcal.toStringAsFixed(0));
+      out['protein'] = double.parse(p.toStringAsFixed(1));
+      out['carbs'] = double.parse(c.toStringAsFixed(1));
+      out['fat'] = double.parse(f.toStringAsFixed(1));
+      out['total_macros'] = <String, dynamic>{
+        'calories_kcal': out['calories'],
+        'protein_g': out['protein'],
+        'carbs_g': out['carbs'],
+        'fat_g': out['fat'],
+      };
+    }
+    out['confidence'] = _smartPhotoConfidencePct(out) / 100.0;
+    return out;
+  }
+
+  Map<String, dynamic> _preparePhotoResultForUi(Map<String, dynamic> map) {
+    final out = Map<String, dynamic>.from(map);
+    final items = _extractEditablePhotoItems(out);
+    final prepared = _recalculatePhotoTotals(out, items);
+    _ensureSuitabilityFields(prepared, force: true);
+    return prepared;
+  }
+
+  void _replaceFoodAfterItemEdit(List<Map<String, dynamic>> items) {
+    if (_food == null) return;
+    final updated = _recalculatePhotoTotals(
+      Map<String, dynamic>.from(_food!),
+      items,
+    );
+    _ensureSuitabilityFields(updated, force: true);
+
+    final baseKcal = _toD(updated['calories'] ?? updated['kcal']);
+    final baseP = _toD(updated['protein'] ?? updated['p']);
+    final baseC = _toD(updated['carbs'] ?? updated['c']);
+    final baseF = _toD(updated['fat'] ?? updated['f']);
+    final portionInfo = _deriveBasePortion(updated);
+
+    setState(() {
+      _food = updated;
+      _foodBase = Map<String, dynamic>.from(updated);
+      _basePortionG = portionInfo.grams;
+      _portionG = portionInfo.grams;
+      _portionBaseAssumed = portionInfo.assumed;
+      _baseKcal = baseKcal;
+      _baseP = baseP;
+      _baseC = baseC;
+      _baseF = baseF;
+    });
   }
 
   void _setPortionGrams(double grams) {
@@ -729,6 +1089,9 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
             'تعذر الوصول إلى خدمة تحليل الصور. تأكد من الشبكة وأن Cloud Function analyzeFood منشورة وتعمل.');
       }
 
+      // جهّز نتيجة الصورة للواجهة: أوزان المكونات، وزن الوجبة، ثقة غير ثابتة، وتعديل العناصر.
+      map = _preparePhotoResultForUi(Map<String, dynamic>.from(map));
+
       // ✅ مهم: قد يرجّع السيرفر اقتراحات USDA بدون أرقام نهائية (calories=0)
       // لذلك نعرض اختيار الاقتراح أولاً *قبل* التحقق من السعرات.
       _ensureSuitabilityFields(map);
@@ -899,6 +1262,8 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       }
 
       if (clarifier.isNotEmpty) map['note'] = clarifier;
+
+      map = _preparePhotoResultForUi(Map<String, dynamic>.from(map));
 
       _ensureSuitabilityFields(map);
 
@@ -1273,6 +1638,10 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       final grams = sw > 0 ? sw : (w > 0 ? w : 0);
       if (grams > 0) serving = '${grams.toStringAsFixed(0)} جم';
     }
+    if (serving.isEmpty || serving == '—') {
+      final totalItemsG = _sumKnownItemsWeightG(food);
+      if (totalItemsG > 0) serving = '${totalItemsG.toStringAsFixed(0)} جم إجمالي الوجبة';
+    }
     return serving;
   }
 
@@ -1370,7 +1739,7 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
 
     Widget content;
     if (_loading) {
-      content = const _AnalyzingView();
+      content = _AnalyzingView(imagePath: _currentImage.path);
     } else if (_awaitingClarifier) {
       content = _AwaitingClarifierView(
         imagePath: _currentImage.path,
@@ -1420,9 +1789,7 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       final double c = _toD(food['carbs'] ?? food['c']);
       final double f = _toD(food['fat'] ?? food['f']);
 
-      final double confRaw = _toD(food['confidence'] ?? food['conf'] ?? 0.0);
-      final double conf01 = (confRaw > 1.0) ? (confRaw / 100.0) : confRaw;
-      final int confPct = (conf01.clamp(0.0, 1.0) * 100).round();
+      final int confPct = _smartPhotoConfidencePct(food);
 
       final bool needClarification = (food['need_clarification'] == true) ||
           (food['needClarification'] == true);
@@ -1593,7 +1960,11 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
             const SizedBox(height: 12),
             _SectionCard(
               title: 'المكونات',
-              child: _MealBreakdown(food: food, cs: cs),
+              child: _MealBreakdown(
+                food: food,
+                cs: cs,
+                onItemsChanged: _replaceFoodAfterItemEdit,
+              ),
             ),
             if (desc.trim().isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -2730,8 +3101,33 @@ class _UsageBanner extends StatelessWidget {
   }
 }
 
-class _AnalyzingView extends StatelessWidget {
-  const _AnalyzingView();
+
+class _AnalyzingView extends StatefulWidget {
+  final String imagePath;
+  const _AnalyzingView({required this.imagePath});
+
+  @override
+  State<_AnalyzingView> createState() => _AnalyzingViewState();
+}
+
+class _AnalyzingViewState extends State<_AnalyzingView>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1350),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2739,50 +3135,147 @@ class _AnalyzingView extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Center(
-        child: Container(
-          width: double.infinity,
-          margin: const EdgeInsets.all(18),
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: cs.surface.withOpacity(.9),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: cs.outlineVariant.withOpacity(.6)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(.06),
-                blurRadius: 24,
-                offset: const Offset(0, 12),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.auto_awesome, color: cs.primary, size: 36),
-              const SizedBox(height: 10),
-              Text(
-                'نحلل الآن وجبتك…',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'قد يستغرق ذلك ثوانٍ قليلة حسب جودة الصورة.',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: cs.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 18),
-              const SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: CircularProgressIndicator(strokeWidth: 5)),
-            ],
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: cs.surface.withOpacity(.92),
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: cs.primary.withOpacity(.18)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.07),
+                  blurRadius: 28,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: SizedBox(
+                    height: 260,
+                    width: double.infinity,
+                    child: LayoutBuilder(
+                      builder: (context, box) {
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.file(
+                              File(widget.imagePath),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: cs.surfaceContainerHighest,
+                                child: Icon(
+                                  Icons.image_not_supported_outlined,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            Container(color: Colors.black.withOpacity(.16)),
+                            AnimatedBuilder(
+                              animation: _controller,
+                              builder: (context, _) {
+                                final y = (_controller.value *
+                                        (box.maxHeight - 34))
+                                    .clamp(0.0, box.maxHeight);
+                                return Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  top: y,
+                                  child: Container(
+                                    height: 34,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          cs.primary.withOpacity(0.00),
+                                          cs.primary.withOpacity(0.30),
+                                          cs.primary.withOpacity(0.00),
+                                        ],
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Container(
+                                        height: 3,
+                                        margin: const EdgeInsets.symmetric(
+                                            horizontal: 16),
+                                        decoration: BoxDecoration(
+                                          color: cs.primary,
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: cs.primary.withOpacity(.7),
+                                              blurRadius: 16,
+                                              spreadRadius: 1,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            Positioned(
+                              right: 14,
+                              left: 14,
+                              bottom: 14,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(.40),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                      color: Colors.white.withOpacity(.16)),
+                                ),
+                                child: const Text(
+                                  'جاري فحص الصورة والمكونات…',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'اصبر علينا بس شوي',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'وازن يحلل وجبتك ويقدّر المكونات والقرامات والماكروز.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurfaceVariant,
+                        height: 1.45,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                LinearProgressIndicator(
+                  minHeight: 8,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -3044,10 +3537,17 @@ class _NoteEditor extends StatelessWidget {
 
 /// تفصيل مكونات الوجبة (Breakdown) — يعتمد على items الراجعة من السيرفر.
 /// لا يؤثر على منطق الحفظ/الإضافة (مجرد UI).
+
 class _MealBreakdown extends StatelessWidget {
   final Map<String, dynamic> food;
   final ColorScheme cs;
-  const _MealBreakdown({required this.food, required this.cs});
+  final ValueChanged<List<Map<String, dynamic>>> onItemsChanged;
+
+  const _MealBreakdown({
+    required this.food,
+    required this.cs,
+    required this.onItemsChanged,
+  });
 
   static double _toD(dynamic v) {
     if (v == null) return 0;
@@ -3060,50 +3560,172 @@ class _MealBreakdown extends StatelessWidget {
     return d == d.roundToDouble() ? d.toStringAsFixed(0) : d.toStringAsFixed(1);
   }
 
+  List<Map<String, dynamic>> _itemsFromFood() {
+    final raw = food['items'] ??
+        food['ingredients_breakdown'] ??
+        food['components'] ??
+        food['detected_items'];
+    final List<Map<String, dynamic>> items = [];
+    if (raw is List) {
+      for (final x in raw) {
+        if (x is Map) {
+          items.add(_normalizePhotoItemForUi(Map<String, dynamic>.from(x)));
+        } else {
+          final name = x.toString().trim();
+          if (name.isNotEmpty) {
+            items.add(_normalizePhotoItemForUi(<String, dynamic>{'name_ar': name}));
+          }
+        }
+      }
+    }
+    if (items.isEmpty) {
+      final ing = food['ingredients'];
+      if (ing is List) {
+        for (final x in ing) {
+          final name = x.toString().trim();
+          if (name.isNotEmpty) {
+            items.add(_normalizePhotoItemForUi(<String, dynamic>{'name_ar': name}));
+          }
+        }
+      }
+    }
+    return items;
+  }
+
+  Future<void> _editItem(
+    BuildContext context,
+    int index,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final current = Map<String, dynamic>.from(items[index]);
+    final nutr = _itemNutritionCompat(current);
+    final nameCtrl = TextEditingController(text: _photoItemName(current));
+    final gramsCtrl = TextEditingController(
+        text: _photoItemGrams(current) > 0
+            ? _photoItemGrams(current).toStringAsFixed(0)
+            : '');
+    final kcalCtrl = TextEditingController(
+        text: _toD(nutr['kcal']) > 0 ? _toD(nutr['kcal']).toStringAsFixed(0) : '');
+    final pCtrl = TextEditingController(
+        text: _toD(nutr['protein_g']) > 0 ? _toD(nutr['protein_g']).toStringAsFixed(1) : '');
+    final cCtrl = TextEditingController(
+        text: _toD(nutr['carbs_g']) > 0 ? _toD(nutr['carbs_g']).toStringAsFixed(1) : '');
+    final fCtrl = TextEditingController(
+        text: _toD(nutr['fat_g']) > 0 ? _toD(nutr['fat_g']).toStringAsFixed(1) : '');
+
+    double parse(TextEditingController c) =>
+        double.tryParse(_latinDigits(c.text.trim())) ?? 0.0;
+
+    final saved = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعديل المكوّن'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'اسم المكوّن'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: gramsCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'الكمية', suffixText: 'جم'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: kcalCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'السعرات', suffixText: 'kcal'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: pCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'البروتين', suffixText: 'جم'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: cCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'الكارب', suffixText: 'جم'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: fCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'الدهون', suffixText: 'جم'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final updated = Map<String, dynamic>.from(current);
+              final name = nameCtrl.text.trim();
+              if (name.isNotEmpty) {
+                updated['name_ar'] = name;
+                updated['name'] = name;
+              }
+              final grams = parse(gramsCtrl);
+              if (grams > 0) {
+                updated['grams'] = grams;
+                updated['estimated_weight_g'] = grams;
+                updated['portion_grams'] = grams;
+              }
+              updated['calories_kcal'] = parse(kcalCtrl);
+              updated['calories'] = updated['calories_kcal'];
+              updated['protein_g'] = parse(pCtrl);
+              updated['protein'] = updated['protein_g'];
+              updated['carbs_g'] = parse(cCtrl);
+              updated['carbs'] = updated['carbs_g'];
+              updated['fat_g'] = parse(fCtrl);
+              updated['fat'] = updated['fat_g'];
+              updated['confidence'] = _smartPhotoItemConfidence(updated);
+              Navigator.pop(ctx, updated);
+            },
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+
+    nameCtrl.dispose();
+    gramsCtrl.dispose();
+    kcalCtrl.dispose();
+    pCtrl.dispose();
+    cCtrl.dispose();
+    fCtrl.dispose();
+
+    if (saved == null) return;
+    final next = items.map((e) => Map<String, dynamic>.from(e)).toList();
+    next[index] = saved;
+    onItemsChanged(next);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final items = food['items'];
+    final items = _itemsFromFood();
 
-    // ✅ نتوقع items: [{name_ar,name_en,calories_kcal,protein_g,carbs_g,fat_g,source,match_score}]
-    if (items is List && items.isNotEmpty) {
+    if (items.isNotEmpty) {
       return Column(
         children: [
           for (int i = 0; i < items.length; i++) ...[
             _BreakItemRow(
-              item: items[i] is Map
-                  ? Map<String, dynamic>.from(items[i] as Map)
-                  : <String, dynamic>{'name': items[i].toString()},
+              item: items[i],
               cs: cs,
               fmt: _fmt,
               toD: _toD,
+              onEdit: () => _editItem(context, i, items),
             ),
             if (i != items.length - 1) const SizedBox(height: 8),
-          ],
-        ],
-      );
-    }
-
-    // fallback: ingredients فقط
-    final ing = food['ingredients'];
-    final List<String> list = [];
-    if (ing is List) {
-      for (final x in ing) {
-        final t = x.toString().trim();
-        if (t.isNotEmpty) list.add(t);
-      }
-    }
-    if (list.isNotEmpty) {
-      return Column(
-        children: [
-          for (int i = 0; i < list.length; i++) ...[
-            _BreakItemRow(
-              item: <String, dynamic>{'name_ar': list[i]},
-              cs: cs,
-              fmt: _fmt,
-              toD: _toD,
-              compact: true,
-            ),
-            if (i != list.length - 1) const SizedBox(height: 8),
           ],
         ],
       );
@@ -3124,51 +3746,37 @@ class _BreakItemRow extends StatelessWidget {
   final ColorScheme cs;
   final String Function(num) fmt;
   final double Function(dynamic) toD;
-  final bool compact;
+  final VoidCallback onEdit;
 
   const _BreakItemRow({
     required this.item,
     required this.cs,
     required this.fmt,
     required this.toD,
-    this.compact = false,
+    required this.onEdit,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = (item['name_ar'] ??
-            item['nameAr'] ??
-            item['name'] ??
-            item['name_en'] ??
-            item['nameEn'] ??
-            '')
-        .toString()
-        .trim();
-    final grams = toD(item['estimated_weight_g'] ??
-        item['grams'] ??
-        item['quantity_g'] ??
-        item['portion_grams'] ??
-        item['weight_g'] ??
-        item['weight']);
-    final nutr = _itemNutritionCompat(item);
+    final normalized = _normalizePhotoItemForUi(item);
+    final name = _photoItemName(normalized);
+    final grams = _photoItemGrams(normalized);
+    final nutr = _itemNutritionCompat(normalized);
     final kcal = toD(nutr['kcal']);
     final p = toD(nutr['protein_g']);
     final c = toD(nutr['carbs_g']);
     final f = toD(nutr['fat_g']);
-
-    final src = (item['source'] ?? '').toString().toLowerCase();
-    final ic = toD(item['ingredient_confidence'] ?? item['confidence']);
+    final src = (normalized['source'] ?? '').toString().toLowerCase();
+    final ic = _smartPhotoItemConfidence(normalized);
 
     String? tag;
     Color? tagColor;
-    if (!compact) {
-      if (src.contains('visual') || src.contains('gemini')) {
-        tag = 'تقدير بصري';
-        tagColor = cs.primary;
-      } else if (src.isNotEmpty) {
-        tag = 'تقديري';
-        tagColor = cs.secondary;
-      }
+    if (src.contains('visual') || src.contains('gemini') || src.isEmpty) {
+      tag = 'تقدير بصري';
+      tagColor = cs.primary;
+    } else {
+      tag = 'تقديري';
+      tagColor = cs.secondary;
     }
 
     return Container(
@@ -3189,6 +3797,15 @@ class _BreakItemRow extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
+              TextButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit, size: 16),
+                label: const Text('تعديل'),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+              ),
               if (grams > 0)
                 Text(
                   '${grams.toStringAsFixed(0)}غ',
@@ -3197,58 +3814,42 @@ class _BreakItemRow extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                 ),
-              if (tag != null) ...[
-                if (grams > 0) const SizedBox(width: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: tagColor!.withOpacity(.10),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: tagColor.withOpacity(.18)),
-                  ),
-                  child: Text(
-                    tag!,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: tagColor,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: tagColor!.withOpacity(.10),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: tagColor.withOpacity(.18)),
                 ),
-              ],
+                child: Text(
+                  tag!,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: tagColor,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
             ],
           ),
-          if (!compact || kcal > 0 || p > 0 || c > 0 || f > 0) ...[
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 10,
-              runSpacing: 6,
-              children: [
-                Text('🔥 ${fmt(kcal)} kcal'),
-                Text('🥩 ${fmt(p)}غ'),
-                Text('🍞 ${fmt(c)}غ'),
-                Text('🥑 ${fmt(f)}غ'),
-              ],
-            ),
-          ],
-          if (ic > 0 && !compact) ...[
-            const SizedBox(height: 6),
-            Text(
-              'ثقة التقدير البصري: ${(ic * 100).clamp(0, 100).toStringAsFixed(0)}%',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
-            ),
-          ],
-          if (compact && kcal <= 0 && p <= 0 && c <= 0 && f <= 0) ...[
-            const SizedBox(height: 6),
-            Text(
-              'لم يتم تقدير ماكروز هذا المكوّن بشكل منفصل.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
-            ),
-          ],
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 10,
+            runSpacing: 6,
+            children: [
+              Text('🔥 ${fmt(kcal)} kcal'),
+              Text('🥩 ${fmt(p)}غ'),
+              Text('🍞 ${fmt(c)}غ'),
+              Text('🥑 ${fmt(f)}غ'),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'ثقة تقديرية: ${(ic * 100).clamp(0, 100).toStringAsFixed(0)}%',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+          ),
         ],
       ),
     );

@@ -1570,8 +1570,23 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
 
     // ✅ Migration: لو عندك بيانات قديمة مخزّنة بدون suffix نربطها بأول حساب بعد التحديث
     final legacy = prefs.getString('meals');
-    final savedMeals = prefs.getString('meals_$storageKey') ?? legacy;
+    String? savedMeals = prefs.getString('meals_$storageKey') ?? legacy;
+
+    // ✅ بعد حذف التطبيق وإعادة تثبيته: لو ما فيه وجبات محلية، استرجع وجبات اليوم من Firestore.
+    if (savedMeals == null) {
+      try {
+        final ymd = DateTime.now().toIso8601String().split('T').first;
+        final remoteDay = await AppRepository.readDay(ymd);
+        final remoteMeals = remoteDay?['meals'];
+        if (remoteMeals is List && remoteMeals.isNotEmpty) {
+          savedMeals = json.encode(remoteMeals);
+          await prefs.setString('meals_$storageKey', savedMeals);
+        }
+      } catch (_) {}
+    }
+
     if (savedMeals != null) {
+      final resolvedSavedMeals = savedMeals;
       // لو جاءت من legacy ننقلها للمفتاح الجديد ونحذف القديم
       if (legacy != null && prefs.getString('meals_$storageKey') == null) {
         await prefs.setString('meals_$storageKey', legacy);
@@ -1579,7 +1594,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
       }
 
       setState(() {
-        meals = List<Map<String, dynamic>>.from(json.decode(savedMeals) as List);
+        meals = List<Map<String, dynamic>>.from(json.decode(resolvedSavedMeals) as List);
         calculateTotals();
       });
       await _syncTodayEntriesAndTotals();
@@ -2686,6 +2701,17 @@ if (mounted) Navigator.pop(context);
     }
     final totals = {'k': k, 'p': p, 'c': c, 'f': f};
     await prefs.setString(totalsKey, jsonEncode(totals));
+
+    // ✅ مهم: سجل السعرات المحلي يصبح لقطة نهائية من الوجبات الحالية،
+    // وليس تجميعًا قديمًا. كذا لو حذف المستخدم وجبة لا تُحتسب نهاية اليوم.
+    await TrackerStore.setDayTotals(
+      ymd: ymd,
+      cal: k,
+      protein: p,
+      carb: c,
+      fat: f,
+      entries: entries,
+    );
 
     // 🔗 مرآة لفايرستور (intake.entries + intake.totals)
     await AppRepository.writeEntriesAndTotals(

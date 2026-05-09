@@ -14,14 +14,29 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../firebase_options.dart';
+import 'app_notifications.dart';
+import 'firestore_broadcast_scheduler.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // نعتمد غالبًا على notification payload؛ النظام يعرضه تلقائيًا بالخلفية.
+  // مهم للخلفية: بعض أجهزة iOS/Android تحتاج تهيئة Firebase في isolate الخلفية.
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+  } catch (_) {
+    // notification payload يعرضه النظام تلقائيًا غالبًا، فلا نكسر الاستقبال.
+  }
 }
 
 class FcmMarketingPush {
@@ -54,6 +69,7 @@ class FcmMarketingPush {
 
     try {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      await _messaging.setAutoInitEnabled(true);
 
       const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
       const iosInit = DarwinInitializationSettings(
@@ -92,6 +108,10 @@ class FcmMarketingPush {
         sound: true,
       );
 
+      // اشترك حسب آخر إعدادات محفوظة محليًا.
+      // إذا ما فيه prefs، الافتراضي تشغيل wazen_all و wazen_marketing.
+      await _applyLocalPrefsFallback();
+
       _foregroundSub ??= FirebaseMessaging.onMessage.listen(_onMessageForeground);
 
       _authSub ??= FirebaseAuth.instance.authStateChanges().listen((u) {
@@ -117,6 +137,7 @@ class FcmMarketingPush {
       _inited = true;
     } catch (e, st) {
       _inited = false;
+      await _saveInitError(e);
       debugPrint('⚠️ FCM init failed, will retry on next start: $e');
       debugPrint('$st');
     } finally {
@@ -130,10 +151,39 @@ class FcmMarketingPush {
     await _saveTokenForUser(u.uid, forceRefresh: true);
   }
 
+  Future<void> _applyLocalPrefsFallback() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final allEnabled = sp.getBool(AppNotifications.kAll) ?? true;
+      final marketingEnabled =
+          sp.getBool(FirestoreBroadcastScheduler.kMarketingEnabledLocal) ?? true;
+      await applyPrefs(
+        allEnabled: allEnabled,
+        marketingEnabled: marketingEnabled,
+      );
+    } catch (e) {
+      debugPrint('⚠️ FCM local prefs fallback skipped: $e');
+      await _safeSub(topicAll);
+      await _safeSub(topicMarketing);
+    }
+  }
+
+  Future<void> _saveInitError(Object e) async {
+    try {
+      final u = FirebaseAuth.instance.currentUser;
+      if (u == null || u.isAnonymous) return;
+      await _db.collection('users').doc(u.uid).set({
+        'fcmLastInitError': e.toString(),
+        'fcmLastInitErrorAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   Future<void> applyPrefs({required bool allEnabled, required bool marketingEnabled}) async {
     if (!allEnabled) {
       await _safeUnsub(topicAll);
       await _safeUnsub(topicMarketing);
+      await _persistTopicState(allEnabled: false, marketingEnabled: false);
       return;
     }
 
@@ -144,6 +194,11 @@ class FcmMarketingPush {
     } else {
       await _safeUnsub(topicMarketing);
     }
+
+    await _persistTopicState(
+      allEnabled: true,
+      marketingEnabled: marketingEnabled,
+    );
   }
 
   Future<void> _saveTokenForUser(
@@ -226,6 +281,8 @@ class FcmMarketingPush {
       'lastFcmToken': cleanToken,
       'fcmPlatform': platform,
       'fcmTokenUpdatedAt': now,
+      'fcmLastInitOkAt': now,
+      'fcmLastInitError': FieldValue.delete(),
       'updatedAt': now,
     }, SetOptions(merge: true));
 
@@ -262,6 +319,21 @@ class FcmMarketingPush {
       const NotificationDetails(android: androidDetails, iOS: iosDetails),
       payload: payload,
     );
+  }
+
+  Future<void> _persistTopicState({
+    required bool allEnabled,
+    required bool marketingEnabled,
+  }) async {
+    try {
+      final u = FirebaseAuth.instance.currentUser;
+      if (u == null || u.isAnonymous) return;
+      await _db.collection('users').doc(u.uid).set({
+        'fcmTopicAll': allEnabled,
+        'fcmTopicMarketing': allEnabled && marketingEnabled,
+        'fcmTopicUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   Future<void> _safeSub(String topic) async {

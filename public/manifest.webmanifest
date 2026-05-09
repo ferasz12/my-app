@@ -1,0 +1,20 @@
+{
+  "name": "وازن",
+  "short_name": "وازن",
+  "description": "تطبيق عربي لحساب السعرات والماكروز وتحليل الطعام وتتبع الوزن.",
+  "lang": "ar-SA",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#03100e",
+  "theme_color": "#016C66",
+  "icons": [
+    {
+      "src": "/wazen_logo.png?v=20260505",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

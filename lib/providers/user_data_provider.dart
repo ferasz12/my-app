@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../data/app_repository.dart';
 
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
@@ -75,9 +78,30 @@ class UserDataProvider extends ChangeNotifier {
   Future<void> updateWeight(String email, double newWeight) async {
     final prefs = await SharedPreferences.getInstance();
     final e = _normEmail(email);
+    final today = DateTime.now().toIso8601String().split('T').first;
 
     weight = newWeight;
     await prefs.setDouble('weight_$e', newWeight);
+
+    // حفظ قراءة الوزن في سجل محلي + سحابي حتى تظهر في صفحة التتبع بعد إعادة تثبيت التطبيق.
+    try {
+      final raw = prefs.getString('weight_log_$e');
+      final list = <Map<String, dynamic>>[];
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          list.addAll(decoded.whereType<Map>().map((x) => Map<String, dynamic>.from(x)));
+        }
+      }
+      list.removeWhere((x) => (x['date'] ?? '').toString() == today);
+      list.add({'date': today, 'kg': newWeight});
+      list.sort((a, b) => (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString()));
+      await prefs.setString('weight_log_$e', jsonEncode(list));
+    } catch (_) {}
+    try {
+      await AppRepository.writeWeightKg(ymd: today, kg: newWeight);
+    } catch (_) {}
+
     await _calculateMacros(e);
   }
 

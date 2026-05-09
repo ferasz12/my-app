@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../data/legacy_user_repository.dart';
+import '../data/app_repository.dart';
 
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
@@ -278,13 +279,39 @@ class _UserInputPageState extends State<UserInputPage> {
     await prefs.setString('lastUpdated_$email', today);
     await prefs.setBool('goal_fat_shred_$email', _isFatShred(goalToStore));
 
-    // سجل الوزن اليومي محليًا
+    // سجل الوزن اليومي محليًا + سحابيًا حتى لا يضيع بعد حذف التطبيق
     final historyKey = 'weightHistory_$email';
     final history = prefs.getStringList(historyKey) ?? [];
     final newEntry = {'date': today, 'weight': weight};
-    history.removeWhere((item) => json.decode(item)['date'] == today);
+    history.removeWhere((item) {
+      try {
+        return json.decode(item)['date'] == today;
+      } catch (_) {
+        return false;
+      }
+    });
     history.add(json.encode(newEntry));
     await prefs.setStringList(historyKey, history);
+
+    final weightLogKey = 'weight_log_$email';
+    final weightLogRaw = prefs.getString(weightLogKey);
+    final List<Map<String, dynamic>> weightLog = [];
+    if (weightLogRaw != null) {
+      try {
+        final decoded = json.decode(weightLogRaw);
+        if (decoded is List) {
+          weightLog.addAll(decoded.whereType<Map>().map((e) => Map<String, dynamic>.from(e)));
+        }
+      } catch (_) {}
+    }
+    weightLog.removeWhere((e) => (e['date'] ?? '').toString() == today);
+    weightLog.add({'date': today, 'kg': weight});
+    weightLog.sort((a, b) => (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString()));
+    await prefs.setString(weightLogKey, json.encode(weightLog));
+
+    try {
+      await AppRepository.writeWeightKg(ymd: today, kg: weight);
+    } catch (_) {}
 
     // ===== Social — حفظ محلي =====
     final ig = _selectedSocials.contains(_Social.instagram)

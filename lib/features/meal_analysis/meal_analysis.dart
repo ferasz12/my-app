@@ -203,6 +203,7 @@ class MealAnalysisResult {
 /// ==========================
 class MealAnalysisService {
   static const Duration _timeout = Duration(seconds: 25);
+  static const Duration _fastTextTimeout = Duration(seconds: 16);
   static const int _maxRetries = 1;
 
   // نحدّد هل نستخدم البروكسي أم الفنكشن تلقائيًا
@@ -222,13 +223,21 @@ class MealAnalysisService {
   }
 
   String? get _callableHttpEndpoint {
-    final envUrl = dotenv.env['ANALYZE_MEAL_TEXT_URL']?.trim();
-    final defineUrl = const String.fromEnvironment(
+    final envV2Url = dotenv.env['ANALYZE_MEAL_TEXT_V2_URL']?.trim() ?? '';
+    final envLegacyUrl = dotenv.env['ANALYZE_MEAL_TEXT_URL']?.trim() ?? '';
+    final envUrl = envV2Url.isNotEmpty ? envV2Url : envLegacyUrl;
+
+    final defineV2Url = const String.fromEnvironment(
+      'ANALYZE_MEAL_TEXT_V2_URL',
+      defaultValue: '',
+    ).trim();
+    final defineLegacyUrl = const String.fromEnvironment(
       'ANALYZE_MEAL_TEXT_URL',
       defaultValue: '',
     ).trim();
+    final defineUrl = defineV2Url.isNotEmpty ? defineV2Url : defineLegacyUrl;
 
-    final explicit = (envUrl != null && envUrl.isNotEmpty)
+    final explicit = envUrl.isNotEmpty
         ? envUrl
         : (defineUrl.isNotEmpty ? defineUrl : '');
     if (explicit.isNotEmpty) return explicit;
@@ -236,7 +245,7 @@ class MealAnalysisService {
     try {
       final projectId = Firebase.app().options.projectId;
       if (projectId.isNotEmpty) {
-        return 'https://europe-west1-$projectId.cloudfunctions.net/analyzeMealText';
+        return 'https://europe-west1-$projectId.cloudfunctions.net/analyzeMealTextV2';
       }
     } catch (_) {}
     return null;
@@ -508,20 +517,50 @@ class MealAnalysisService {
         await auth.signInAnonymously();
       }
 
-      final fns = FirebaseFunctions.instanceFor(region: 'europe-west1');
-      final callable = fns.httpsCallable('analyzeMealText');
       final payload = <String, dynamic>{
         'description': description.trim(),
         if (clarificationAnswers != null && clarificationAnswers.isNotEmpty)
           'clarificationAnswers': clarificationAnswers,
       };
-      final res = await callable.call(payload);
+      final fns = FirebaseFunctions.instanceFor(region: 'europe-west1');
 
-      final data = (res.data is Map<String, dynamic>)
-          ? res.data as Map<String, dynamic>
-          : Map<String, dynamic>.from(res.data as Map);
+      try {
+        final callable = fns.httpsCallable(
+          'analyzeMealTextV2',
+          options: HttpsCallableOptions(timeout: _fastTextTimeout),
+        );
+        final res = await callable.call(payload);
+        final data = (res.data is Map<String, dynamic>)
+            ? res.data as Map<String, dynamic>
+            : Map<String, dynamic>.from(res.data as Map);
+        return MealAnalysisResult.fromJson(data);
+      } on FirebaseFunctionsException catch (e) {
+        final code = e.code.toLowerCase();
+        final msg = (e.message ?? '').toLowerCase();
+        final isMissingV2 = code.contains('not-found') || msg.contains('not found');
+        if (!isMissingV2) {
+          return MealAnalysisResult.error(
+            e.message?.trim().isNotEmpty == true
+                ? e.message!.trim()
+                : FriendlyErrors.message(e),
+          );
+        }
+      } on TimeoutException {
+        return MealAnalysisResult.error(
+          'تحليل النص أخذ وقت أطول من المتوقع. اكتب الوصف بشكل مختصر وواضح ثم حاول مرة ثانية.',
+        );
+      }
 
-      return MealAnalysisResult.fromJson(data);
+      // fallback آمن للنسخ التي لم تنشر analyzeMealTextV2 بعد.
+      final legacyCallable = fns.httpsCallable(
+        'analyzeMealText',
+        options: HttpsCallableOptions(timeout: _timeout),
+      );
+      final legacyRes = await legacyCallable.call(payload);
+      final legacyData = (legacyRes.data is Map<String, dynamic>)
+          ? legacyRes.data as Map<String, dynamic>
+          : Map<String, dynamic>.from(legacyRes.data as Map);
+      return MealAnalysisResult.fromJson(legacyData);
     } on FirebaseFunctionsException catch (e) {
       return MealAnalysisResult.error(
         e.message?.trim().isNotEmpty == true
@@ -576,7 +615,7 @@ class MealAnalysisService {
               },
             }),
           )
-          .timeout(_timeout);
+          .timeout(_fastTextTimeout);
 
       final bodyText = utf8.decode(resp.bodyBytes);
       Map<String, dynamic>? decoded;
@@ -625,7 +664,7 @@ class MealAnalysisService {
       );
     } on TimeoutException {
       return MealAnalysisResult.error(
-        'انتهى وقت الانتظار أثناء الاتصال بخدمة التحليل.',
+        'تحليل النص أخذ وقت أطول من المتوقع. اكتب الوصف بشكل مختصر وواضح ثم حاول مرة ثانية.',
       );
     } catch (e, st) {
       if (kDebugMode) {
@@ -647,7 +686,7 @@ class MealAnalysisService {
 class _IngredientBreakdown {
   final String nameAr;
   final String nameEn;
-  final String quantityLabel;
+  String quantityLabel;
   double grams;
   double caloriesKcal;
   double proteinG;
@@ -714,6 +753,7 @@ class _IngredientBreakdown {
     }
     final factor = newGrams / grams;
     grams = newGrams;
+    quantityLabel = '${newGrams.toStringAsFixed(0)} جم';
     caloriesKcal *= factor;
     proteinG *= factor;
     carbsG *= factor;
@@ -849,8 +889,9 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
   Map<String, dynamic>? _result;
   MealAnalysisResult? _analysis;
 
-  // اسم الوجبة كما كتبه المستخدم (نعرضه دائمًا بدل اسم عام مثل "وجبة")
+  // النص الأصلي + اسم مختصر للعرض والحفظ
   String _inputName = '';
+  String _mealDisplayName = '';
 
   // تفصيل المكونات (سعرات/ماكروز لكل مكوّن) + أسئلة تأكيد
   List<_IngredientBreakdown> _breakdown = <_IngredientBreakdown>[];
@@ -868,12 +909,46 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
   double _sumC = 0;
   double _sumF = 0;
 
+  String _compactMealName(String text, String? aiName) {
+    String norm(String x) => x
+        .replaceAll('تونه', 'تونة')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    bool usefulAiName(String x) {
+      final n = norm(x);
+      if (n.isEmpty) return false;
+      if (['وجبة', 'طعام', 'أكل', 'meal', 'food'].contains(n.toLowerCase())) return false;
+      if (n.length > 42) return false;
+      return true;
+    }
+
+    final ai = norm(aiName ?? '');
+    if (usefulAiName(ai) && !norm(text).contains(ai + ' فيها')) return ai;
+
+    var out = norm(text);
+    out = out.replaceAll(RegExp(r'[0-9٠-٩]+(?:[\.,٫][0-9٠-٩]+)?\s*(?:جرام|غرام|جم|غ|g|ml|مل|كوب|اكواب|أكواب|ملعقة|ملاعق|حبة|حبات|قطعة|قطع|شريحة|شرائح)', caseSensitive: false), ' ');
+    out = out.replaceAll(RegExp(r'\b(?:فيها|فيه|في|تقريبًا|تقريبا|حوالي|معاها|معاه|حقت|حق)\b'), ' ');
+    out = out.replaceAll(RegExp(r'\s+(?:مع|ويا|plus|with)\s+', caseSensitive: false), ' و ');
+    out = out.replaceAll(RegExp(r'\s+'), ' ').trim();
+    out = out.replaceAll(RegExp(r'\s+و\s+'), ' و ').trim();
+    out = out.replaceAll(RegExp(r'^(اكلت|أكلت|اكل|أكل|وجبة|تحليل)\s+'), '').trim();
+
+    if (out.length > 45) {
+      final parts = out.split(RegExp(r'\s+(?:و|مع)\s+'));
+      if (parts.length >= 2) {
+        out = '${parts[0].trim()} و ${parts[1].trim()}';
+      } else {
+        out = out.substring(0, 45).trim();
+      }
+    }
+    return out.isEmpty ? 'وجبة' : out;
+  }
+
   Map<String, dynamic> _toHomeSheetMap() {
-    final name = _inputName.trim().isNotEmpty
-        ? _inputName.trim()
-        : ((_analysis?.foodName ?? 'وجبة').trim().isEmpty
-            ? 'وجبة'
-            : (_analysis?.foodName ?? 'وجبة'));
+    final name = _mealDisplayName.trim().isNotEmpty
+        ? _mealDisplayName.trim()
+        : _compactMealName(_inputName, _analysis?.foodName);
 
     return <String, dynamic>{
       'name': name,
@@ -980,8 +1055,9 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
       _preAnswers.clear();
       _analysis = res;
 
-      // ✅ نعرض اسم الوجبة كما كتبه المستخدم دائمًا
+      // ✅ نعرض اسم وجبة مختصر بدل النص الطويل الكامل
       _inputName = text;
+      _mealDisplayName = _compactMealName(text, res.foodName);
 
       final List<_IngredientBreakdown> bd = <_IngredientBreakdown>[];
       final List<_Clarification> qs = <_Clarification>[];
@@ -1031,7 +1107,7 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
       }
 
       _result = {
-        'الاسم': _inputName,
+        'الاسم': _mealDisplayName,
         'السعرات (ك.س)': _sumKcal.toStringAsFixed(0),
         'بروتين (غ)': _sumP.toStringAsFixed(0),
         'كارب (غ)': _sumC.toStringAsFixed(0),
@@ -1416,11 +1492,9 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
 
   Widget _buildHeaderCard() {
     final theme = Theme.of(context);
-    final name = _inputName.trim().isNotEmpty
-        ? _inputName.trim()
-        : (((_analysis?.foodName ?? 'وجبة').trim().isEmpty)
-            ? 'وجبة'
-            : (_analysis?.foodName ?? 'وجبة'));
+    final name = _mealDisplayName.trim().isNotEmpty
+        ? _mealDisplayName.trim()
+        : _compactMealName(_inputName, _analysis?.foodName);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Row(
@@ -1523,7 +1597,7 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
       _sumF = _breakdown.fold(0.0, (a, b) => a + b.fatG);
     }
     _result = {
-      'الاسم': _inputName,
+      'الاسم': _mealDisplayName,
       'السعرات (ك.س)': _sumKcal.toStringAsFixed(0),
       'بروتين (غ)': _sumP.toStringAsFixed(0),
       'كارب (غ)': _sumC.toStringAsFixed(0),
@@ -1566,6 +1640,72 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
     }
 
     _recomputeTotals();
+  }
+
+  Future<void> _editIngredientBreakdown(_IngredientBreakdown item) async {
+    final gramsCtrl = TextEditingController(text: item.grams > 0 ? item.grams.toStringAsFixed(0) : '');
+    final kcalCtrl = TextEditingController(text: item.caloriesKcal.toStringAsFixed(0));
+    final proteinCtrl = TextEditingController(text: item.proteinG.toStringAsFixed(1));
+    final carbsCtrl = TextEditingController(text: item.carbsG.toStringAsFixed(1));
+    final fatCtrl = TextEditingController(text: item.fatG.toStringAsFixed(1));
+
+    double parse(TextEditingController c) => double.tryParse(
+      c.text.trim().replaceAll('،', '.').replaceAll(',', '.'),
+    ) ?? 0.0;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('تعديل ${item.nameAr}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: gramsCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'الكمية', suffixText: 'جم'),
+              ),
+              TextField(
+                controller: kcalCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'السعرات', suffixText: 'kcal'),
+              ),
+              TextField(
+                controller: proteinCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'البروتين', suffixText: 'غ'),
+              ),
+              TextField(
+                controller: carbsCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'الكارب', suffixText: 'غ'),
+              ),
+              TextField(
+                controller: fatCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'الدهون', suffixText: 'غ'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('حفظ')),
+        ],
+      ),
+    );
+
+    if (saved != true) return;
+    setState(() {
+      item.grams = parse(gramsCtrl);
+      item.quantityLabel = item.grams > 0 ? '${item.grams.toStringAsFixed(0)} جم' : 'حصة تقديرية';
+      item.caloriesKcal = parse(kcalCtrl);
+      item.proteinG = parse(proteinCtrl);
+      item.carbsG = parse(carbsCtrl);
+      item.fatG = parse(fatCtrl);
+      _recomputeTotals();
+    });
   }
 
   Widget _buildClarificationsCard() {
@@ -1719,6 +1859,12 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
                             ),
                           ),
                           const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: () => _editIngredientBreakdown(b),
+                            icon: const Icon(Icons.edit_rounded, size: 16),
+                            label: const Text('تعديل'),
+                          ),
+                          const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
@@ -1932,6 +2078,7 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
                     _preQuestions = <_PreAnalysisQuestion>[];
                     _preAnswers.clear();
                     _error = null;
+                    _mealDisplayName = '';
                   });
                 },
           icon: const Icon(Icons.edit_note_rounded),

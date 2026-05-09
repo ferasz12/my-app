@@ -463,6 +463,54 @@ type WazenVisionAnalysis = {
   label?: string;
 };
 
+function isGenericVisionDishName(value: string) {
+  const s = normStr(value).toLowerCase();
+  if (!s) return true;
+  return new Set([
+    "وجبة",
+    "وجبه",
+    "وجبة مختلطة",
+    "وجبه مختلطه",
+    "وجبة غير محددة",
+    "وجبه غير محدده",
+    "طبق",
+    "طعام",
+    "أكل",
+    "اكل",
+    "meal",
+    "mixed meal",
+    "food",
+    "dish",
+    "plate",
+  ]).has(s);
+}
+
+function composeVisionDishNameFromItems(items: Partial<WazenVisionItem>[] = [], ingredients: WazenVisionIngredient[] = []) {
+  const names: string[] = [];
+  const add = (value: any) => {
+    const name = normStr(value);
+    if (!name || isGenericVisionDishName(name) || ["عنصر", "مكون"].includes(name)) return;
+    if (!names.includes(name)) names.push(name);
+  };
+
+  for (const item of items) {
+    add(item?.name_ar || item?.name_en || "");
+    if (names.length >= 3) break;
+  }
+
+  if (!names.length) {
+    for (const ingredient of ingredients) {
+      add(ingredient?.name || "");
+      if (names.length >= 3) break;
+    }
+  }
+
+  if (!names.length) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} مع ${names[1]}`;
+  return `${names[0]} مع ${names[1]} و${names[2]}`;
+}
+
 const WAZEN_VISION_RESPONSE_SCHEMA: any = {
   type: "object",
   additionalProperties: false,
@@ -545,6 +593,92 @@ function buildWazenVisionSystemInstruction(userNote: string) {
     'wazin_analysis must be a short friendly Saudi-dialect tip.',
     `User Note: ${note || "(none)"}`,
   ].join("\n");
+}
+
+function buildWazenVisionSystemInstructionV2(userNote: string) {
+  const note = normStr(userNote);
+  return [
+    'You are Wazin Vision V2, a precise nutrition analysis engine for the Arabic health app Wazin (وازن).',
+    'Return ONLY valid compact JSON matching the schema. No markdown. No prose. No extra keys.',
+    'Main goal: identify every meaningful food component, estimate grams for each component, and make total_macros equal the sum of items.',
+    'meal.name_ar/name_ar/dish_name must be a specific Arabic meal title derived from visible items, not generic phrases like وجبة مختلطة unless the image is truly unidentifiable.',
+    'For mixed plates, compose the name from the main items, e.g. ساندويتش تونة مع بطاطس مقلية.',
+    'Evidence priority: user note first, visible label/OCR second, visual estimate third.',
+    'Respect stated weight, volume, count, brand, sugar status, cooking style, sauce, oil, and whether food is drained/without skin/light/zero.',
+    'For each item, grams must be the estimated edible portion in grams whenever visually possible. Do not leave grams null for visible solid food.',
+    'For liquids, use ml and also approximate grams when reasonable (1 ml ≈ 1 g for water-like drinks).',
+    'portion_grams must equal the sum of item grams when available.',
+    'Confidence must be item-specific and realistic. Do NOT default all items to 0.72.',
+    'Use 0.85-0.95 only when the food/label/quantity is clear, 0.70-0.84 when visually likely, 0.50-0.69 when uncertain, below 0.50 if highly unclear.',
+    'If an edible item has positive grams or ml, do not return all-zero macros unless it is truly zero-calorie.',
+    'Water, ice, black coffee, unsweetened tea, and diet/zero soda may be near zero.',
+    'Carb foods should usually have carbs_g > 0. Protein foods should usually have protein_g > 0.',
+    'Prefer 1 to 6 meaningful items; merge tiny garnish only when nutritionally negligible.',
+    'Ask short Arabic clarification questions only if the food identity or quantity is genuinely ambiguous.',
+    'primary_query must be a short English USDA-style phrase for each item.',
+    'wazin_analysis must be a short friendly Saudi-dialect tip and mention that values are estimates when relevant.',
+    `User Note: ${note || "(none)"}`,
+  ].join("\n");
+}
+
+function enhanceWazenVisionV2(base: WazenVisionAnalysis, userNote = ""): WazenVisionAnalysis {
+  const note = normStr(userNote).toLowerCase();
+  const fixedItems: WazenVisionItem[] = (Array.isArray(base.items) ? base.items : []).map((rawItem, index) => {
+    const item: WazenVisionItem = {
+      ...rawItem,
+      name_ar: normStr(rawItem?.name_ar || rawItem?.name_en || "عنصر"),
+      name_en: normStr(rawItem?.name_en || ""),
+      grams: num(rawItem?.grams) > 0 ? Math.round(num(rawItem?.grams)) : null,
+      ml: num(rawItem?.ml) > 0 ? Math.round(num(rawItem?.ml)) : null,
+      primary_query: normStr(rawItem?.primary_query || ""),
+      est: {
+        kcal: round1(num(rawItem?.est?.kcal)),
+        protein_g: round1(num(rawItem?.est?.protein_g)),
+        carbs_g: round1(num(rawItem?.est?.carbs_g)),
+        fat_g: round1(num(rawItem?.est?.fat_g)),
+      },
+      confidence: clamp01(num(rawItem?.confidence)),
+    };
+
+    if ((item.grams == null || num(item.grams) <= 0) && num(item.ml) > 0) {
+      item.grams = Math.round(num(item.ml));
+    }
+
+    const macroKcal = round1((num(item.est.protein_g) * 4) + (num(item.est.carbs_g) * 4) + (num(item.est.fat_g) * 9));
+    if (num(item.est.kcal) <= 0 && macroKcal > 0) item.est.kcal = macroKcal;
+
+    const hasPortion = num(item.grams) > 0 || num(item.ml) > 0;
+    const hasMacros = num(item.est.kcal) > 0 || num(item.est.protein_g) > 0 || num(item.est.carbs_g) > 0 || num(item.est.fat_g) > 0;
+    const allSignals = [item.name_ar, item.name_en, item.primary_query, note].join(" ").toLowerCase();
+    const labelSignal = /(barcode|nutrition|label|package|عبوة|ملصق|باركود|مكتوب|وزن)/i.test(allSignals);
+    const userWeightSignal = /\d+\s*(g|gram|grams|جم|غ|ml|مل)/i.test(allSignals);
+
+    if (Math.abs(num(item.confidence) - 0.72) < 0.001 || num(item.confidence) <= 0) {
+      let conf = 0.66;
+      if (hasPortion) conf += 0.08;
+      if (hasMacros) conf += 0.05;
+      if (userWeightSignal) conf += 0.08;
+      if (labelSignal) conf += 0.10;
+      if (num(item.grams) <= 0 && num(item.ml) <= 0) conf -= 0.10;
+      conf -= Math.min(index, 4) * 0.015;
+      item.confidence = clamp01(round1(conf * 100) / 100);
+    }
+
+    return item;
+  });
+
+  let portionTotal = fixedItems.reduce((sum, it) => sum + (num(it.grams) > 0 ? num(it.grams) : 0), 0);
+  if (fixedItems.length === 1 && portionTotal <= 0 && num(base.portion_grams) > 0) {
+    fixedItems[0].grams = Math.round(num(base.portion_grams));
+    portionTotal = num(fixedItems[0].grams);
+  }
+
+  const finalized = finalizeWazenVisionAnalysis({...base, items: fixedItems});
+  if (portionTotal > 0) {
+    finalized.portion_grams = Math.round(portionTotal);
+    finalized.portion_desc_ar = `${Math.round(portionTotal)} جم إجمالي الوجبة`;
+  }
+  return finalized;
 }
 
 function defaultWazenAnalysis(dishName: string, total: {calories_kcal: number; protein_g: number; carbs_g: number; fat_g: number}) {
@@ -1005,7 +1139,10 @@ function normalizeWazenVisionResponse(raw: any): WazenVisionAnalysis {
   const questionsRaw = Array.isArray(root?.questions) ? root.questions : clarifications.map((x: any) => x?.question || x);
   const questions = questionsRaw.map((q: any) => normStr(q)).filter((q: string) => q).slice(0, 3);
 
-  const dishName = dishNameAr || (ingredients.length === 1 ? ingredients[0].name : "وجبة مختلطة");
+  const inferredDishName = composeVisionDishNameFromItems(items, ingredients);
+  const dishName = !isGenericVisionDishName(dishNameAr)
+    ? dishNameAr
+    : (inferredDishName || (ingredients.length === 1 ? ingredients[0].name : "وجبة مختلطة"));
 
   let wazinAnalysis = normStr(
     root?.wazin_analysis || root?.wazen_analysis || root?.analysis || root?.advice || root?.note || root?.message
@@ -1182,7 +1319,11 @@ function finalizeWazenVisionAnalysis(base: WazenVisionAnalysis): WazenVisionAnal
   }, {calories_kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0});
 
   const totalPortionGrams = fixedItems.reduce((sum, it) => sum + num(it.grams), 0);
-  const dishName = normStr(base.dish_name || base.name_ar || base.meal?.name_ar || "") || (ingredients.length === 1 ? ingredients[0].name : "وجبة مختلطة");
+  const baseDishName = normStr(base.dish_name || base.name_ar || base.meal?.name_ar || "");
+  const inferredDishName = composeVisionDishNameFromItems(fixedItems, ingredients);
+  const dishName = !isGenericVisionDishName(baseDishName)
+    ? baseDishName
+    : (inferredDishName || (ingredients.length === 1 ? ingredients[0].name : "وجبة مختلطة"));
   const dishNameEn = normStr(base.name_en || base.meal?.name_en || "");
 
   return {
@@ -2950,6 +3091,415 @@ function buildClarifiedDescription(description: string, answersRaw: any): string
   ].join('\n');
 }
 
+
+// =============== 1.1) تحليل نصّي سريع V2 (Callable) ===============
+
+type TextV2MacroEstimate = {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+};
+
+type TextV2ItemOut = {
+  name: string;
+  grams: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  confidence: number;
+  guessed: boolean;
+};
+
+function normalizeTextV2Key(input: any): string {
+  return normalizeArabicText(String(input || '').toLowerCase());
+}
+
+function normalizeGeminiModelForUrl(model: string): string {
+  const m = String(model || '').trim() || 'gemini-2.0-flash';
+  return m.replace(/^models\//i, '');
+}
+
+function cleanTextV2Name(input: any): string {
+  let s = normStr(input)
+    .replace(/[\u064B-\u0652]/g, '')
+    .replace(/تونه/g, 'تونة')
+    .replace(/فيلافيديا/g, 'فيلادلفيا')
+    .replace(/[0-9٠-٩]+(?:[.,][0-9٠-٩]+)?\s*(جرام|غرام|غ|جم|g|ml|مل|كوب|اكواب|أكواب|ملعقه|ملعقة|حبة|حبات|شريحة|شرائح)/gi, '')
+    .replace(/\b(فيها|فيه|معاه|معها|تقريبا|تقريبًا|حوالي|على|من|بدون)\b/g, ' ')
+    .replace(/[،,؛;:.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (s.length > 60) s = s.slice(0, 60).trim();
+  return s;
+}
+
+function joinArabicFoodNames(parts: string[]): string {
+  const clean = parts.map(cleanTextV2Name).filter((x) => x.length > 0);
+  const unique: string[] = [];
+  for (const x of clean) {
+    if (!unique.some((u) => normalizeTextV2Key(u) === normalizeTextV2Key(x))) unique.push(x);
+  }
+  if (unique.length <= 1) return unique[0] || '';
+  if (unique.length === 2) return `${unique[0]} و${unique[1]}`;
+  return `${unique.slice(0, -1).join(' و')} و${unique[unique.length - 1]}`;
+}
+
+function buildShortMealNameV2(description: string, itemNames: string[] = []): string {
+  const d = normalizeTextV2Key(description);
+  const proteins: string[] = [];
+  const add = (label: string, patterns: string[]) => {
+    if (patterns.some((p) => d.includes(normalizeTextV2Key(p)))) proteins.push(label);
+  };
+  add('تونة', ['تونة', 'تونه', 'tuna']);
+  add('بيض', ['بيض', 'egg']);
+  add('جبن', ['جبن', 'فيلادلفيا', 'فيلافيديا', 'cheese']);
+  add('دجاج', ['دجاج', 'chicken']);
+  add('لحم', ['لحم', 'beef', 'meat']);
+  add('تركي', ['تركي', 'turkey']);
+
+  if (/ساندويتش|ساندوش|sandwich/i.test(description)) {
+    const suffix = joinArabicFoodNames(proteins.length ? proteins : itemNames.slice(0, 3));
+    return suffix ? `ساندويتش ${suffix}` : 'ساندويتش';
+  }
+
+  if ((d.includes('رز') || d.includes('ارز') || d.includes('rice')) &&
+      (d.includes('دجاج') || d.includes('chicken'))) {
+    return 'رز ودجاج';
+  }
+  if ((d.includes('رز') || d.includes('ارز') || d.includes('rice')) &&
+      (d.includes('لحم') || d.includes('meat') || d.includes('beef'))) {
+    return 'رز ولحم';
+  }
+
+  const fromItems = joinArabicFoodNames(itemNames.slice(0, 3));
+  if (fromItems) return fromItems;
+  const cleaned = cleanTextV2Name(description);
+  return cleaned || 'وجبة';
+}
+
+function estimateTextV2Grams(name: string, description: string): number {
+  const n = normalizeTextV2Key(`${name} ${description}`);
+  const explicit = normalizeDigits(description).match(/([0-9]+(?:[.,][0-9]+)?)\s*(جرام|غرام|غ|جم|g)\b/i);
+  if (explicit) return Math.max(1, Math.round(num(explicit[1])));
+
+  if (n.includes('بيضتين') || n.includes('بيضتان') || n.includes('2 بيض') || n.includes('حبتين بيض')) return 100;
+  if (n.includes('بيضه') || n.includes('بيضة') || n.includes('بيض')) return 50;
+  if (n.includes('تونه') || n.includes('تونة') || n.includes('tuna')) return 95;
+  if (n.includes('خبز') || n.includes('توست') || n.includes('bread')) return /ساندويتش|sandwich/i.test(description) ? 70 : 35;
+  if (n.includes('جبن') || n.includes('فيلادلفيا') || n.includes('فيلافيديا') || n.includes('cheese')) return 30;
+  if (n.includes('رز') || n.includes('ارز') || n.includes('rice')) return 180;
+  if (n.includes('دجاج') || n.includes('chicken')) return 150;
+  if (n.includes('لحم') || n.includes('beef') || n.includes('meat')) return 140;
+  if (n.includes('بطاطس') || n.includes('fries') || n.includes('potato')) return 120;
+  if (n.includes('خيار') || n.includes('طماطم') || n.includes('خس') || n.includes('جرجير') || n.includes('فلفل')) return 20;
+  return 100;
+}
+
+function per100ForTextV2(name: string): TextV2MacroEstimate | null {
+  const n = normalizeTextV2Key(name);
+  if (n.includes('تونه') || n.includes('تونة') || n.includes('tuna')) {
+    return {calories: 116, protein: 26, carbs: 0, fat: 1};
+  }
+  if (n.includes('بيض') || n.includes('egg')) {
+    return {calories: 143, protein: 12.6, carbs: 1.1, fat: 9.5};
+  }
+  if (n.includes('خبز') || n.includes('توست') || n.includes('bread')) {
+    return {calories: 260, protein: 9, carbs: 49, fat: 3.2};
+  }
+  if (n.includes('جبن') || n.includes('فيلادلفيا') || n.includes('فيلافيديا') || n.includes('cheese')) {
+    return {calories: 170, protein: 9, carbs: 6, fat: 11};
+  }
+  if (n.includes('رز') || n.includes('ارز') || n.includes('rice')) {
+    return {calories: 130, protein: 2.7, carbs: 28.2, fat: 0.3};
+  }
+  if (n.includes('دجاج') || n.includes('chicken')) {
+    return {calories: 165, protein: 31, carbs: 0, fat: 3.6};
+  }
+  if (n.includes('لحم') || n.includes('beef') || n.includes('meat')) {
+    return {calories: 217, protein: 26, carbs: 0, fat: 12};
+  }
+  if (n.includes('بطاطس') || n.includes('fries')) {
+    return {calories: 312, protein: 3.4, carbs: 41, fat: 15};
+  }
+  if (n.includes('خيار') || n.includes('خس') || n.includes('جرجير')) {
+    return {calories: 15, protein: 0.8, carbs: 3, fat: 0.1};
+  }
+  if (n.includes('طماطم') || n.includes('فلفل')) {
+    return {calories: 22, protein: 1, carbs: 4.5, fat: 0.2};
+  }
+  return null;
+}
+
+function estimateTextV2Macros(name: string, grams: number): TextV2MacroEstimate {
+  const per100 = per100ForTextV2(name) || {calories: 180, protein: 7, carbs: 22, fat: 6};
+  const factor = Math.max(0, grams) / 100;
+  return {
+    calories: round1(per100.calories * factor),
+    protein: round1(per100.protein * factor),
+    carbs: round1(per100.carbs * factor),
+    fat: round1(per100.fat * factor),
+  };
+}
+
+function normalizeTextV2Item(raw: any, description: string): TextV2ItemOut | null {
+  const name = cleanTextV2Name(raw?.item || raw?.name_ar || raw?.name || raw?.ingredient || raw?.title || '');
+  if (!name) return null;
+
+  let grams = Math.round(num(raw?.grams ?? raw?.gram ?? raw?.estimated_weight_g ?? raw?.weight_g ?? raw?.quantity_g));
+  let guessed = false;
+  if (!(grams > 0)) {
+    grams = estimateTextV2Grams(name, description);
+    guessed = true;
+  }
+
+  let calories = num(raw?.calories_kcal ?? raw?.calories ?? raw?.kcal ?? raw?.est?.kcal);
+  let protein = num(raw?.protein_g ?? raw?.protein ?? raw?.est?.protein_g);
+  let carbs = num(raw?.carbs_g ?? raw?.carbs ?? raw?.carbohydrates_g ?? raw?.est?.carbs_g);
+  let fat = num(raw?.fat_g ?? raw?.fat ?? raw?.est?.fat_g);
+
+  if (!(calories > 0) && !(protein > 0) && !(carbs > 0) && !(fat > 0)) {
+    const est = estimateTextV2Macros(name, grams);
+    calories = est.calories;
+    protein = est.protein;
+    carbs = est.carbs;
+    fat = est.fat;
+    guessed = true;
+  }
+
+  const confidence = Math.max(0.45, Math.min(0.95, num(raw?.confidence ?? raw?.ingredient_confidence ?? 0.82)));
+  return {
+    name,
+    grams,
+    calories: round1(calories),
+    protein: round1(protein),
+    carbs: round1(carbs),
+    fat: round1(fat),
+    confidence: round1(confidence),
+    guessed,
+  };
+}
+
+function normalizeTextV2Response(raw: any, description: string, gateUsed: number) {
+  let root = raw;
+  if (Array.isArray(root)) root = root.find((x) => x && typeof x === 'object') || {};
+  if (!root || typeof root !== 'object') root = {};
+
+  const rawItems = Array.isArray(root.ingredients) ? root.ingredients :
+    (Array.isArray(root.items) ? root.items :
+      (Array.isArray(root.ingredients_breakdown) ? root.ingredients_breakdown : []));
+
+  let items = rawItems
+    .map((x: any) => normalizeTextV2Item(x, description))
+    .filter((x: any) => x) as TextV2ItemOut[];
+
+  if (!items.length) {
+    const candidates = splitFoodDescriptionCandidates(description).slice(0, 6);
+    items = candidates.map((name) => {
+      const grams = estimateTextV2Grams(name, description);
+      const est = estimateTextV2Macros(name, grams);
+      return {name: cleanTextV2Name(name), grams, ...est, confidence: 0.65, guessed: true};
+    }).filter((x) => x.name);
+  }
+
+  const totals = items.reduce((acc, it) => {
+    acc.calories += it.calories;
+    acc.protein += it.protein;
+    acc.carbs += it.carbs;
+    acc.fat += it.fat;
+    return acc;
+  }, {calories: 0, protein: 0, carbs: 0, fat: 0});
+
+  const rawMealName = cleanTextV2Name(root.meal_name || root.name_ar || root?.meal?.name_ar || root?.meal?.name || '');
+  const mealName = rawMealName && rawMealName.length <= 34 ? rawMealName :
+    buildShortMealNameV2(description, items.map((x) => x.name));
+  const conf = items.length ? items.reduce((sum, x) => sum + x.confidence, 0) / items.length : 0.6;
+
+  const breakdown = items.map((it) => ({
+    name_ar: it.name,
+    name_en: '',
+    grams: it.grams,
+    quantity_label: `${Math.round(it.grams)} غ`,
+    portion_desc_ar: `${Math.round(it.grams)} غ`,
+    calories_kcal: round1(it.calories),
+    protein_g: round1(it.protein),
+    carbs_g: round1(it.carbs),
+    fat_g: round1(it.fat),
+    ingredient_confidence: round1(it.confidence),
+    grams_was_guessed: it.guessed,
+    needs_confirmation: false,
+  }));
+
+  return stripUndefinedDeep({
+    ok: true,
+    itemized: true,
+    source: 'gemini_text_v2_fast',
+    name_ar: mealName,
+    name_en: '',
+    calories_kcal: Math.round(totals.calories),
+    protein_g: round1(totals.protein),
+    carbs_g: round1(totals.carbs),
+    fat_g: round1(totals.fat),
+    confidence: round1(conf),
+    needs_confirmation: false,
+    ingredients: breakdown.map((b) => b.name_ar),
+    ingredients_breakdown: breakdown,
+    clarifications: [],
+    meal: {name_ar: mealName, name_en: ''},
+    items: items.map((it) => ({
+      name_ar: it.name,
+      name_en: '',
+      grams: it.grams,
+      ml: null,
+      est: {
+        kcal: round1(it.calories),
+        protein_g: round1(it.protein),
+        carbs_g: round1(it.carbs),
+        fat_g: round1(it.fat),
+      },
+      confidence: round1(it.confidence),
+    })),
+    total_macros: {
+      kcal: Math.round(totals.calories),
+      protein_g: round1(totals.protein),
+      carbs_g: round1(totals.carbs),
+      fat_g: round1(totals.fat),
+    },
+    wazin_analysis: 'تم تحليل الوجبة بسرعة. تقدر تعدّل أي مكوّن إذا كانت الكمية مختلفة.',
+    _debug: {gateUsed, version: 'text_v2_fast_no_thinking'},
+  });
+}
+
+async function callGeminiTextV2FastJson({
+  description,
+  partsHint,
+  model,
+  apiKey,
+}: {
+  description: string;
+  partsHint: string[];
+  model: string;
+  apiKey: string;
+}) {
+  const cleanModel = normalizeGeminiModelForUrl(model);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent`;
+  const systemInstruction = [
+    'You are Wazin nutrition analyzer.',
+    'Return ONLY compact valid JSON, no markdown.',
+    'Use this exact JSON shape:',
+    '{"meal_name":"short Arabic meal name","ingredients":[{"item":"Arabic ingredient","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}]}',
+    'Extract a short meal name, not the full user sentence and not quantities.',
+    'Split the meal into editable ingredients.',
+    'If grams are missing, estimate realistic grams instead of asking questions.',
+  ].join('\n');
+  const prompt = [
+    'حلّل وصف الوجبة لتطبيق وازن بسرعة.',
+    'رجّع JSON مضغوط فقط بالمفاتيح المطلوبة.',
+    'اسم الوجبة مختصر بدون كميات. مثال: ساندويتش تونة وبيض.',
+    'كل عنصر لازم يحتوي grams/calories/protein_g/carbs_g/fat_g/confidence.',
+    `المقاطع المتوقعة: ${JSON.stringify(partsHint)}`,
+    `الوصف: ${description}`,
+  ].join('\n');
+
+  const makeBody = (thinkingOff: boolean, maxOutputTokens: number) => ({
+    systemInstruction: {parts: [{text: systemInstruction}]},
+    contents: [{role: 'user', parts: [{text: prompt}]}],
+    generationConfig: {
+      temperature: 0.05,
+      maxOutputTokens,
+      responseMimeType: 'application/json',
+      ...(thinkingOff ? {thinkingConfig: {thinkingBudget: 0}} : {}),
+    },
+  });
+
+  const send = async (thinkingOff: boolean, maxOutputTokens: number) => {
+    const resp = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {'content-type': 'application/json', 'x-goog-api-key': apiKey},
+      body: JSON.stringify(makeBody(thinkingOff, maxOutputTokens)),
+    }, 25000);
+    const txt = await resp.text();
+    return {resp, txt};
+  };
+
+  let {resp, txt} = await send(true, 2200);
+  if (!resp.ok && isGeminiConfigError(resp.status, txt)) {
+    ({resp, txt} = await send(false, 6000));
+  }
+
+  if (!resp.ok) {
+    const e: any = new Error(`Gemini API ${resp.status}: ${txt.slice(0, 700)}`);
+    e.status = resp.status;
+    e.body = txt;
+    throw e;
+  }
+
+  let data = parseGeminiEnvelope(txt) || {};
+  let outText = data?.candidates?.[0]?.content?.parts?.map((p: any) => String(p?.text || '')).join('') || '';
+  let finishReason = String(data?.candidates?.[0]?.finishReason || '').toUpperCase();
+
+  if (finishReason === 'MAX_TOKENS' || looksIncompleteJsonText(outText)) {
+    ({resp, txt} = await send(true, 6000));
+    if (!resp.ok && isGeminiConfigError(resp.status, txt)) ({resp, txt} = await send(false, 8000));
+    if (!resp.ok) {
+      const e: any = new Error(`Gemini API ${resp.status}: ${txt.slice(0, 700)}`);
+      e.status = resp.status;
+      e.body = txt;
+      throw e;
+    }
+    data = parseGeminiEnvelope(txt) || {};
+    outText = data?.candidates?.[0]?.content?.parts?.map((p: any) => String(p?.text || '')).join('') || '';
+    finishReason = String(data?.candidates?.[0]?.finishReason || '').toUpperCase();
+  }
+
+  const raw = tryExtractJson(outText);
+  if (!raw) {
+    const e: any = new Error(`Gemini text V2 returned invalid JSON: ${outText.slice(0, 300)}`);
+    e.status = 422;
+    e.code = 'invalid_json';
+    throw e;
+  }
+  return raw;
+}
+
+export const analyzeMealTextV2 = onCall(
+  {
+    region: 'europe-west1',
+    secrets: [GEMINI_API_KEY],
+    timeoutSeconds: 45,
+    memory: '512MiB',
+    enforceAppCheck: false,
+    cors: true,
+  },
+  async (req) => {
+    if (!req.auth?.uid) throw new HttpsError('unauthenticated', 'سجّل دخولك أولًا');
+    const description = normStr(req.data?.description || req.data?.text || req.data?.query);
+    if (description.length < 3) throw new HttpsError('invalid-argument', 'الوصف قصير جدًا');
+
+    const textGate = await checkAndIncUsage(req.auth.uid, 'food_text', 20, 'Asia/Riyadh', true);
+    if (!textGate.allowed) throw new HttpsError('resource-exhausted', gateMessage('food_text'));
+
+    const geminiKey = GEMINI_API_KEY.value();
+    if (!geminiKey) throw new HttpsError('failed-precondition', 'GEMINI_API_KEY غير مضبوط في Secrets.');
+
+    const model = process.env.GEMINI_TEXT_MODEL || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+    const partsHint = splitFoodDescriptionCandidates(description).slice(0, 8);
+
+    try {
+      const raw = await callGeminiTextV2FastJson({description, partsHint, model, apiKey: geminiKey});
+      return normalizeTextV2Response(raw, description, textGate.current);
+    } catch (err: any) {
+      logger.warn('analyzeMealTextV2 fast path failed; returning local estimate fallback', {
+        status: err?.status,
+        code: err?.code,
+        message: String(err?.message || '').slice(0, 180),
+      });
+      return normalizeTextV2Response({ingredients: []}, description, textGate.current);
+    }
+  }
+);
+
 // =============== 1) تحليل نصّي (Callable) ===============
 export const analyzeMealText = onCall(
   {
@@ -3690,7 +4240,7 @@ export const analyzeFood = onRequest(
   },
   async (req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
-    res.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Firebase-AppCheck,X-Count-Usage,X-Clarifier,X-Clarifier-Enc");
+    res.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Firebase-AppCheck,X-Count-Usage,X-Clarifier,X-Clarifier-Enc,X-Wazen-Vision-Version");
     res.set("Access-Control-Allow-Methods", "POST,OPTIONS");
     if (req.method === "OPTIONS") {
       res.status(204).send("");
@@ -3774,6 +4324,8 @@ export const analyzeFood = onRequest(
 
       const bodyClarifier = typeof body?.clarifier === "string" ? body.clarifier.trim() : "";
       const userClarifier = (headerClarifier || bodyClarifier).trim();
+      const visionVersion = String(req.headers["x-wazen-vision-version"] || body?.vision_version || body?.visionVersion || "").trim();
+      const useVisionV2 = visionVersion === "2" || visionVersion.toLowerCase() === "v2";
 
       if (!imageUrl && !imageBase64) {
         res.status(400).json({error: "أرسل imageUrl أو imageBase64"});
@@ -3800,7 +4352,9 @@ export const analyzeFood = onRequest(
         img = stripDataUrlPrefix(imageBase64);
       }
 
-      const systemInstruction = buildWazenVisionSystemInstruction(userClarifier);
+      const systemInstruction = useVisionV2
+        ? buildWazenVisionSystemInstructionV2(userClarifier)
+        : buildWazenVisionSystemInstruction(userClarifier);
       const userText = [
         "حلل صورة الطعام التالية لتطبيق وازن.",
         userClarifier ? `ملاحظة المستخدم: ${userClarifier}` : "ملاحظة المستخدم: لا يوجد.",
@@ -3890,6 +4444,7 @@ export const analyzeFood = onRequest(
       }
 
       let normalized = normalizeWazenVisionResponse(raw);
+      if (useVisionV2) normalized = enhanceWazenVisionV2(normalized, userClarifier);
 
       if (!hasUsableWazenVisionAnalysis(normalized)) {
         const schemaRepairSystemInstruction = [
@@ -3923,6 +4478,7 @@ export const analyzeFood = onRequest(
           const repairedRaw = tryExtractJson(repairedText);
           if (repairedRaw) {
             normalized = normalizeWazenVisionResponse(repairedRaw);
+            if (useVisionV2) normalized = enhanceWazenVisionV2(normalized, userClarifier);
           }
         } catch (e: any) {
           logger.warn('analyzeFood schema-repair failed', {
@@ -3947,7 +4503,7 @@ export const analyzeFood = onRequest(
         apiKey: geminiKey,
         systemInstruction,
       });
-      res.status(200).json(stripUndefinedDeep(repaired));
+      res.status(200).json(stripUndefinedDeep(useVisionV2 ? enhanceWazenVisionV2(repaired, userClarifier) : repaired));
     } catch (err: any) {
       const status = Number(err?.status ?? 0);
       const msg = String(err?.message ?? "internal");
@@ -4795,13 +5351,14 @@ async function _sendMarketingToTopic(args: {
       type: "marketing",
       campaignId: args.campaignId,
       deeplink: args.deeplink || "/home",
+      click_action: "FLUTTER_NOTIFICATION_CLICK",
       title: args.title || "Wazen",
       body: args.body || "",
     },
     android: {
       priority: "high",
       notification: {
-        channelId: "wazen_marketing",
+        channelId: "wazen_marketing_fcm_v2",
       },
     },
     apns: {

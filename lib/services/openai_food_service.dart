@@ -1086,6 +1086,10 @@ final List<Map<String, dynamic>>? items =
       // يُستخدم في السيرفر لتحديد هل نزيد العدّاد اليومي أم لا
       req.headers['X-Count-Usage'] = countUsage ? '1' : '0';
 
+      // ✅ إيقاف V2 مؤقتًا: نستخدم مسار التحليل المستقر نفسه الموجود في نسخة App Store.
+      // لا ترسل X-Wazen-Vision-Version الآن؛ لأن مسار V2 يحتاج اختبار إضافي على Cloud Functions.
+      // req.headers['X-Wazen-Vision-Version'] = '2';
+
       // ✅ مهم: كثير من سيرفرات البروكسي (Firebase onRequest) لا تقرأ حقول multipart النصية
       // لذلك نمرّر التوضيح أيضًا كـ Header ليصل دائمًا.
       // ملاحظة: HTTP headers لازم تكون ASCII، لذلك نرسلها مُشفّرة (URI component) ثم نفكّها في السيرفر.

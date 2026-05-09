@@ -63,13 +63,24 @@ class NotificationSyncService {
 
     if (u == null || u.isAnonymous) return;
 
-    // 1) تطبيق فوري من Firestore (مرة)
+    // 1) تطبيق فوري من Firestore (مرة).
+    // إذا لم تكن prefs موجودة أصلًا، طبّق إعدادات افتراضية حتى يتم الاشتراك
+    // في FCM Topics وحفظ تفضيلات التسويق بدل بقاء المستخدم بلا اشتراك.
+    var appliedPrefs = false;
     try {
       final prefs = await _repo.getPrefs();
       if (prefs != null) {
         await _applyRemotePrefs(prefs);
+        appliedPrefs = true;
       }
     } catch (_) {}
+
+    if (!appliedPrefs) {
+      await _applyRemotePrefs(const <String, dynamic>{
+        'push': true,
+        'marketing': true,
+      });
+    }
 
     // 2) الاستماع المباشر لأي تغيير في prefs
     final userRef = FirebaseFirestore.instance.collection('users').doc(u.uid);

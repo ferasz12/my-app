@@ -201,11 +201,11 @@ Future<void> _safeStartupTask(
 }
 
 Future<void> _startOptionalServicesAfterFirstFrame() async {
-  await _safeStartupTask('Notifications', _initNotificationsIfSupported);
+  // شغّل FCM كخدمة مستقلة حتى لو تعطلت جدولة الإشعارات المحلية
+  // أو أخذت وقت طويل. هذا مهم حتى تُحفظ التوكنات وتشتغل Topics.
+  unawaited(_safeStartupTask('FCM', _initFcmIfSupported));
 
-  // NotificationSyncService.start() داخل _initNotificationsIfSupported يشغّل FCM عند الحاجة.
-  // نخليه هنا مطفأ لتجنب التكرار، وإذا فصلته لاحقًا فعّل السطر التالي فقط.
-  // await _safeStartupTask('FCM', _initFcmIfSupported);
+  await _safeStartupTask('Notifications', _initNotificationsIfSupported);
 }
 
 void main() {

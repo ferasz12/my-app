@@ -167,6 +167,152 @@ class AppRepository {
     await batch.commit();
   }
 
+
+
+  // ===== Restore / read helpers =====
+  static Map<String, dynamic>? _asMap(dynamic v) {
+    if (v is Map<String, dynamic>) return v;
+    if (v is Map) return Map<String, dynamic>.from(v);
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> readDay(String ymd) async {
+    try {
+      final snap = await _dayDoc(ymd)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 12));
+      final data = snap.data();
+      if (data == null) return null;
+      return _normalizeDayData(ymd, data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> readDays({int limit = 370}) async {
+    try {
+      final q = _userDoc().collection('days').limit(limit);
+      final snap = await q
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 18));
+      final days = <Map<String, dynamic>>[];
+      for (final d in snap.docs) {
+        days.add(_normalizeDayData(d.id, d.data()));
+      }
+      days.sort((a, b) => (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString()));
+      return days;
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  static Map<String, dynamic> _normalizeDayData(
+    String ymd,
+    Map<String, dynamic> data,
+  ) {
+    final intake = _asMap(data['intake']) ?? <String, dynamic>{};
+    final totals = _asMap(intake['totals']) ?? <String, dynamic>{};
+    final water = _asMap(data['water']) ?? <String, dynamic>{};
+    final activity = _asMap(data['activity']) ?? <String, dynamic>{};
+    final tracking = _asMap(data['tracking']) ?? <String, dynamic>{};
+
+    final rawEntries = intake['entries'];
+    final entries = rawEntries is List
+        ? rawEntries.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+        : <Map<String, dynamic>>[];
+
+    final rawMeals = data['meals'];
+    final meals = rawMeals is List
+        ? rawMeals.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+        : <Map<String, dynamic>>[];
+
+    return {
+      'date': ymd,
+      'intake': {
+        'entries': entries,
+        'totals': {
+          'k': _toD(totals['k']),
+          'p': _toD(totals['p']),
+          'c': _toD(totals['c']),
+          'f': _toD(totals['f']),
+        },
+      },
+      'water': {
+        'liters': _toD(water['liters']),
+      },
+      'activity': {
+        'steps': ((activity['steps'] as num?) ?? 0).toInt(),
+        'burned': ((activity['burned'] as num?) ?? 0).toInt(),
+      },
+      'tracking': {
+        'weightKg': _toD(tracking['weightKg']),
+      },
+      'meals': meals,
+    };
+  }
+
+
+  static Future<void> clearDayIntake({required String ymd}) async {
+    try {
+      await _ensureUserMeta();
+      await _dayDoc(ymd).set({
+        'intake': {
+          'entries': [],
+          'totals': {'k': 0.0, 'p': 0.0, 'c': 0.0, 'f': 0.0},
+          'updatedAt': Timestamp.now(),
+          'cleared': true,
+        },
+        'meals': [],
+        'mealsUpdatedAt': Timestamp.now(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  // ===== Weight tracking =====
+  static Future<void> writeWeightKg({
+    required String ymd,
+    required double kg,
+  }) async {
+    if (kg <= 0) return;
+    await _ensureUserMeta();
+    await _dayDoc(ymd).set({
+      'tracking': {
+        'weightKg': kg,
+        'updatedAt': Timestamp.now(),
+      },
+      'currentWeightKg': kg,
+    }, SetOptions(merge: true));
+    await _userDoc().set({
+      'currentWeightKg': kg,
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
+  }
+
+  static Future<Map<String, double>> readWeightLogs({int limit = 370}) async {
+    final out = <String, double>{};
+    try {
+      final days = await readDays(limit: limit);
+      for (final d in days) {
+        final ymd = (d['date'] ?? '').toString();
+        final tracking = _asMap(d['tracking']) ?? <String, dynamic>{};
+        final kg = _toD(tracking['weightKg']);
+        if (ymd.isNotEmpty && kg > 0) out[ymd] = kg;
+      }
+
+      // fallback: لو المستخدم عنده وزن محفوظ في جذر وثيقة المستخدم فقط
+      final root = await _userDoc()
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 12));
+      final data = root.data() ?? <String, dynamic>{};
+      final rootKg = _toD(data['currentWeightKg']);
+      if (rootKg > 0) {
+        final today = DateTime.now().toIso8601String().split('T').first;
+        out.putIfAbsent(today, () => rootKg);
+      }
+    } catch (_) {}
+    return out;
+  }
+
   // ===== (اختياري) ستريم نقاط اليوم — غير مستخدم إلا إذا استدعي من الواجهة =====
   static Stream<int> todayAwardedPointsStream() {
     try {
