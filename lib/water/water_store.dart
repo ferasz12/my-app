@@ -1,4 +1,5 @@
 // lib/water/water_store.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,9 @@ import '../data/app_repository.dart';
 const double kPlentyWaterThresholdLiters = 2.0; // معيار "شرب كثير" لليوم
 
 class WaterStore {
+
+  static bool _cloudSyncRunning = false;
+  static DateTime? _lastCloudSyncAt;
   static String _today() => DateTime.now().toIso8601String().split('T').first;
 
   static Future<String> _email() async {
@@ -42,15 +46,26 @@ class WaterStore {
     await prefs.setString(logKey, jsonEncode(map));
   }
 
-  /// إجمالي لتر اليوم. إذا انحذف التطبيق، يحاول يرجّعه من Firestore.
+  /// إجمالي لتر اليوم.
+  /// مهم للأداء: لا ننتظر Firestore هنا لأن الدالة تُستدعى من الهوم كثيرًا.
   static Future<double> todayLiters() async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final date = _today();
     final key = 'water_${date}_$email';
     final local = prefs.getDouble(key);
-    if (local != null && local > 0) return local;
+    if (local != null) return local;
 
+    // بعد إعادة التثبيت نحاول الاسترجاع بالخلفية بدون تعليق الواجهة.
+    unawaited(_restoreTodayFromCloud(prefs: prefs, email: email, date: date));
+    return 0.0;
+  }
+
+  static Future<void> _restoreTodayFromCloud({
+    required SharedPreferences prefs,
+    required String email,
+    required String date,
+  }) async {
     try {
       final day = await AppRepository.readDay(date);
       final water = day?['water'];
@@ -59,11 +74,8 @@ class WaterStore {
           : 0.0;
       if (liters > 0) {
         await _cacheDay(prefs: prefs, email: email, ymd: date, liters: liters);
-        return liters;
       }
     } catch (_) {}
-
-    return local ?? 0.0;
   }
 
   /// إضافة باللتر (تتجمع لنفس اليوم) + مزامنة سحابية.
@@ -77,13 +89,18 @@ class WaterStore {
     final total = current + liters;
     await _cacheDay(prefs: prefs, email: email, ymd: date, liters: total);
 
-    try {
-      await AppRepository.writeWaterLiters(ymd: date, liters: total);
-    } catch (_) {}
+    unawaited(
+      AppRepository.writeWaterLiters(ymd: date, liters: total).catchError((_) {}),
+    );
   }
 
   /// مزامنة سجل الماء من Firestore إلى الجهاز بعد إعادة التثبيت.
   static Future<void> syncFromCloud({int limit = 370}) async {
+    if (_cloudSyncRunning) return;
+    final now = DateTime.now();
+    final last = _lastCloudSyncAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 2)) return;
+    _cloudSyncRunning = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final email = await _email();
@@ -99,7 +116,11 @@ class WaterStore {
           await _cacheDay(prefs: prefs, email: email, ymd: ymd, liters: liters);
         }
       }
-    } catch (_) {}
+      _lastCloudSyncAt = DateTime.now();
+    } catch (_) {
+    } finally {
+      _cloudSyncRunning = false;
+    }
   }
 
   /// إرجاع آخر [days] يوم: قائمة مرتبة من الأقدم إلى الأحدث
@@ -107,8 +128,8 @@ class WaterStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
 
-    // حاول استرجاع السحابة أولًا، ولو فشلت نكمل بالمحلي.
-    await syncFromCloud(limit: days + 30);
+    // استرجاع السحابة بالخلفية فقط؛ العرض يبقى سريعًا من المحلي.
+    unawaited(syncFromCloud(limit: days + 30));
 
     final raw = prefs.getString('water_log_$email');
     final map = <String, double>{};

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -98,9 +99,7 @@ class UserDataProvider extends ChangeNotifier {
       list.sort((a, b) => (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString()));
       await prefs.setString('weight_log_$e', jsonEncode(list));
     } catch (_) {}
-    try {
-      await AppRepository.writeWeightKg(ymd: today, kg: newWeight);
-    } catch (_) {}
+    unawaited(AppRepository.writeWeightKg(ymd: today, kg: newWeight).catchError((_) {}));
 
     await _calculateMacros(e);
   }

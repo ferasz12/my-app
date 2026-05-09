@@ -253,8 +253,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     }
     list.add(reward);
     await prefs.setString(pendingKey, json.encode(list));
-    // مرآة لفايرستور (إن توفرت AppRepository)
-    try { await AppRepository.putPendingRewards(ymd: ymd, pending: list); } catch (_) {}
+    // مرآة لفايرستور بالخلفية حتى لا تتأخر الواجهة
+    unawaited(AppRepository.putPendingRewards(ymd: ymd, pending: list).catchError((_) {}));
   }
 
 
@@ -506,11 +506,14 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     await refreshTargets();
     await _ensureTodaySnapshot();
     await _rollToNewDayIfNeeded();
-    await _refreshDailyLogIndex();
-    await _loadTodayWater();
-    await loadMeals();                // يحسب المجموع ويزامن
-    await _maybeAwardDailyBonusesNow();
-    await _loadAndShowPoints();
+    // تحميل الأشياء الثقيلة بالتوازي حتى لا يعلق الهوم في TestFlight.
+    await Future.wait([
+      _refreshDailyLogIndex(),
+      _loadTodayWater(),
+      loadMeals(),                // يحسب المجموع ويزامن
+      _loadAndShowPoints(),
+    ]);
+    unawaited(_maybeAwardDailyBonusesNow());
 
     // عرض ورقة المطالبة (إن وُجدت مكافآت معلّقة)
     // [immediate-award] claim sheet disabled
@@ -810,8 +813,11 @@ loadPredefinedFoods();
         jsonEncode({'steps': steps, 'burned': burned}),
       );
 
-      // 🔗 مرآة لفايرستور
-      await AppRepository.writeActivity(ymd: ymd, steps: steps, burned: burned);
+      // 🔗 مرآة لفايرستور بدون تعطيل الواجهة
+      unawaited(
+        AppRepository.writeActivity(ymd: ymd, steps: steps, burned: burned)
+            .catchError((_) {}),
+      );
     } catch (e) {
       debugPrint('fetchHealthData error: $e');
     }
@@ -822,11 +828,10 @@ loadPredefinedFoods();
     final v = await WaterStore.todayLiters();
     if (!mounted) return;
     setState(() => todayWaterLiters = v);
-    await _snapshotTodayForEOD();
+    unawaited(_snapshotTodayForEOD());
 
-    // 🔗 مرآة لفايرستور
-    final ymd = DateTime.now().toIso8601String().split('T').first;
-    await AppRepository.writeWaterLiters(ymd: ymd, liters: todayWaterLiters);
+    // لا نكتب الماء في Firestore عند كل تحميل؛ WaterStore.addLiters يزامن وقت الإضافة.
+    // هذا كان يسبب بطءًا متكررًا في الهوم.
   }
 
   // نخزن الماء لليوم الحالي كي نستخدمه عند تقييم نهاية اليوم
@@ -1163,13 +1168,13 @@ loadPredefinedFoods();
     if (pending.isNotEmpty) {
       await prefs.setString(pendingKey, json.encode(pending));
       // 🔗 فايرستور
-      await AppRepository.putPendingRewards(ymd: ymd, pending: pending);
+      unawaited(AppRepository.putPendingRewards(ymd: ymd, pending: pending).catchError((_) {}));
     } else {
       // لا مكافآت: علّمها كمنتهية محليًا + حدّث فايرستور (awarded=0)
       await prefs.setBool(claimedKey, true);
-      await AppRepository.markRewardsResolved(
+      unawaited(AppRepository.markRewardsResolved(
         ymd: ymd, claimed: false, awardedPoints: 0,
-      );
+      ).catchError((_) {}));
     }
   }
 
@@ -1215,13 +1220,13 @@ loadPredefinedFoods();
         await AchievementsStore.addPoints(awarded);
       }
       // نقاط اليوم (مرآة في days/{ymd})
-      await AppRepository.markRewardsResolved(
+      unawaited(AppRepository.markRewardsResolved(
         ymd: ymd, claimed: true, awardedPoints: awarded,
-      );
+      ).catchError((_) {}));
     } else {
-      await AppRepository.markRewardsResolved(
+      unawaited(AppRepository.markRewardsResolved(
         ymd: ymd, claimed: false, awardedPoints: 0,
-      );
+      ).catchError((_) {}));
     }
 
     await prefs.remove(pendingKey);
@@ -1559,9 +1564,11 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
     final storageKey = await SessionManager.currentStorageKey();
     await prefs.setString('meals_$storageKey', json.encode(meals));
 
-    // 🔗 مرآة لفايرستور
+    // 🔗 مرآة لفايرستور بدون انتظار الشبكة؛ عشان إضافة/حذف الوجبات ما تعلق.
     final ymd = DateTime.now().toIso8601String().split('T').first;
-    await AppRepository.writeMeals(ymd: ymd, meals: meals);
+    unawaited(
+      AppRepository.writeMeals(ymd: ymd, meals: meals).catchError((_) {}),
+    );
   }
 
   Future<void> loadMeals() async {
@@ -1576,7 +1583,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
     if (savedMeals == null) {
       try {
         final ymd = DateTime.now().toIso8601String().split('T').first;
-        final remoteDay = await AppRepository.readDay(ymd);
+        final remoteDay = await AppRepository.readDay(ymd).timeout(const Duration(seconds: 3));
         final remoteMeals = remoteDay?['meals'];
         if (remoteMeals is List && remoteMeals.isNotEmpty) {
           savedMeals = json.encode(remoteMeals);
@@ -2714,10 +2721,13 @@ if (mounted) Navigator.pop(context);
     );
 
     // 🔗 مرآة لفايرستور (intake.entries + intake.totals)
-    await AppRepository.writeEntriesAndTotals(
-      ymd: ymd,
-      entries: entries,
-      totals: totals,
+    // لا ننتظر الشبكة هنا حتى لا تتأخر الاستجابة في TestFlight.
+    unawaited(
+      AppRepository.writeEntriesAndTotals(
+        ymd: ymd,
+        entries: entries,
+        totals: totals,
+      ).catchError((_) {}),
     );
   }
 
@@ -2986,10 +2996,12 @@ IconButton(
                           calculateTotals();
                           _animSeed++;
                         });
-                        await saveMeals();
-                        await _syncTodayEntriesAndTotals();
-                        await _refreshDailyLogIndex();
                         if (mounted) Navigator.pop(context);
+                        unawaited(Future.microtask(() async {
+                          await saveMeals();
+                          await _syncTodayEntriesAndTotals();
+                          await _refreshDailyLogIndex();
+                        }));
                       }
                     },
                     child: const Text("إضافة"),

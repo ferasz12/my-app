@@ -28,14 +28,27 @@ class AppRepository {
     return _userDoc().collection('days').doc(ymd);
   }
 
+  static bool _metaWriteQueued = false;
+
   static Future<void> _ensureUserMeta() async {
-    // تأكد أن وثيقة المستخدم موجودة (merge)
+    // لا نخلي كل عملية يومية تنتظر كتابة وثيقة المستخدم؛ هذا كان يسبب بطء ملحوظ.
+    // نحاول نكتبها مرة واحدة بالخلفية، وفشلها لا يمنع حفظ بيانات اليوم.
+    if (_metaWriteQueued) return;
+    _metaWriteQueued = true;
     final user = FirebaseAuth.instance.currentUser;
-    await _userDoc().set({
-      'uid': _requireUid(),
-      'email': user?.email,
-      'updatedAt': Timestamp.now(),
-    }, SetOptions(merge: true));
+    try {
+      await _userDoc().set({
+        'uid': _requireUid(),
+        'email': user?.email,
+        'updatedAt': Timestamp.now(),
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 3));
+    } catch (_) {
+      _metaWriteQueued = false;
+    }
+  }
+
+  static void _ensureUserMetaSoon() {
+    unawaited(_ensureUserMeta());
   }
 
   static double _toD(dynamic v) => (v is num) ? v.toDouble() : 0.0;
@@ -46,7 +59,7 @@ class AppRepository {
     required int steps,
     required int burned,
   }) async {
-    await _ensureUserMeta();
+    _ensureUserMetaSoon();
     await _dayDoc(ymd).set({
       'activity': {
         'steps': steps,
@@ -61,7 +74,7 @@ class AppRepository {
     required String ymd,
     required double liters,
   }) async {
-    await _ensureUserMeta();
+    _ensureUserMetaSoon();
     await _dayDoc(ymd).set({
       'water': {
         'liters': liters,
@@ -75,7 +88,7 @@ class AppRepository {
     required String ymd,
     required List<Map<String, dynamic>> meals,
   }) async {
-    await _ensureUserMeta();
+    _ensureUserMetaSoon();
     await _dayDoc(ymd).set({
       'meals': meals,
       'mealsUpdatedAt': Timestamp.now(),
@@ -89,7 +102,7 @@ class AppRepository {
     required List<Map<String, dynamic>> entries,
     required Map<String, dynamic> totals, // {k,p,c,f}
   }) async {
-    await _ensureUserMeta();
+    _ensureUserMetaSoon();
     await _dayDoc(ymd).set({
       'intake': {
         'entries': entries,
@@ -110,7 +123,7 @@ class AppRepository {
     required String ymd,
     required List<Map<String, dynamic>> pending, // [{id,points,message}]
   }) async {
-    await _ensureUserMeta();
+    _ensureUserMetaSoon();
     await _dayDoc(ymd).set({
       'rewards': {
         'pending': pending,
@@ -128,7 +141,7 @@ class AppRepository {
     required bool claimed,
     required int awardedPoints,
   }) async {
-    await _ensureUserMeta();
+    _ensureUserMetaSoon();
     final dayRef = _dayDoc(ymd);
     final userRef = _userDoc();
 
@@ -180,7 +193,7 @@ class AppRepository {
     try {
       final snap = await _dayDoc(ymd)
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 4));
       final data = snap.data();
       if (data == null) return null;
       return _normalizeDayData(ymd, data);
@@ -194,7 +207,7 @@ class AppRepository {
       final q = _userDoc().collection('days').limit(limit);
       final snap = await q
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 18));
+          .timeout(const Duration(seconds: 5));
       final days = <Map<String, dynamic>>[];
       for (final d in snap.docs) {
         days.add(_normalizeDayData(d.id, d.data()));
@@ -274,7 +287,7 @@ class AppRepository {
     required double kg,
   }) async {
     if (kg <= 0) return;
-    await _ensureUserMeta();
+    _ensureUserMetaSoon();
     await _dayDoc(ymd).set({
       'tracking': {
         'weightKg': kg,
@@ -302,7 +315,7 @@ class AppRepository {
       // fallback: لو المستخدم عنده وزن محفوظ في جذر وثيقة المستخدم فقط
       final root = await _userDoc()
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 4));
       final data = root.data() ?? <String, dynamic>{};
       final rootKg = _toD(data['currentWeightKg']);
       if (rootKg > 0) {

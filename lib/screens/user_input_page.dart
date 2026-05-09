@@ -309,9 +309,7 @@ class _UserInputPageState extends State<UserInputPage> {
     weightLog.sort((a, b) => (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString()));
     await prefs.setString(weightLogKey, json.encode(weightLog));
 
-    try {
-      await AppRepository.writeWeightKg(ymd: today, kg: weight);
-    } catch (_) {}
+    unawaited(AppRepository.writeWeightKg(ymd: today, kg: weight).catchError((_) {}));
 
     // ===== Social — حفظ محلي =====
     final ig = _selectedSocials.contains(_Social.instagram)

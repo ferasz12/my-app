@@ -1,4 +1,5 @@
 // lib/services/tracker_store.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/app_repository.dart';
 
 class TrackerStore {
+
+  static bool _cloudSyncRunning = false;
+  static DateTime? _lastCloudSyncAt;
   /// تنسيق التاريخ: YYYY-MM-DD
   static String _todayKey() {
     final now = DateTime.now();
@@ -98,13 +102,13 @@ class TrackerStore {
     );
 
     if (mirrorCloud) {
-      try {
-        await AppRepository.writeEntriesAndTotals(
+      unawaited(
+        AppRepository.writeEntriesAndTotals(
           ymd: date,
           entries: entries ?? const <Map<String, dynamic>>[],
           totals: {'k': cal, 'p': protein, 'c': carb, 'f': fat},
-        );
-      } catch (_) {}
+        ).catchError((_) {}),
+      );
     }
   }
 
@@ -157,6 +161,11 @@ class TrackerStore {
 
   /// مزامنة أيام السجل من Firestore إلى SharedPreferences بعد إعادة تثبيت التطبيق.
   static Future<void> syncFromCloud({int limit = 370}) async {
+    if (_cloudSyncRunning) return;
+    final now = DateTime.now();
+    final last = _lastCloudSyncAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 2)) return;
+    _cloudSyncRunning = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final email = await _email();
@@ -189,7 +198,11 @@ class TrackerStore {
           );
         }
       }
-    } catch (_) {}
+      _lastCloudSyncAt = DateTime.now();
+    } catch (_) {
+    } finally {
+      _cloudSyncRunning = false;
+    }
   }
 
   /// قراءة يوم محدد
@@ -250,8 +263,8 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
 
-    // أولًا حاول ترجع بيانات السحابة وتخزنها محليًا؛ لو فشلت، المحلي يكمل عادي.
-    await syncFromCloud();
+    // لا ننتظر Firestore هنا؛ سجل السعرات يفتح بسرعة من المحلي، والمزامنة بالخلفية.
+    unawaited(syncFromCloud(limit: 90));
 
     final byDate = <String, Map<String, dynamic>>{};
 
@@ -298,9 +311,7 @@ class TrackerStore {
     await prefs.remove('diet_$yyyymmdd');
     await prefs.remove('kcal_daytotals_${email}_$yyyymmdd');
     await prefs.remove('intake_entries_${email}_$yyyymmdd');
-    try {
-      await AppRepository.clearDayIntake(ymd: yyyymmdd);
-    } catch (_) {}
+    unawaited(AppRepository.clearDayIntake(ymd: yyyymmdd).catchError((_) {}));
   }
 
   /// إعادة ضبط اليوم الحالي (اختياري)
