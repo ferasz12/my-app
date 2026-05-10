@@ -164,6 +164,15 @@ class _InstantClaimItem {
   const _InstantClaimItem({required this.title, required this.points});
 }
 
+List<Map<String, dynamic>> _decodeFoodMaps(String response) {
+  final data = json.decode(response) as List;
+  return List<Map<String, dynamic>>.from(data);
+}
+
+extension _PositiveDoubleFallback on double {
+  double takeIfPositiveOr(double fallback) => this > 0 ? this : fallback;
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -381,6 +390,15 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   // سِيد بسيط لتحفيز الأنيميشن عند تغيّر القيم
   int _animSeed = 0;
 
+  // ===== Performance guards =====
+  // نخلي الهوم محلي وسريع، والعمليات الثقيلة تصير مؤجلة أو بالخلفية.
+  Timer? _homeDeferredTimer;
+  Timer? _homePersistDebounce;
+  DateTime? _lastHomeResumeWorkAt;
+  DateTime? _lastTargetsRemoteFetchAt;
+  bool _initialLoadDone = false;
+  bool _homeBackgroundWorkRunning = false;
+
   // اشتراكات
   StreamSubscription? _achSub;       // (اختياري) لو حبيت تتابع الإجمالي
   StreamSubscription? _dayPointsSub; // نقاط اليوم (الهوم يعرضها)
@@ -499,129 +517,126 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
   // ===== تحميل مُرتّب يمنع تصفير غير مقصود =====
   Future<void> _initialLoad() async {
-    await SafePrefs.fixKnownMismatches();
+    if (_initialLoadDone) return;
+    _initialLoadDone = true;
 
-    await _ensurePrefsEmail();        // 👈 تثبيت currentEmail أولاً
+    // المرحلة الأولى: محلي فقط وسريع حتى ترسم الصفحة بدون تعليق.
+    await SafePrefs.fixKnownMismatches();
+    await _ensurePrefsEmail();
     await _migrateLegacyMacrosToPerUser();
     await refreshTargets();
     await _ensureTodaySnapshot();
     await _rollToNewDayIfNeeded();
-    // تحميل الأشياء الثقيلة بالتوازي حتى لا يعلق الهوم في TestFlight.
-    await Future.wait([
-      _refreshDailyLogIndex(),
-      _loadTodayWater(),
-      loadMeals(),                // يحسب المجموع ويزامن
-      _loadAndShowPoints(),
-    ]);
-    unawaited(_maybeAwardDailyBonusesNow());
+    await _loadTodayWater();
+    await loadMeals();
 
-    // عرض ورقة المطالبة (إن وُجدت مكافآت معلّقة)
-    // [immediate-award] claim sheet disabled
-    // [immediate-award] claim sheet disabled
+    // المرحلة الثانية: أشياء غير ضرورية لأول فريم، نشغلها بعد ظهور الهوم.
+    _runHomeDeferredWork();
+  }
+
+  void _runHomeDeferredWork({Duration delay = const Duration(milliseconds: 450)}) {
+    _homeDeferredTimer?.cancel();
+    _homeDeferredTimer = Timer(delay, () {
+      if (!mounted || _homeBackgroundWorkRunning) return;
+      _homeBackgroundWorkRunning = true;
+
+      Future<void>(() async {
+        try {
+          await _refreshDailyLogIndex();
+          await _loadAndShowPoints();
+          await _recomputeLocalPendingToday();
+          await _maybeAwardDailyBonusesNow();
+          await _checkAndUpdateDailyStreak(showSnack: false);
+        } catch (e) {
+          debugPrint('[HomeScreen] deferred work failed: $e');
+        } finally {
+          _homeBackgroundWorkRunning = false;
+        }
+      });
+
+      // الصحة وملف الأطعمة قد تكون أثقل، نخليها أبعد شوي عشان ما تضغط أول فتح.
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (!mounted) return;
+        unawaited(loadPredefinedFoods());
+      });
+      Future.delayed(const Duration(milliseconds: 1400), () {
+        if (!mounted) return;
+        unawaited(fetchHealthData());
+      });
+      Future.delayed(const Duration(milliseconds: 1700), () {
+        if (!mounted) return;
+        unawaited(DailyHealthTips.showTodayIfNeeded(context));
+      });
+    });
   }
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => _maybeAwardDailyBonusesNow());
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_recomputeLocalPendingToday());
-    });
     WidgetsBinding.instance.addObserver(this);
 
-    // ✅ إذا تغيّرت الماكروز من صفحة "بياناتي"، حدّث أهداف الهوم فورًا.
     _macroTargetsListener = () {
       if (!mounted) return;
-      Future.microtask(() async {
-        await refreshTargets();
-        await _ensureTodaySnapshot();
-      });
+      unawaited(refreshTargets());
+      unawaited(_ensureTodaySnapshot());
     };
     MacroTargetsController.revision.addListener(_macroTargetsListener);
 
-    // ✅ استماع لحظي لإجمالي النقاط (غير معروض هنا لكن مفيد لو احتجناه)
-    _achSub = AchievementsStore.watchMe().listen((m) {
-      final pts = (m['points_total'] as num?)?.toInt() ?? 0;
-      if (mounted) setState(() => userPoints = pts);
-    });
-
-    // ✅ الاستماع لنقاط اليوم
+    // لا نربط Streams ثقيلة قبل رسم الهوم.
     _attachTodayPointsListener();
 
     Future.microtask(_initialLoad);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      await DailyHealthTips.showTodayIfNeeded(context);
-    });
-loadPredefinedFoods();
-    fetchHealthData();
-    Future.microtask(() => _checkAndUpdateDailyStreak());
   }
 
   @override
   void dispose() {
+    _homeDeferredTimer?.cancel();
+    _homePersistDebounce?.cancel();
     _dayPointsSub?.cancel();
     _achSub?.cancel();
     MacroTargetsController.revision.removeListener(_macroTargetsListener);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-  // ===== ربط نقاط اليوم من Firestore =====
+  // ===== ربط نقاط اليوم من التخزين المحلي أولًا =====
   void _attachTodayPointsListener() async {
-  _dayPointsSub?.cancel();
-
-  final ymd = DateTime.now().toIso8601String().split('T').first;
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-
-  // وضع الضيف: قراءة من SharedPreferences
-  if (uid == null) {
+    _dayPointsSub?.cancel();
     try {
+      final ymd = DateTime.now().toIso8601String().split('T').first;
       final prefs = await SharedPreferences.getInstance();
-      final pts = prefs.getInt('guest_day_${ymd}_awardedPoints') ?? 0;
-      if (mounted) setState(() => todayPoints = pts);
+      final local = prefs.getInt('guest_day_${ymd}_awardedPoints') ?? todayPoints;
+      if (mounted) setState(() => todayPoints = local);
     } catch (_) {}
-    return;
+
+    // تعمدًا لا نفتح Firestore stream في الهوم.
+    // الستريم كان يسبب شغل شبكة مستمر وإعادة بناء غير ضرورية.
   }
-
-  final ref = FirebaseFirestore.instance
-      .collection('users')
-      .doc(uid)
-      .collection('days')
-      .doc(ymd);
-
-  _dayPointsSub = ref.snapshots().listen((snap) {
-    final data = snap.data();
-    final rewards = (data?['rewards'] as Map?) ?? const {};
-    final pts = (rewards['awardedPoints'] as num?)?.toInt() ?? 0;
-    if (mounted) setState(() => todayPoints = pts);
-  }, onError: (_) {});
-}
 
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      final today = DateTime.now().toIso8601String().split('T').first;
-      if (today != _lastSeenDate) {
-        _lastSeenDate = today;
-        _attachTodayPointsListener(); // لو تغيّر اليوم، اربط وثيقة اليوم الجديدة
-      }
-      _rollToNewDayIfNeeded()
-          .then((_) async {
-            await _maybeShowClaimSheetForTonight();
-            await _maybeShowClaimSheetForYesterday();
-          });
+    if (state != AppLifecycleState.resumed) return;
 
-      unawaited(_checkAndUpdateDailyStreak());
-      refreshTargets();
-      _ensureTodaySnapshot();
-      _loadTodayWater().then((_) { _snapshotTodayForEOD(); _maybeAwardDailyBonusesNow(); });
-      _syncTodayEntriesAndTotals().then((_) { _snapshotTodayForEOD(); _maybeAwardDailyBonusesNow(); }).then((_) => _snapshotTodayForEOD());
-      _refreshDailyLogIndex();
+    final now = DateTime.now();
+    final today = now.toIso8601String().split('T').first;
+    final shouldThrottle = _lastHomeResumeWorkAt != null &&
+        now.difference(_lastHomeResumeWorkAt!) < const Duration(seconds: 20);
 
-      DailyHealthTips.showTodayIfNeeded(context);
+    if (today != _lastSeenDate) {
+      _lastSeenDate = today;
+      _attachTodayPointsListener();
+      unawaited(_rollToNewDayIfNeeded());
     }
+
+    if (shouldThrottle) return;
+    _lastHomeResumeWorkAt = now;
+
+    // لا نوقف الواجهة عند الرجوع للتطبيق؛ كل شيء بالخلفية.
+    unawaited(refreshTargets());
+    unawaited(_ensureTodaySnapshot());
+    unawaited(_loadTodayWater());
+    _persistHomeSnapshotDebounced();
+    _runHomeDeferredWork(delay: const Duration(milliseconds: 650));
   }
 
   // ===== Helpers =====
@@ -878,65 +893,69 @@ loadPredefinedFoods();
     }
   }
 
-  // ====== تحميل الأهداف (SharedPrefs أولاً + Firestore عند الحاجة) ======
+  // ====== تحميل الأهداف: محلي فورًا، والسحابة بالخلفية عند الحاجة فقط ======
   Future<void> refreshTargets() async {
     final prefs = await SharedPreferences.getInstance();
-    String? email = prefs.getString('currentEmail') ??
+    final email = prefs.getString('currentEmail') ??
         FirebaseAuth.instance.currentUser?.email;
 
-    if (email == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+    if (email == null) {
+      debugPrint('[HomeScreen] refreshTargets skipped: no email');
+      return;
+    }
 
-    double? k = prefs.getDouble('caloriesNeeded_$email');
-    double? p = prefs.getDouble('protein_$email');
-    double? c = prefs.getDouble('carbs_$email');
-    double? f = prefs.getDouble('fat_$email');
+    final k = prefs.getDouble('caloriesNeeded_$email');
+    final p = prefs.getDouble('protein_$email');
+    final c = prefs.getDouble('carbs_$email');
+    final f = prefs.getDouble('fat_$email');
 
-    // أحدث وقت تحديث محلي (يُكتب من صفحة "بياناتي")
-    final localUpdatedAtMs = prefs.getInt('macrosUpdatedAt_$email') ?? 0;
+    if (!mounted) return;
+    setState(() {
+      caloriesNeeded = k ?? caloriesNeeded.takeIfPositiveOr(2000.0);
+      protein = p ?? protein.takeIfPositiveOr(100.0);
+      fat = f ?? fat.takeIfPositiveOr(60.0);
+      carbs = c ?? carbs.takeIfPositiveOr(300.0);
+    });
 
-    // Prefer Firestore when it's newer/equal than local, otherwise keep local.
-    final fetched = await _tryFetchTargetsFromFirestore();
-    if (fetched != null) {
+    final hasLocal = k != null && p != null && c != null && f != null;
+    final now = DateTime.now();
+    final recentlyFetched = _lastTargetsRemoteFetchAt != null &&
+        now.difference(_lastTargetsRemoteFetchAt!) < const Duration(minutes: 10);
+
+    // إذا القيم موجودة محليًا، لا ننتظر Firestore ولا نطلبه كل مرة.
+    if (hasLocal || recentlyFetched) return;
+
+    _lastTargetsRemoteFetchAt = now;
+    unawaited(_refreshTargetsFromRemoteInBackground(email));
+  }
+
+  Future<void> _refreshTargetsFromRemoteInBackground(String email) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final fetched = await _tryFetchTargetsFromFirestore()
+          .timeout(const Duration(seconds: 3));
+      if (fetched == null) return;
+
       final fk = (fetched['k'] as double?) ?? 0.0;
       final fp = (fetched['p'] as double?) ?? 0.0;
       final fc = (fetched['c'] as double?) ?? 0.0;
       final ff = (fetched['f'] as double?) ?? 0.0;
-      final remoteUpdatedAtMs = (fetched['updatedAtMs'] as int?) ?? 0;
+      if (fk <= 0 || fp <= 0 || fc <= 0 || ff <= 0) return;
 
-      // لو عندنا تحديث محلي حديث وما فيه ختم زمني عن بُعد، لا نخاطر بتجاوز المحلي.
-      final bool allowRemoteOverwrite =
-          localUpdatedAtMs == 0 ||
-          (remoteUpdatedAtMs != 0 && remoteUpdatedAtMs >= localUpdatedAtMs);
+      await prefs.setDouble('caloriesNeeded_$email', fk);
+      await prefs.setDouble('protein_$email', fp);
+      await prefs.setDouble('carbs_$email', fc);
+      await prefs.setDouble('fat_$email', ff);
 
-      if (allowRemoteOverwrite) {
-        final bool shouldUpdate =
-            k == null || p == null || c == null || f == null ||
-            (k! - fk).abs() > 1 || (p! - fp).abs() > 1 || (c! - fc).abs() > 1 || (f! - ff).abs() > 1;
-
-        if (shouldUpdate) {
-          k = fk;
-          p = fp;
-          c = fc;
-          f = ff;
-
-          await prefs.setDouble('caloriesNeeded_$email', k!);
-          await prefs.setDouble('protein_$email', p!);
-          await prefs.setDouble('carbs_$email', c!);
-          await prefs.setDouble('fat_$email', f!);
-          if (remoteUpdatedAtMs != 0) {
-            await prefs.setInt('macrosUpdatedAt_$email', remoteUpdatedAtMs);
-          }
-        }
-      }
-    }
-
-    if (!mounted) return;
-    setState(() {
-      caloriesNeeded = k ?? 2000.0;
-      protein = p ?? 100.0;
-      fat = f ?? 60.0;
-      carbs = c ?? 300.0;
-    });
+      if (!mounted) return;
+      setState(() {
+        caloriesNeeded = fk;
+        protein = fp;
+        carbs = fc;
+        fat = ff;
+      });
+      unawaited(_ensureTodaySnapshot());
+    } catch (_) {}
   }
 
   Future<Map<String, dynamic>?> _tryFetchTargetsFromFirestore() async {
@@ -1544,14 +1563,16 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
 
   // ====== قراءة foods.json ======
   Future<void> loadPredefinedFoods() async {
+    if (readyFoods.isNotEmpty || predefinedFoods.isNotEmpty) return;
     try {
       final String response = await rootBundle.loadString('assets/foods.json');
+      final data = await compute(_decodeFoodMaps, response);
       if (!mounted) return;
-      final data = json.decode(response) as List;
+      final foods = mapFoodsFromJson(data);
       if (!mounted) return;
       setState(() {
-        predefinedFoods = List<Map<String, dynamic>>.from(data);
-        readyFoods = mapFoodsFromJson(predefinedFoods);
+        predefinedFoods = data;
+        readyFoods = foods;
       });
     } catch (e) {
       debugPrint('Failed to load assets/foods.json: $e');
@@ -1564,48 +1585,38 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
     final storageKey = await SessionManager.currentStorageKey();
     await prefs.setString('meals_$storageKey', json.encode(meals));
 
-    // 🔗 مرآة لفايرستور بدون انتظار الشبكة؛ عشان إضافة/حذف الوجبات ما تعلق.
-    final ymd = DateTime.now().toIso8601String().split('T').first;
-    unawaited(
-      AppRepository.writeMeals(ymd: ymd, meals: meals).catchError((_) {}),
-    );
+    // لا نكتب Firestore عند كل تغيير في الهوم.
+    // النسخ السحابي صار نهاية اليوم/خلفية من خدمة منفصلة حتى تبقى الصفحة سلسة.
   }
 
   Future<void> loadMeals() async {
     final prefs = await SharedPreferences.getInstance();
     final storageKey = await SessionManager.currentStorageKey();
 
-    // ✅ Migration: لو عندك بيانات قديمة مخزّنة بدون suffix نربطها بأول حساب بعد التحديث
     final legacy = prefs.getString('meals');
-    String? savedMeals = prefs.getString('meals_$storageKey') ?? legacy;
+    final savedMeals = prefs.getString('meals_$storageKey') ?? legacy;
 
-    // ✅ بعد حذف التطبيق وإعادة تثبيته: لو ما فيه وجبات محلية، استرجع وجبات اليوم من Firestore.
     if (savedMeals == null) {
-      try {
-        final ymd = DateTime.now().toIso8601String().split('T').first;
-        final remoteDay = await AppRepository.readDay(ymd).timeout(const Duration(seconds: 3));
-        final remoteMeals = remoteDay?['meals'];
-        if (remoteMeals is List && remoteMeals.isNotEmpty) {
-          savedMeals = json.encode(remoteMeals);
-          await prefs.setString('meals_$storageKey', savedMeals);
-        }
-      } catch (_) {}
+      calculateTotals();
+      if (mounted) setState(() {});
+      return;
     }
 
-    if (savedMeals != null) {
-      final resolvedSavedMeals = savedMeals;
-      // لو جاءت من legacy ننقلها للمفتاح الجديد ونحذف القديم
-      if (legacy != null && prefs.getString('meals_$storageKey') == null) {
-        await prefs.setString('meals_$storageKey', legacy);
-        await prefs.remove('meals');
-      }
+    if (legacy != null && prefs.getString('meals_$storageKey') == null) {
+      await prefs.setString('meals_$storageKey', legacy);
+      await prefs.remove('meals');
+    }
 
+    try {
+      final decoded = json.decode(savedMeals) as List;
+      if (!mounted) return;
       setState(() {
-        meals = List<Map<String, dynamic>>.from(json.decode(resolvedSavedMeals) as List);
+        meals = List<Map<String, dynamic>>.from(decoded);
         calculateTotals();
       });
-      await _syncTodayEntriesAndTotals();
-      await _snapshotTodayForEOD();
+      _persistHomeSnapshotDebounced();
+    } catch (e) {
+      debugPrint('[HomeScreen] loadMeals failed: $e');
     }
   }
 
@@ -1821,22 +1832,18 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
     HapticFeedback.selectionClick();
 
     
-    // 🔄 احفظ وحدث المتتبّع في الخلفية لتسريع الإضافة
+    // 🔄 حفظ محلي مؤجل فقط؛ بدون Firestore ولا فهرسة ثقيلة وقت الإضافة.
     Future.microtask(() async {
       try {
         await saveMeals();
-        await TrackerStore.addIntake(cal: cal, protein: p, carb: c, fat: f);
-        await _syncTodayEntriesAndTotals();
-        await _refreshDailyLogIndex();
-        await _snapshotTodayForEOD();
+        _persistHomeSnapshotDebounced();
       } catch (e) {
         debugPrint('[MealsPersist] background persist failed: $e');
       }
     });
-      
 
-    // نقاط الوجبة (استنادًا إلى الحالة قبل الإضافة)
-    await _awardMealPoints(mealIndex, _preTotalItems, _preSlotCount);
+    // نقاط الوجبة بالخلفية، لا نوقف الواجهة.
+    unawaited(_awardMealPoints(mealIndex, _preTotalItems, _preSlotCount));
 }
 
   // ====== نتيجة Food AI ======
@@ -2669,7 +2676,16 @@ if (mounted) Navigator.pop(context);
   );
 }
 
-  // ====== مزامنة إدخالات اليوم + المجاميع (محلي + فايرستور) ======
+  void _persistHomeSnapshotDebounced() {
+    _homePersistDebounce?.cancel();
+    _homePersistDebounce = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      unawaited(_syncTodayEntriesAndTotals());
+      unawaited(_snapshotTodayForEOD());
+    });
+  }
+
+  // ====== مزامنة إدخالات اليوم + المجاميع (محلي فقط وسريع) ======
   Future<void> _syncTodayEntriesAndTotals() async {
     final prefs = await SharedPreferences.getInstance();
     final email = prefs.getString('currentEmail') ??
@@ -2677,40 +2693,40 @@ if (mounted) Navigator.pop(context);
         'unknown_user';
     final ymd = DateTime.now().toIso8601String().split('T').first;
 
-    // entries
     final entriesKey = 'intake_entries_${email}_$ymd';
     final List<Map<String, dynamic>> entries = [];
+    double k = 0, p = 0, c = 0, f = 0;
+
     for (final meal in meals) {
-      final items = (meal['items'] as List).cast<Map<String, dynamic>>();
-      for (final it in items) {
+      final rawItems = meal['items'];
+      if (rawItems is! List) continue;
+      for (final raw in rawItems) {
+        if (raw is! Map) continue;
+        final item = Map<String, dynamic>.from(raw);
+        final kk = _toD(item['cal']);
+        final pp = _toD(item['protein']);
+        final cc = _toD(item['carb']);
+        final ff = _toD(item['fat']);
+        k += kk;
+        p += pp;
+        c += cc;
+        f += ff;
         entries.add({
-          'name': it['name'],
-          'k': (it['cal'] as num).toDouble(),
-          'p': (it['protein'] as num).toDouble(),
-          'c': (it['carb'] as num).toDouble(),
-          'f': (it['fat'] as num).toDouble(),
+          'name': item['name'],
+          'k': kk,
+          'p': pp,
+          'c': cc,
+          'f': ff,
         });
       }
     }
+
     await prefs.setString(entriesKey, jsonEncode(entries));
+    await prefs.setString(
+      'kcal_daytotals_${email}_$ymd',
+      jsonEncode({'k': k, 'p': p, 'c': c, 'f': f}),
+    );
 
-    // totals
-    final totalsKey = 'kcal_daytotals_${email}_$ymd';
-    double k = 0, p = 0, c = 0, f = 0;
-    for (final meal in meals) {
-      final items = (meal['items'] as List).cast<Map<String, dynamic>>();
-      for (final it in items) {
-        k += (it['cal'] as num).toDouble();
-        p += (it['protein'] as num).toDouble();
-        c += (it['carb'] as num).toDouble();
-        f += (it['fat'] as num).toDouble();
-      }
-    }
-    final totals = {'k': k, 'p': p, 'c': c, 'f': f};
-    await prefs.setString(totalsKey, jsonEncode(totals));
-
-    // ✅ مهم: سجل السعرات المحلي يصبح لقطة نهائية من الوجبات الحالية،
-    // وليس تجميعًا قديمًا. كذا لو حذف المستخدم وجبة لا تُحتسب نهاية اليوم.
     await TrackerStore.setDayTotals(
       ymd: ymd,
       cal: k,
@@ -2718,16 +2734,6 @@ if (mounted) Navigator.pop(context);
       carb: c,
       fat: f,
       entries: entries,
-    );
-
-    // 🔗 مرآة لفايرستور (intake.entries + intake.totals)
-    // لا ننتظر الشبكة هنا حتى لا تتأخر الاستجابة في TestFlight.
-    unawaited(
-      AppRepository.writeEntriesAndTotals(
-        ymd: ymd,
-        entries: entries,
-        totals: totals,
-      ).catchError((_) {}),
     );
   }
 
@@ -3022,12 +3028,9 @@ IconButton(
             await refreshTargets();
             await _ensureTodaySnapshot();
             await _loadTodayWater();
-            await _syncTodayEntriesAndTotals();
-            await _refreshDailyLogIndex();
-            await _loadAndShowPoints();
-            await _maybeShowClaimSheetForTonight();
-            await _maybeShowClaimSheetForYesterday();
+            await loadMeals();
             _attachTodayPointsListener();
+            _runHomeDeferredWork(delay: const Duration(milliseconds: 250));
           },
           child: ListView(
             key: _listKey,
@@ -3046,15 +3049,7 @@ IconButton(
 
               // Banner: زر تجميع فوري (Stream + fallback محلي)
               StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: () {
-                  final uid = FirebaseAuth.instance.currentUser?.uid;
-                  if (uid == null) return const Stream<DocumentSnapshot<Map<String, dynamic>>>.empty();
-                  final y = DateTime.now().toIso8601String().split('T').first;
-                  return FirebaseFirestore.instance
-                      .collection('users').doc(uid)
-                      .collection('days').doc(y)
-                      .snapshots();
-                }(),
+                stream: const Stream<DocumentSnapshot<Map<String, dynamic>>>.empty(),
                 builder: (context, snap) {
                   int pendingNow = 0;
                   bool claimed = false;
