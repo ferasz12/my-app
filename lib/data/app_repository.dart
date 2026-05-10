@@ -1,39 +1,44 @@
 // lib/data/app_repository.dart
-// واجهة موحدة للقراءة/الكتابة على فايرستور لتجميع كل عمليات التخزين هنا.
-// تعتمد على FirebaseAuth للحصول على uid وتخزن بيانات اليوم داخل
-// users/{uid}/days/{YYYY-MM-DD}/...
+// حفظ محلي طوال اليوم + رفع لقطة واحدة في نهاية اليوم.
+// ملاحظة: دوال write اليومية القديمة أصبحت لا تعمل على الشبكة حتى لا تسبب تعليق.
+// الرفع الحقيقي يتم عبر AppRepository.writeEndOfDaySnapshot من DailyCloudBackupService.
 
 import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AppRepository {
   AppRepository._();
 
-  // ===== Helpers =====
   static String _requireUid() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       throw StateError('No authenticated user – login required before writing.');
     }
-    return user.uid; // non-nullable
+    return user.uid;
   }
 
   static DocumentReference<Map<String, dynamic>> _userDoc() {
-    final uid = _requireUid();
-    return FirebaseFirestore.instance.collection('users').doc(uid);
+    return FirebaseFirestore.instance.collection('users').doc(_requireUid());
   }
 
   static DocumentReference<Map<String, dynamic>> _dayDoc(String ymd) {
     return _userDoc().collection('days').doc(ymd);
   }
 
+  static double _toD(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v == null) return 0.0;
+    return double.tryParse(v.toString().replaceAll(',', '.')) ?? 0.0;
+  }
+
   static Future<void> _ensureUserMeta() async {
-    // تأكد أن وثيقة المستخدم موجودة (merge)
     final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
     await _userDoc().set({
-      'uid': _requireUid(),
-      'email': user?.email,
+      'uid': user.uid,
+      'email': user.email,
       'updatedAt': Timestamp.now(),
     }, SetOptions(merge: true));
   }
@@ -42,288 +47,185 @@ class AppRepository {
     unawaited(_ensureUserMeta().catchError((_) {}));
   }
 
-  static double _toD(dynamic v) => (v is num) ? v.toDouble() : 0.0;
+  // ---------------------------------------------------------------------------
+  // دوال الكتابة اليومية القديمة: أصبحت No-op حتى لا يصير أي اتصال Firestore
+  // أثناء استخدام التطبيق. لا تغير التواقيع حتى ما ينكسر أي ملف يستدعيها.
+  // ---------------------------------------------------------------------------
 
-  // ===== Activity (steps/burned) =====
   static Future<void> writeActivity({
     required String ymd,
     required int steps,
     required int burned,
-  }) async {
-    _touchUserMetaInBackground();
-    await _dayDoc(ymd).set({
-      'activity': {
-        'steps': steps,
-        'burned': burned,
-        'updatedAt': Timestamp.now(),
-      }
-    }, SetOptions(merge: true));
-  }
+  }) async {}
 
-  // ===== Water =====
   static Future<void> writeWaterLiters({
     required String ymd,
     required double liters,
-  }) async {
-    _touchUserMetaInBackground();
-    await _dayDoc(ymd).set({
-      'water': {
-        'liters': liters,
-        'updatedAt': Timestamp.now(),
-      }
-    }, SetOptions(merge: true));
-  }
+  }) async {}
 
-  // ===== Meals (للعرض السريع) =====
   static Future<void> writeMeals({
     required String ymd,
     required List<Map<String, dynamic>> meals,
-  }) async {
-    _touchUserMetaInBackground();
-    await _dayDoc(ymd).set({
-      'meals': meals,
-      'mealsUpdatedAt': Timestamp.now(),
-    }, SetOptions(merge: true));
-  }
+  }) async {}
 
-  // ===== Entries & Totals =====
-  // يحفظ عناصر الاستهلاك التفصيلية + المجاميع لليوم
   static Future<void> writeEntriesAndTotals({
     required String ymd,
     required List<Map<String, dynamic>> entries,
-    required Map<String, dynamic> totals, // {k,p,c,f}
+    required Map<String, dynamic> totals,
+  }) async {}
+
+  static Future<void> clearDayIntake({required String ymd}) async {}
+
+  static Future<void> writeWeightKg({
+    required String ymd,
+    required double kg,
+  }) async {}
+
+  // ---------------------------------------------------------------------------
+  // الرفع الحقيقي الوحيد: لقطة نهاية اليوم.
+  // ---------------------------------------------------------------------------
+
+  static Future<void> writeEndOfDaySnapshot({
+    required String ymd,
+    required Map<String, dynamic> totals,
+    required List<Map<String, dynamic>> entries,
+    required List<Map<String, dynamic>> meals,
+    required double waterLiters,
+    required int steps,
+    required int burned,
+    required double weightKg,
+    String reason = 'scheduled',
   }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
     _touchUserMetaInBackground();
-    await _dayDoc(ymd).set({
+
+    final now = Timestamp.now();
+    final dayPayload = <String, dynamic>{
+      'date': ymd,
       'intake': {
         'entries': entries,
         'totals': {
-          'k': _toD(totals['k']),
-          'p': _toD(totals['p']),
-          'c': _toD(totals['c']),
-          'f': _toD(totals['f']),
+          'k': _toD(totals['k'] ?? totals['calories']),
+          'p': _toD(totals['p'] ?? totals['protein']),
+          'c': _toD(totals['c'] ?? totals['carb'] ?? totals['carbs']),
+          'f': _toD(totals['f'] ?? totals['fat']),
         },
-        'updatedAt': Timestamp.now(),
-      }
-    }, SetOptions(merge: true));
+        'updatedAt': now,
+      },
+      'water': {
+        'liters': waterLiters < 0 ? 0.0 : waterLiters,
+        'updatedAt': now,
+      },
+      'activity': {
+        'steps': steps < 0 ? 0 : steps,
+        'burned': burned < 0 ? 0 : burned,
+        'updatedAt': now,
+      },
+      'meals': meals,
+      'mealsUpdatedAt': now,
+      'endOfDayBackup': {
+        'savedAt': now,
+        'reason': reason,
+        'schema': 2,
+      },
+      'updatedAt': now,
+    };
+
+    if (weightKg > 0) {
+      dayPayload['tracking'] = {
+        'weightKg': weightKg,
+        'updatedAt': now,
+      };
+      dayPayload['currentWeightKg'] = weightKg;
+    }
+
+    await _dayDoc(ymd).set(dayPayload, SetOptions(merge: true));
+
+    if (weightKg > 0) {
+      await _userDoc().set({
+        'currentWeightKg': weightKg,
+        'updatedAt': now,
+      }, SetOptions(merge: true));
+    }
   }
 
-  // ===== Rewards (Pending/Resolve) =====
-  // يخزن مكافآت اليوم المعلّقة لعرض Sheet المطالبة
+  // ---------------------------------------------------------------------------
+  // القراءة من السحابة: معطلة من الواجهات حتى لا يتأخر التطبيق.
+  // لاحقاً يمكن نسوي شاشة "استرجاع من السحابة" بزر يدوي.
+  // ---------------------------------------------------------------------------
+
+  static Future<Map<String, dynamic>?> readDay(String ymd) async => null;
+
+  static Future<List<Map<String, dynamic>>> readDays({int limit = 90}) async {
+    return <Map<String, dynamic>>[];
+  }
+
+  static Future<Map<String, double>> readWeightLogs({int limit = 120}) async {
+    return <String, double>{};
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rewards تركناها كما هي لأنها ليست سبب تعليق سجل السعرات، وتعمل بالخلفية غالباً.
+  // ---------------------------------------------------------------------------
+
   static Future<void> putPendingRewards({
     required String ymd,
-    required List<Map<String, dynamic>> pending, // [{id,points,message}]
+    required List<Map<String, dynamic>> pending,
   }) async {
-    _touchUserMetaInBackground();
-    await _dayDoc(ymd).set({
-      'rewards': {
-        'pending': pending,
-        'resolved': false,
-        'claimed': null,
-        'awardedPoints': 0,
-        'updatedAt': Timestamp.now(),
-      }
-    }, SetOptions(merge: true));
+    try {
+      _touchUserMetaInBackground();
+      await _dayDoc(ymd).set({
+        'rewards': {
+          'pending': pending,
+          'resolved': false,
+          'claimed': null,
+          'awardedPoints': 0,
+          'updatedAt': Timestamp.now(),
+        }
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 4));
+    } catch (_) {}
   }
 
-  // عند تجميع (claim=true) أو رفض (claim=false)
   static Future<void> markRewardsResolved({
     required String ymd,
     required bool claimed,
     required int awardedPoints,
   }) async {
-    _touchUserMetaInBackground();
-    final dayRef = _dayDoc(ymd);
-    final userRef = _userDoc();
-
-    final batch = FirebaseFirestore.instance.batch();
-
-    // حدّث اليوم
-    batch.set(dayRef, {
-      'rewards': {
-        'pending': [], // لم تعد معلّقة
-        'resolved': true,
-        'claimed': claimed,
-        'awardedPoints': awardedPoints,
-        'resolvedAt': Timestamp.now(),
-        'updatedAt': Timestamp.now(),
-      }
-    }, SetOptions(merge: true));
-
-    // زِد النقاط فقط إذا تم المطالبة فعلاً
-    final inc = claimed ? (awardedPoints.clamp(0, 1 << 30)) : 0;
-    if (inc > 0) {
-      batch.set(userRef, {
-        'meta': {
-          'totalAwardedPoints': FieldValue.increment(inc),
-          'lastRewardsResolvedAt': Timestamp.now(),
-        }
-      }, SetOptions(merge: true));
-    } else {
-      // حتى لو ما زدنا نقاط، حدّث آخر وقت معالجة
-      batch.set(userRef, {
-        'meta': {
-          'lastRewardsResolvedAt': Timestamp.now(),
-        }
-      }, SetOptions(merge: true));
-    }
-
-    await batch.commit();
-  }
-
-
-
-  // ===== Restore / read helpers =====
-  static Map<String, dynamic>? _asMap(dynamic v) {
-    if (v is Map<String, dynamic>) return v;
-    if (v is Map) return Map<String, dynamic>.from(v);
-    return null;
-  }
-
-  static Future<Map<String, dynamic>?> readDay(String ymd) async {
-    try {
-      final snap = await _dayDoc(ymd)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 6));
-      final data = snap.data();
-      if (data == null) return null;
-      return _normalizeDayData(ymd, data);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<List<Map<String, dynamic>>> readDays({int limit = 90}) async {
-    try {
-      final q = _userDoc()
-          .collection('days')
-          .orderBy(FieldPath.documentId, descending: true)
-          .limit(limit);
-      final snap = await q
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 6));
-      final days = <Map<String, dynamic>>[];
-      for (final d in snap.docs) {
-        days.add(_normalizeDayData(d.id, d.data()));
-      }
-      days.sort((a, b) => (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString()));
-      return days;
-    } catch (_) {
-      return <Map<String, dynamic>>[];
-    }
-  }
-
-  static Map<String, dynamic> _normalizeDayData(
-    String ymd,
-    Map<String, dynamic> data,
-  ) {
-    final intake = _asMap(data['intake']) ?? <String, dynamic>{};
-    final totals = _asMap(intake['totals']) ?? <String, dynamic>{};
-    final water = _asMap(data['water']) ?? <String, dynamic>{};
-    final activity = _asMap(data['activity']) ?? <String, dynamic>{};
-    final tracking = _asMap(data['tracking']) ?? <String, dynamic>{};
-
-    final rawEntries = intake['entries'];
-    final entries = rawEntries is List
-        ? rawEntries.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
-        : <Map<String, dynamic>>[];
-
-    final rawMeals = data['meals'];
-    final meals = rawMeals is List
-        ? rawMeals.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
-        : <Map<String, dynamic>>[];
-
-    return {
-      'date': ymd,
-      'intake': {
-        'entries': entries,
-        'totals': {
-          'k': _toD(totals['k']),
-          'p': _toD(totals['p']),
-          'c': _toD(totals['c']),
-          'f': _toD(totals['f']),
-        },
-      },
-      'water': {
-        'liters': _toD(water['liters']),
-      },
-      'activity': {
-        'steps': ((activity['steps'] as num?) ?? 0).toInt(),
-        'burned': ((activity['burned'] as num?) ?? 0).toInt(),
-      },
-      'tracking': {
-        'weightKg': _toD(tracking['weightKg']),
-      },
-      'meals': meals,
-    };
-  }
-
-
-  static Future<void> clearDayIntake({required String ymd}) async {
     try {
       _touchUserMetaInBackground();
-      await _dayDoc(ymd).set({
-        'intake': {
-          'entries': [],
-          'totals': {'k': 0.0, 'p': 0.0, 'c': 0.0, 'f': 0.0},
-          'updatedAt': Timestamp.now(),
-          'cleared': true,
-        },
-        'meals': [],
-        'mealsUpdatedAt': Timestamp.now(),
+      final dayRef = _dayDoc(ymd);
+      final userRef = _userDoc();
+      final now = Timestamp.now();
+
+      final batch = FirebaseFirestore.instance.batch();
+      batch.set(dayRef, {
+        'rewards': {
+          'pending': [],
+          'resolved': true,
+          'claimed': claimed,
+          'awardedPoints': awardedPoints,
+          'resolvedAt': now,
+          'updatedAt': now,
+        }
       }, SetOptions(merge: true));
+
+      final inc = claimed ? awardedPoints.clamp(0, 1 << 30) : 0;
+      batch.set(userRef, {
+        'meta': {
+          if (inc > 0) 'totalAwardedPoints': FieldValue.increment(inc),
+          'lastRewardsResolvedAt': now,
+        }
+      }, SetOptions(merge: true));
+
+      await batch.commit().timeout(const Duration(seconds: 4));
     } catch (_) {}
   }
 
-  // ===== Weight tracking =====
-  static Future<void> writeWeightKg({
-    required String ymd,
-    required double kg,
-  }) async {
-    if (kg <= 0) return;
-    _touchUserMetaInBackground();
-    await _dayDoc(ymd).set({
-      'tracking': {
-        'weightKg': kg,
-        'updatedAt': Timestamp.now(),
-      },
-      'currentWeightKg': kg,
-    }, SetOptions(merge: true));
-    await _userDoc().set({
-      'currentWeightKg': kg,
-      'updatedAt': Timestamp.now(),
-    }, SetOptions(merge: true));
-  }
-
-  static Future<Map<String, double>> readWeightLogs({int limit = 120}) async {
-    final out = <String, double>{};
-    try {
-      final days = await readDays(limit: limit);
-      for (final d in days) {
-        final ymd = (d['date'] ?? '').toString();
-        final tracking = _asMap(d['tracking']) ?? <String, dynamic>{};
-        final kg = _toD(tracking['weightKg']);
-        if (ymd.isNotEmpty && kg > 0) out[ymd] = kg;
-      }
-
-      // fallback: لو المستخدم عنده وزن محفوظ في جذر وثيقة المستخدم فقط
-      final root = await _userDoc()
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 6));
-      final data = root.data() ?? <String, dynamic>{};
-      final rootKg = _toD(data['currentWeightKg']);
-      if (rootKg > 0) {
-        final today = DateTime.now().toIso8601String().split('T').first;
-        out.putIfAbsent(today, () => rootKg);
-      }
-    } catch (_) {}
-    return out;
-  }
-
-  // ===== (اختياري) ستريم نقاط اليوم — غير مستخدم إلا إذا استدعي من الواجهة =====
   static Stream<int> todayAwardedPointsStream() {
     try {
-      final _ = _requireUid(); // للتأكد من تسجيل الدخول
+      final _ = _requireUid();
       final ymd = DateTime.now().toIso8601String().split('T').first;
       return _dayDoc(ymd).snapshots().map((snap) {
         final data = snap.data() ?? <String, dynamic>{};
@@ -331,7 +233,6 @@ class AppRepository {
         return ((rewards['awardedPoints'] as num?) ?? 0).toInt();
       });
     } catch (_) {
-      // في حال عدم تسجيل الدخول، نرجّع ستريم فاضي
       return const Stream<int>.empty();
     }
   }

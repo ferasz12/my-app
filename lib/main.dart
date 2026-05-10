@@ -54,6 +54,7 @@ import 'settings/subscription_page.dart';
 import 'app/app_nav.dart';
 import 'notifications/fcm_marketing_push.dart';
 import 'services/app_review_service.dart';
+import 'services/end_of_day_cloud_backup_service.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'fasting/fasting_notifications.dart';
@@ -275,6 +276,7 @@ void main() {
     // 4. شغّل الخدمات الاختيارية بعد ظهور أول واجهة حتى لا تسبب شاشة بيضاء عند الإقلاع.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_startOptionalServicesAfterFirstFrame());
+      DailyCloudBackupService.instance.start();
 
       Future<void>.delayed(const Duration(seconds: 3), () {
         final context = AppNav.key.currentContext;

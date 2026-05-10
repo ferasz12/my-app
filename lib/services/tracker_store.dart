@@ -1,25 +1,23 @@
 // lib/services/tracker_store.dart
+// سريع ومحلي: لا يقرأ ولا يكتب Firestore أثناء اليوم.
+// يتم رفع لقطة اليوم للسحابة عبر DailyCloudBackupService في نهاية اليوم.
+
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../data/app_repository.dart';
+import 'end_of_day_cloud_backup_service.dart';
 
 class TrackerStore {
-  static bool _cloudSyncInProgress = false;
-  static DateTime? _lastCloudSyncAt;
-  /// تنسيق التاريخ: YYYY-MM-DD
-  static String _todayKey() {
-    final now = DateTime.now();
-    return _keyForDate(now);
-  }
+  static String _todayKey() => _keyForDate(DateTime.now());
 
   static String _keyForDate(DateTime d) {
     final y = d.year.toString().padLeft(4, '0');
     final m = d.month.toString().padLeft(2, '0');
     final day = d.day.toString().padLeft(2, '0');
-    return 'diet_$y-$m-$day'; // مثال: diet_2025-08-22
+    return 'diet_$y-$m-$day';
   }
 
   static String _ymd(DateTime d) => _keyForDate(d).replaceFirst('diet_', '');
@@ -28,6 +26,7 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     return (prefs.getString('currentEmail') ??
             FirebaseAuth.instance.currentUser?.email ??
+            FirebaseAuth.instance.currentUser?.uid ??
             'unknown_user')
         .trim();
   }
@@ -39,7 +38,7 @@ class TrackerStore {
   }
 
   static Map<String, dynamic>? _decodeMap(String? raw) {
-    if (raw == null) return null;
+    if (raw == null || raw.trim().isEmpty) return null;
     try {
       final m = jsonDecode(raw);
       if (m is Map) return Map<String, dynamic>.from(m);
@@ -64,6 +63,7 @@ class TrackerStore {
       'carb': carb,
       'fat': fat,
     };
+
     await prefs.setString('diet_$ymd', jsonEncode(map));
     await prefs.setString(
       'kcal_daytotals_${email}_$ymd',
@@ -72,6 +72,21 @@ class TrackerStore {
     if (entries != null) {
       await prefs.setString('intake_entries_${email}_$ymd', jsonEncode(entries));
     }
+
+    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
+  }
+
+  static Map<String, dynamic> _dayMapFromTotals({
+    required String ymd,
+    required Map<String, dynamic> totals,
+  }) {
+    return {
+      'date': ymd,
+      'calories': _toD(totals['k'] ?? totals['calories']),
+      'protein': _toD(totals['p'] ?? totals['protein']),
+      'carb': _toD(totals['c'] ?? totals['carb'] ?? totals['carbs']),
+      'fat': _toD(totals['f'] ?? totals['fat']),
+    };
   }
 
   /// يكتب مجاميع يوم كامل كقيمة نهائية، وليس تجميعًا فوق القديم.
@@ -99,18 +114,9 @@ class TrackerStore {
       fat: fat,
       entries: entries,
     );
-
-    if (mirrorCloud) {
-      unawaited(AppRepository.writeEntriesAndTotals(
-        ymd: date,
-        entries: entries ?? const <Map<String, dynamic>>[],
-        totals: {'k': cal, 'p': protein, 'c': carb, 'f': fat},
-      ).catchError((_) {}));
-    }
   }
 
-  /// إضافة استهلاك لليوم (تجميع فوق الموجود)
-  /// أبقيناها للتوافق مع الكود القديم، لكن الحفظ النهائي في الهوم يستخدم setDayTotals.
+  /// إضافة استهلاك لليوم للتوافق مع الكود القديم.
   static Future<void> addIntake({
     required double cal,
     required double protein,
@@ -143,96 +149,20 @@ class TrackerStore {
     );
   }
 
-  static Map<String, dynamic> _dayMapFromTotals({
-    required String ymd,
-    required Map<String, dynamic> totals,
-  }) {
-    return {
-      'date': ymd,
-      'calories': _toD(totals['k'] ?? totals['calories']),
-      'protein': _toD(totals['p'] ?? totals['protein']),
-      'carb': _toD(totals['c'] ?? totals['carb'] ?? totals['carbs']),
-      'fat': _toD(totals['f'] ?? totals['fat']),
-    };
-  }
+  /// لا تعمل مزامنة أثناء اليوم حتى لا يعلق التطبيق.
+  /// الرفع للسحابة يتم نهاية اليوم فقط.
+  static Future<void> syncFromCloud({int limit = 60, bool force = false}) async {}
 
-  /// مزامنة أيام السجل من Firestore إلى SharedPreferences بعد إعادة تثبيت التطبيق.
-  /// افتراضيًا لا نوقف الواجهة: نشغل المزامنة في الخلفية ونرجع فورًا.
-  static Future<void> syncFromCloud({int limit = 60, bool force = false}) async {
-    if (!force) {
-      _scheduleCloudSync(limit: limit);
-      return;
-    }
-    await _syncFromCloudNow(limit: limit, force: true);
-  }
-
-  static void _scheduleCloudSync({int limit = 60}) {
-    final now = DateTime.now();
-    if (_cloudSyncInProgress) return;
-    final last = _lastCloudSyncAt;
-    if (last != null && now.difference(last) < const Duration(minutes: 5)) return;
-    unawaited(_syncFromCloudNow(limit: limit).catchError((_) {}));
-  }
-
-  static Future<void> _syncFromCloudNow({int limit = 60, bool force = false}) async {
-    if (_cloudSyncInProgress) return;
-    final now = DateTime.now();
-    final last = _lastCloudSyncAt;
-    if (!force && last != null && now.difference(last) < const Duration(minutes: 5)) return;
-
-    _cloudSyncInProgress = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final email = await _email();
-      final days = await AppRepository.readDays(limit: (limit.clamp(15, 120)).toInt());
-      for (final d in days) {
-        final ymd = (d['date'] ?? '').toString();
-        if (ymd.isEmpty) continue;
-        final intake = d['intake'];
-        final totals = intake is Map ? (intake['totals'] as Map?) : null;
-        final entriesRaw = intake is Map ? intake['entries'] : null;
-        final entries = entriesRaw is List
-            ? entriesRaw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
-            : <Map<String, dynamic>>[];
-        if (totals is Map) {
-          final cal = _toD(totals['k']);
-          final protein = _toD(totals['p']);
-          final carb = _toD(totals['c']);
-          final fat = _toD(totals['f']);
-          final hasIntake = cal > 0 || protein > 0 || carb > 0 || fat > 0 || entries.isNotEmpty;
-          if (!hasIntake) continue;
-          await _cacheDay(
-            prefs: prefs,
-            email: email,
-            ymd: ymd,
-            cal: cal,
-            protein: protein,
-            carb: carb,
-            fat: fat,
-            entries: entries,
-          );
-        }
-      }
-      _lastCloudSyncAt = DateTime.now();
-    } catch (_) {
-      // لا نكسر الواجهة بسبب الشبكة
-    } finally {
-      _cloudSyncInProgress = false;
-    }
-  }
-
-  /// قراءة يوم محدد
+  /// قراءة يوم محدد من المحلي فقط.
   static Future<Map<String, dynamic>> getDay(DateTime d) async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final key = _keyForDate(d);
     final ymd = key.replaceFirst('diet_', '');
 
-    // 1) الحديث: مجاميع الهوم النهائية
     final totals = _decodeMap(prefs.getString('kcal_daytotals_${email}_$ymd'));
     if (totals != null) return _dayMapFromTotals(ymd: ymd, totals: totals);
 
-    // 2) القديم: diet_yyyy-mm-dd
     final raw = prefs.getString(key);
     if (raw != null) {
       final m = _decodeMap(raw) ?? <String, dynamic>{};
@@ -245,26 +175,6 @@ class TrackerStore {
       };
     }
 
-    // 3) السحابة بعد إعادة تثبيت التطبيق
-    try {
-      final remote = await AppRepository.readDay(ymd);
-      final intake = remote?['intake'];
-      final rt = intake is Map ? intake['totals'] : null;
-      if (rt is Map) {
-        final map = _dayMapFromTotals(ymd: ymd, totals: Map<String, dynamic>.from(rt));
-        await _cacheDay(
-          prefs: prefs,
-          email: email,
-          ymd: ymd,
-          cal: _toD(map['calories']),
-          protein: _toD(map['protein']),
-          carb: _toD(map['carb']),
-          fat: _toD(map['fat']),
-        );
-        return map;
-      }
-    } catch (_) {}
-
     return {
       'date': ymd,
       'calories': 0.0,
@@ -274,14 +184,13 @@ class TrackerStore {
     };
   }
 
-  /// جميع الأيام المخزنة بصيغة [{date, calories, protein, carb, fat}, ...] مرتبة من الأحدث
+  /// جميع الأيام المحلية المخزنة، بدون أي قراءة Firestore.
   static Future<List<Map<String, dynamic>>> getAllDays() async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
 
     final byDate = <String, Map<String, dynamic>>{};
 
-    // 1) اقرأ المجاميع النهائية الحديثة kcal_daytotals_email_yyyy-mm-dd
     final totalsPrefix = 'kcal_daytotals_${email}_';
     for (final k in prefs.getKeys().where((x) => x.startsWith(totalsPrefix))) {
       final ymd = k.substring(totalsPrefix.length);
@@ -290,7 +199,6 @@ class TrackerStore {
       byDate[ymd] = _dayMapFromTotals(ymd: ymd, totals: totals);
     }
 
-    // 2) اقرأ diet_ القديم كـ fallback فقط إذا ما فيه قيمة أحدث لنفس اليوم
     final keys = prefs.getKeys().where((k) => k.startsWith('diet_')).toList();
     for (final k in keys) {
       final raw = prefs.getString(k);
@@ -314,21 +222,19 @@ class TrackerStore {
           _toD(m['fat']) > 0;
     }).toList();
     list.sort((a, b) => (b['date'] as String).compareTo(a['date'] as String));
-    _scheduleCloudSync(limit: 60);
     return list;
   }
 
-  /// مسح يوم (اختياري للاستخدام من شاشة السجل)
   static Future<void> clearDay(String yyyymmdd) async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     await prefs.remove('diet_$yyyymmdd');
     await prefs.remove('kcal_daytotals_${email}_$yyyymmdd');
     await prefs.remove('intake_entries_${email}_$yyyymmdd');
-    unawaited(AppRepository.clearDayIntake(ymd: yyyymmdd).catchError((_) {}));
+    await prefs.setBool('eod_cloud_backup_done_${email}_$yyyymmdd', false);
+    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 
-  /// إعادة ضبط اليوم الحالي (اختياري)
   static Future<void> resetToday() async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
@@ -336,5 +242,7 @@ class TrackerStore {
     await prefs.remove(_todayKey());
     await prefs.remove('kcal_daytotals_${email}_$ymd');
     await prefs.remove('intake_entries_${email}_$ymd');
+    await prefs.setBool('eod_cloud_backup_done_${email}_$ymd', false);
+    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 }

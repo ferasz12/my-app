@@ -69,8 +69,7 @@ class _CaloriesHistoryScreenState extends State<CaloriesHistoryScreen> {
     if (_backgroundRefreshing) return;
     setState(() => _backgroundRefreshing = true);
     try {
-      await TrackerStore.syncFromCloud(limit: 90, force: true)
-          .timeout(const Duration(seconds: 7), onTimeout: () {});
+      // تحديث محلي فقط. لا نقرأ Firestore من سجل السعرات حتى تبقى الصفحة سريعة.
       await _loadHistory(showLoader: false);
     } finally {
       if (mounted) setState(() => _backgroundRefreshing = false);
