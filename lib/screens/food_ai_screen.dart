@@ -3,10 +3,10 @@
 // NOTE: هذه الصفحة تستقبل الآن الصورة من food_camera_screen عبر الـ constructor
 //       (XFile imageFile) وتبدأ التحليل مباشرة في initState بدون فتح الكاميرا هنا.
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
 
 import '../shared/premium_feature.dart';
 import '../shared/premium_gate.dart';
@@ -504,7 +504,14 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       _baseC = 0;
       _baseF = 0;
     });
-    _run();
+
+    // نعطي Flutter فرصة يرسم شاشة المسح أولًا، بعدها نبدأ قراءة/ضغط الصورة والشبكة.
+    // هذا يمنع إحساس التعليق مباشرة بعد الضغط على زر تحليل.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 260));
+      if (!mounted) return;
+      unawaited(_run());
+    });
   }
 
   void _startAnalysisFromClarifier() => _startAnalysis();
@@ -1080,8 +1087,8 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
         _currentImage,
         profile: profile,
         today: today,
-        detail: VisionDetail.high,
-        maxImageEdge: 1536,
+        detail: VisionDetail.low,
+        maxImageEdge: 1024,
         clarifier: clarifier, // دائمًا String
       );
 
@@ -1226,6 +1233,8 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       _errorKind = _ErrorKind.none;
       _warning = null;
     });
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    if (!mounted) return;
     try {
       final profile = DietProfile(
         dailyCalories: _tK.round(),
@@ -1248,8 +1257,8 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
         _currentImage,
         profile: profile,
         today: today,
-        detail: VisionDetail.high,
-        maxImageEdge: 1536,
+        detail: VisionDetail.low,
+        maxImageEdge: 1024,
         countUsage: false, // إعادة التحليل لنفس الصورة بدون زيادة عدّاد اليوم
         clarifier: clarifier,
       );
@@ -3194,6 +3203,7 @@ class _UsageBanner extends StatelessWidget {
   }
 }
 
+
 class _AnalyzingView extends StatefulWidget {
   final String imagePath;
   const _AnalyzingView({required this.imagePath});
@@ -3207,26 +3217,34 @@ class _AnalyzingViewState extends State<_AnalyzingView>
   late final AnimationController _controller;
 
   static const List<String> _scanSteps = [
-    'جاري قراءة الصورة بدقة',
-    'جاري تحديد الطبق الرئيسي',
+    'جاري تحليل الصورة',
+    'جاري تحديد الوجبة الرئيسية',
     'جاري استخراج المكونات',
     'جاري تقدير الأوزان والقرامات',
     'جاري حساب السعرات والماكروز',
+    'جاري تجهيز النتيجة',
   ];
 
   @override
   void initState() {
     super.initState();
+    // تشغيل واحد فقط: الخطوات تظهر بالتسلسل مرة واحدة ولا تعيد نفسها.
+    // لو التحليل أخذ وقت أطول، تبقى آخر خطوة ظاهرة بدون استهلاك أنيميشن مستمر.
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2200),
-    )..repeat();
+      duration: const Duration(milliseconds: 14500),
+    )..forward();
   }
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  int _activeStep(double progress) {
+    final idx = (progress * _scanSteps.length).floor();
+    return idx.clamp(0, _scanSteps.length - 1).toInt();
   }
 
   @override
@@ -3239,9 +3257,9 @@ class _AnalyzingViewState extends State<_AnalyzingView>
           padding: const EdgeInsets.all(18),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: cs.surface.withOpacity(.94),
+              color: cs.surface.withOpacity(.96),
               borderRadius: BorderRadius.circular(28),
               border: Border.all(color: cs.primary.withOpacity(.16)),
               boxShadow: [
@@ -3252,212 +3270,282 @@ class _AnalyzingViewState extends State<_AnalyzingView>
                 ),
               ],
             ),
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) {
-                final progress = _controller.value;
-                final lineY = progress;
-                final pulse = 0.92 + (math.sin(progress * math.pi * 2) * 0.08);
-                final activeIndex =
-                    ((progress * _scanSteps.length).floor()) % _scanSteps.length;
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: SizedBox(
-                        height: 285,
-                        width: double.infinity,
-                        child: LayoutBuilder(
-                          builder: (context, box) {
-                            final y = (box.maxHeight - 46) * lineY;
-                            return Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                Image.file(
-                                  File(widget.imagePath),
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    color: cs.surfaceContainerHighest,
-                                    child: Icon(
-                                      Icons.image_not_supported_outlined,
-                                      color: cs.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.black.withOpacity(.12),
-                                        Colors.black.withOpacity(.24),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                // corner guides
-                                const Positioned(top: 14, right: 14, child: _ScanCorner(top: true, right: true)),
-                                const Positioned(top: 14, left: 14, child: _ScanCorner(top: true, right: false)),
-                                const Positioned(bottom: 14, right: 14, child: _ScanCorner(top: false, right: true)),
-                                const Positioned(bottom: 14, left: 14, child: _ScanCorner(top: false, right: false)),
-                                Positioned(
-                                  top: y,
-                                  left: 0,
-                                  right: 0,
-                                  child: Container(
-                                    height: 46,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                        colors: [
-                                          cs.primary.withOpacity(0.0),
-                                          cs.primary.withOpacity(.14),
-                                          cs.primary.withOpacity(.36),
-                                          cs.primary.withOpacity(.10),
-                                          cs.primary.withOpacity(0.0),
-                                        ],
-                                      ),
-                                    ),
-                                    child: Center(
-                                      child: Container(
-                                        height: 3.4,
-                                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                                        decoration: BoxDecoration(
-                                          color: cs.primary,
-                                          borderRadius: BorderRadius.circular(999),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: cs.primary.withOpacity(.85),
-                                              blurRadius: 18,
-                                              spreadRadius: 1.2,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: 14,
-                                  left: 14,
-                                  bottom: 14,
-                                  child: Transform.scale(
-                                    scale: pulse,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 11),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(.42),
-                                        borderRadius: BorderRadius.circular(18),
-                                        border: Border.all(
-                                          color: Colors.white.withOpacity(.18),
-                                        ),
-                                      ),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Text(
-                                            'جاري التحليل الآن',
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 13.5,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            _scanSteps[activeIndex],
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              color: Colors.white.withOpacity(.92),
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: SizedBox(
+                    height: 285,
+                    width: double.infinity,
+                    child: _AnalyzingImageStage(
+                      imagePath: widget.imagePath,
+                      controller: _controller,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'وازن يحلل وجبتك الآن',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
                       ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'وازن يفحص الوجبة خطوة بخطوة',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                          ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'جاري التعرف على الطبق، استخراج المكونات، تقدير الأوزان، ثم حساب الماكروز بشكل أدق.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: cs.onSurfaceVariant,
-                            height: 1.45,
-                          ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, _) {
+                    final progress = _controller.value.clamp(0.0, 1.0);
+                    final activeIndex = _activeStep(progress);
+                    return Column(
                       children: [
-                        Expanded(
-                          child: _AnalyzeMiniStatusCard(
-                            title: 'التعرّف',
-                            subtitle: activeIndex >= 1 ? 'تم البدء' : 'تهيئة',
-                            active: activeIndex >= 0,
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 280),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          child: Text(
+                            _scanSteps[activeIndex],
+                            key: ValueKey<int>(activeIndex),
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: cs.onSurfaceVariant,
+                                  height: 1.45,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                            textAlign: TextAlign.center,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _AnalyzeMiniStatusCard(
-                            title: 'المكونات',
-                            subtitle: activeIndex >= 2 ? 'قيد الفحص' : 'انتظار',
-                            active: activeIndex >= 2,
-                          ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _AnalyzeMiniStatusCard(
+                                title: 'الصورة',
+                                subtitle: activeIndex >= 0 ? 'جاري' : 'انتظار',
+                                active: activeIndex >= 0,
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: _AnalyzeMiniStatusCard(
+                                title: 'المكونات',
+                                subtitle: activeIndex >= 2 ? 'تم البدء' : 'انتظار',
+                                active: activeIndex >= 2,
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: _AnalyzeMiniStatusCard(
+                                title: 'القرامات',
+                                subtitle: activeIndex >= 3 ? 'تقدير' : 'انتظار',
+                                active: activeIndex >= 3,
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: _AnalyzeMiniStatusCard(
+                                title: 'الماكروز',
+                                subtitle: activeIndex >= 4 ? 'حساب' : 'انتظار',
+                                active: activeIndex >= 4,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _AnalyzeMiniStatusCard(
-                            title: 'القرامات',
-                            subtitle: activeIndex >= 3 ? 'جاري التقدير' : 'انتظار',
-                            active: activeIndex >= 3,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _AnalyzeMiniStatusCard(
-                            title: 'الماكروز',
-                            subtitle: activeIndex >= 4 ? 'الحساب جارٍ' : 'انتظار',
-                            active: activeIndex >= 4,
+                        const SizedBox(height: 14),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: (0.10 + (progress * 0.88)).clamp(0.0, 0.98),
+                            minHeight: 8,
+                            backgroundColor: cs.surfaceVariant.withOpacity(.45),
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: 0.25 + (progress * 0.70),
-                        minHeight: 9,
-                        backgroundColor: cs.surfaceVariant.withOpacity(.45),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AnalyzingImageStage extends StatelessWidget {
+  final String imagePath;
+  final Animation<double> controller;
+
+  const _AnalyzingImageStage({
+    required this.imagePath,
+    required this.controller,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // الصورة ثابتة داخل RepaintBoundary حتى لا يعاد رسمها مع كل فريم.
+        RepaintBoundary(
+          child: Image.file(
+            File(imagePath),
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.low,
+            cacheWidth: 900,
+            errorBuilder: (_, __, ___) => Container(
+              color: cs.surfaceContainerHighest,
+              child: Icon(
+                Icons.image_not_supported_outlined,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(.10),
+                Colors.black.withOpacity(.25),
+              ],
+            ),
+          ),
+        ),
+        const Positioned(
+          top: 14,
+          right: 14,
+          child: _ScanCorner(top: true, right: true),
+        ),
+        const Positioned(
+          top: 14,
+          left: 14,
+          child: _ScanCorner(top: true, right: false),
+        ),
+        const Positioned(
+          bottom: 14,
+          right: 14,
+          child: _ScanCorner(top: false, right: true),
+        ),
+        const Positioned(
+          bottom: 14,
+          left: 14,
+          child: _ScanCorner(top: false, right: false),
+        ),
+        AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            final progress = controller.value.clamp(0.0, 1.0);
+            return _ScanLineOverlay(progress: progress);
+          },
+        ),
+        Positioned(
+          right: 14,
+          left: 14,
+          bottom: 14,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(.42),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white.withOpacity(.16)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(width: 9),
+                Flexible(
+                  child: Text(
+                    'جاري فحص مكونات الوجبة',
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScanLineOverlay extends StatelessWidget {
+  final double progress;
+  const _ScanLineOverlay({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final eased = Curves.easeInOutCubic.transform(progress.clamp(0.0, 1.0));
+
+    return LayoutBuilder(
+      builder: (context, box) {
+        final y = (box.maxHeight - 48) * eased;
+        return Stack(
+          children: [
+            Positioned(
+              top: y,
+              left: 0,
+              right: 0,
+              child: RepaintBoundary(
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        cs.primary.withOpacity(0.0),
+                        cs.primary.withOpacity(.12),
+                        cs.primary.withOpacity(.38),
+                        cs.primary.withOpacity(.14),
+                        cs.primary.withOpacity(0.0),
+                      ],
+                    ),
+                  ),
+                  child: Center(
+                    child: Container(
+                      height: 3.2,
+                      margin: const EdgeInsets.symmetric(horizontal: 18),
+                      decoration: BoxDecoration(
+                        color: cs.primary,
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cs.primary.withOpacity(.75),
+                            blurRadius: 16,
+                            spreadRadius: 1.0,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
