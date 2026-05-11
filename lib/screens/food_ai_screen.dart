@@ -1906,24 +1906,44 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _MacroGrid(
-                    kcal: kcal,
-                    protein: p,
-                    carbs: c,
-                    fat: f,
-                  ),
-                  if (!macrosMissing && _foodBase != null) ...[
-                    const SizedBox(height: 12),
-                    _PortionAdjuster(
-                      grams: (_portionG > 0
-                          ? _portionG
-                          : _toD(food['portion_grams'])),
-                      onChanged: _setPortionGrams,
-                      onEdit: _editPortionGrams,
-                      assumedBase: _portionBaseAssumed,
+                  if (!needClarification) ...[
+                    _MacroGrid(
+                      kcal: kcal,
+                      protein: p,
+                      carbs: c,
+                      fat: f,
+                    ),
+                    if (!macrosMissing && _foodBase != null) ...[
+                      const SizedBox(height: 12),
+                      _PortionAdjuster(
+                        grams: (_portionG > 0
+                            ? _portionG
+                            : _toD(food['portion_grams'])),
+                        onChanged: _setPortionGrams,
+                        onEdit: _editPortionGrams,
+                        assumedBase: _portionBaseAssumed,
+                      ),
+                    ],
+                  ] else ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHighest.withOpacity(0.55),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: cs.outlineVariant),
+                      ),
+                      child: Text(
+                        'ما راح نعرض الماكروز الآن لأن الوجبة تحتاج توضيح. أضف اسم الطلب/الحجم/الكمية ثم أعد التحليل.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(color: cs.onSurfaceVariant, height: 1.45),
+                      ),
                     ),
                   ],
-                  if (macrosMissing) ...[
+                  if (macrosMissing && !needClarification) ...[
                     const SizedBox(height: 10),
                     Text(
                       'ما قدرنا نحسب الماكروز بدقة من الصورة الحالية. جرّب إضافة توضيح (مثال: 200 جم) ثم أعد التحليل.',
@@ -1995,9 +2015,7 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: (food['need_clarification'] == true)
-                    ? null
-                    : _handleAddMeal,
+                onPressed: needClarification ? null : _handleAddMeal,
                 icon: const Icon(Icons.add_circle_outline),
                 label: const Text('إضافة الوجبة'),
                 style: FilledButton.styleFrom(

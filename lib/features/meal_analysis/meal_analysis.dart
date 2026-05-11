@@ -807,6 +807,7 @@ class _PreAnalysisOption {
 
 class _PreAnalysisQuestion {
   final String id;
+  final String type;
   final String title;
   final String question;
   final String ingredient;
@@ -815,6 +816,7 @@ class _PreAnalysisQuestion {
 
   const _PreAnalysisQuestion({
     required this.id,
+    required this.type,
     required this.title,
     required this.question,
     required this.ingredient,
@@ -834,6 +836,7 @@ class _PreAnalysisQuestion {
     }
     return _PreAnalysisQuestion(
       id: _toS(j['id']) ?? _toS(j['type']) ?? UniqueKey().toString(),
+      type: (_toS(j['type']) ?? (options.isEmpty ? 'text' : 'choice')).trim(),
       title: _toS(j['title']) ?? 'تأكيد سريع',
       question: _toS(j['question']) ?? 'اختر الخيار الأقرب',
       ingredient: _toS(j['ingredient']) ?? '',
@@ -1121,25 +1124,30 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
 
   List<Map<String, dynamic>> _selectedClarificationAnswers() {
     return _preQuestions.map((q) {
-      final selectedValue = _preAnswers[q.id];
+      final selectedValue = (_preAnswers[q.id] ?? '').trim();
       final selected = q.options.firstWhere(
         (o) => o.value == selectedValue,
         orElse: () => const _PreAnalysisOption(label: '', value: '', append: ''),
       );
+      final isText = q.type == 'text' || q.options.isEmpty;
+      final answerLabel = isText ? selectedValue : selected.label;
+      final answerValue = isText ? 'text' : selected.value;
+      final answerAppend = isText ? selectedValue : selected.append;
       return <String, dynamic>{
         'id': q.id,
+        'type': q.type,
         'title': q.title,
         'question': q.question,
         'ingredient': q.ingredient,
         'answer': <String, dynamic>{
-          'label': selected.label,
-          'value': selected.value,
-          'append': selected.append,
+          'label': answerLabel,
+          'value': answerValue,
+          'append': answerAppend,
         },
       };
     }).where((m) {
       final a = m['answer'];
-      return a is Map && (a['value'] ?? '').toString().trim().isNotEmpty;
+      return a is Map && (a['append'] ?? a['label'] ?? '').toString().trim().isNotEmpty;
     }).toList();
   }
 
@@ -1235,28 +1243,44 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
                             ),
                           ],
                           const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: q.options.map((o) {
-                              final isSelected = selected == o.value;
-                              return ChoiceChip(
-                                selected: isSelected,
-                                label: Text(o.label),
-                                onSelected: (_) {
-                                  setState(() => _preAnswers[q.id] = o.value);
-                                },
-                                selectedColor: cs.primary.withOpacity(0.16),
-                                side: BorderSide(
-                                  color: isSelected ? cs.primary : cs.outlineVariant,
+                          if (q.type == 'text' || q.options.isEmpty)
+                            TextField(
+                              textDirection: TextDirection.rtl,
+                              minLines: 1,
+                              maxLines: 3,
+                              onChanged: (v) => setState(() => _preAnswers[q.id] = v.trim()),
+                              decoration: InputDecoration(
+                                hintText: 'مثال: بيج ماك + بطاطس وسط + كولا دايت',
+                                filled: true,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
-                                labelStyle: TextStyle(
-                                  color: isSelected ? cs.primary : cs.onSurface,
-                                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
-                                ),
-                              );
-                            }).toList(),
-                          ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              ),
+                            )
+                          else
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: q.options.map((o) {
+                                final isSelected = selected == o.value;
+                                return ChoiceChip(
+                                  selected: isSelected,
+                                  label: Text(o.label),
+                                  onSelected: (_) {
+                                    setState(() => _preAnswers[q.id] = o.value);
+                                  },
+                                  selectedColor: cs.primary.withOpacity(0.16),
+                                  side: BorderSide(
+                                    color: isSelected ? cs.primary : cs.outlineVariant,
+                                  ),
+                                  labelStyle: TextStyle(
+                                    color: isSelected ? cs.primary : cs.onSurface,
+                                    fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
+                                  ),
+                                );
+                              }).toList(),
+                            ),
                         ],
                       ),
                     ),
@@ -1269,18 +1293,6 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
                       : null,
                   icon: const Icon(Icons.analytics_rounded),
                   label: const Text('ابدأ التحليل الدقيق'),
-                ),
-                TextButton(
-                  onPressed: _loading
-                      ? null
-                      : () {
-                          setState(() {
-                            _preQuestions = <_PreAnalysisQuestion>[];
-                            _preAnswers.clear();
-                          });
-                          _analyze(withClarificationAnswers: true);
-                        },
-                  child: const Text('تخطي وسوِّ تحليل تقديري'),
                 ),
               ],
             ),

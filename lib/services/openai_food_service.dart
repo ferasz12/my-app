@@ -1130,9 +1130,9 @@ final List<Map<String, dynamic>>? items =
       // يُستخدم في السيرفر لتحديد هل نزيد العدّاد اليومي أم لا
       req.headers['X-Count-Usage'] = countUsage ? '1' : '0';
 
-      // ✅ إيقاف V2 مؤقتًا: نستخدم مسار التحليل المستقر نفسه الموجود في نسخة App Store.
-      // لا ترسل X-Wazen-Vision-Version الآن؛ لأن مسار V2 يحتاج اختبار إضافي على Cloud Functions.
-      // req.headers['X-Wazen-Vision-Version'] = '2';
+      // ✅ مسار V2 الذكي: مستخدمو النسخ القديمة لا يرسلون هذا الهيدر، لذلك يبقون على V1.
+      // النسخة الجديدة فقط تستخدم برومبت المطاعم/الشعارات وقاعدة عدم إظهار الماكروز عند الغموض.
+      req.headers['X-Wazen-Vision-Version'] = '2';
 
       // ✅ مهم: كثير من سيرفرات البروكسي (Firebase onRequest) لا تقرأ حقول multipart النصية
       // لذلك نمرّر التوضيح أيضًا كـ Header ليصل دائمًا.

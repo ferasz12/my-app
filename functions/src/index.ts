@@ -598,25 +598,62 @@ function buildWazenVisionSystemInstruction(userNote: string) {
 function buildWazenVisionSystemInstructionV2(userNote: string) {
   const note = normStr(userNote);
   return [
-    'You are Wazin Vision V2, a precise nutrition analysis engine for the Arabic health app Wazin (وازن).',
+    'You are Wazin Vision V2, a restaurant-aware nutrition analysis engine for the Arabic health app Wazin (وازن).',
     'Return ONLY valid compact JSON matching the schema. No markdown. No prose. No extra keys.',
-    'Main goal: identify every meaningful food component, estimate grams for each component, and make total_macros equal the sum of items.',
-    'meal.name_ar/name_ar/dish_name must be a specific Arabic meal title derived from visible items, not generic phrases like وجبة مختلطة unless the image is truly unidentifiable.',
-    'For mixed plates, compose the name from the main items, e.g. ساندويتش تونة مع بطاطس مقلية.',
-    'Evidence priority: user note first, visible label/OCR second, visual estimate third.',
-    'Respect stated weight, volume, count, brand, sugar status, cooking style, sauce, oil, and whether food is drained/without skin/light/zero.',
-    'For each item, grams must be the estimated edible portion in grams whenever visually possible. Do not leave grams null for visible solid food.',
-    'For liquids, use ml and also approximate grams when reasonable (1 ml ≈ 1 g for water-like drinks).',
-    'portion_grams must equal the sum of item grams when available.',
-    'Confidence must be item-specific and realistic. Do NOT default all items to 0.72.',
-    'Use 0.85-0.95 only when the food/label/quantity is clear, 0.70-0.84 when visually likely, 0.50-0.69 when uncertain, below 0.50 if highly unclear.',
-    'If an edible item has positive grams or ml, do not return all-zero macros unless it is truly zero-calorie.',
-    'Water, ice, black coffee, unsweetened tea, and diet/zero soda may be near zero.',
-    'Carb foods should usually have carbs_g > 0. Protein foods should usually have protein_g > 0.',
-    'Prefer 1 to 6 meaningful items; merge tiny garnish only when nutritionally negligible.',
-    'Ask short Arabic clarification questions only if the food identity or quantity is genuinely ambiguous.',
-    'primary_query must be a short English USDA-style phrase for each item.',
-    'wazin_analysis must be a short friendly Saudi-dialect tip and mention that values are estimates when relevant.',
+    'Main goal: identify the exact visible meal, identify restaurant/brand evidence, estimate portions only when clear, and calculate realistic macros.',
+    'Strict safety goal: do NOT show macros when the exact meal, restaurant item, size, drink sugar status, or main portion is materially uncertain. In that case return need_clarification=true, questions, items=[], and total_macros all zeros.',
+    'The meal title must be specific. Never use generic titles like وجبة مختلطة, برجر, ساندويتش, طبق, or وجبة unless the image is truly unclear.',
+    '',
+    'EVIDENCE PRIORITY:',
+    '1) User note / clarifier is the strongest evidence.',
+    '2) Visible restaurant logos, branded packaging, cups, bags, tray liners, receipts, menu text, labels, barcodes, and OCR are very strong evidence.',
+    '3) Visible food shape and ingredients are secondary evidence.',
+    '4) Generic visual estimate is the weakest evidence.',
+    '',
+    'RESTAURANT AND BRAND RULES:',
+    '- Actively inspect the full image, not only the food: logos, branded boxes, cups, bags, wrappers, tray paper, stickers, receipts, menu boards, labels, and printed text.',
+    '- If a restaurant logo or brand is visible, do NOT ignore it and do NOT convert it into homemade/generic food.',
+    '- If McDonald’s, KFC, AlBaik, Burger King, Starbucks, Subway, Herfy, Maestro Pizza, Dominos, Pizza Hut, Shawarma House, or any other restaurant/brand is visible, include the restaurant name naturally in meal.name_ar and item name_ar.',
+    '- Example: if McDonald’s branding is visible, do NOT say برجر مشوي. Say ماكدونالدز - برجر غير محدد and ask for the exact sandwich if the exact item is not clear.',
+    '- If the exact menu item is readable or clearly identifiable, name it specifically, e.g. ماكدونالدز - بيج ماك, ماكدونالدز - بطاطس وسط, ستاربكس - لاتيه مثلج.',
+    '- If restaurant is detected but exact menu item is not clear, return need_clarification=true, items=[], total_macros=0, and ask for exact order name and size.',
+    '- If fries/drinks/sides are visible but size is unclear, ask about size: صغير، وسط، كبير.',
+    '- If drink sugar status is unclear, ask whether it is عادي or دايت/زيرو.',
+    '- Do NOT invent official restaurant macros when the exact menu item and size are not identified.',
+    '',
+    'ANTI-HALLUCINATION RULES:',
+    '- Do not claim a specific restaurant item unless there is visible evidence or the user note states it.',
+    '- Do not claim grilled/fried/light/zero/diet unless visible or stated.',
+    '- Do not guess sauces, cheese, or oil as facts unless visible or stated.',
+    '- Do not output high confidence for branded restaurant food unless the restaurant, exact item, and size are clear.',
+    '- Confidence 0.85-0.95 only when item + quantity/size are clear.',
+    '- Confidence 0.70-0.84 when item is likely but quantity/size is reasonably estimated.',
+    '- Confidence 0.50-0.69 when restaurant or item is uncertain and clarification should usually be requested.',
+    '- Below 0.50 when highly unclear and clarification is required.',
+    '',
+    'PORTION AND MACRO RULES:',
+    '- For each item, grams must be the estimated edible portion in grams whenever visually possible. Do not leave grams null for visible solid food that you decide to calculate.',
+    '- For liquids, use ml and approximate grams when reasonable.',
+    '- If an edible item has positive grams or ml, do not return all-zero macros unless it is truly zero-calorie.',
+    '- Water, ice, black coffee, unsweetened tea, and diet/zero soda may be near zero.',
+    '- Carb foods should usually have carbs_g > 0. Protein foods should usually have protein_g > 0.',
+    '- Keep total_macros exactly equal to the sum of item macros after rounding.',
+    '- Prefer 1 to 6 meaningful items; split restaurant meals into sandwich, fries, drink, sauces when visible and clear.',
+    '- Merge tiny garnish only when nutritionally negligible.',
+    '',
+    'CLARIFICATION RULES:',
+    '- Ask short Arabic clarification questions only when the answer materially changes calories/macros.',
+    '- For restaurant food, ask when exact item, size, or drink type is unclear.',
+    '- Good question examples:',
+    '  هل الطلب من ماكدونالدز؟ وما اسم الساندويتش بالضبط؟',
+    '  حجم البطاطس والمشروب صغير ولا وسط ولا كبير؟',
+    '  هل المشروب دايت/زيرو أو عادي؟',
+    '  هل فيه صوص أو جبن إضافي؟',
+    '',
+    'OUTPUT STYLE:',
+    '- primary_query must be a short English nutrition search phrase. For restaurant food, include restaurant name and menu item when known, e.g. McDonald’s Big Mac, McDonald’s medium fries.',
+    '- wazin_analysis must be a short friendly Saudi-dialect tip.',
+    '- If need_clarification=true, wazin_analysis must say that Wazin will not calculate macros until the missing details are confirmed.',
     `User Note: ${note || "(none)"}`,
   ].join("\n");
 }
@@ -712,6 +749,158 @@ function makeBusyVisionFallback(message = "خدمة تحليل الصورة تح
     name_en: 'analysis unavailable',
     label,
   };
+}
+
+function makeStrictVisionClarification(
+  mealName: string,
+  questions: string[],
+  message = 'نحتاج تأكيد بسيط قبل ما نحسب الماكروز عشان ما نعطيك رقم غلط.'
+): WazenVisionAnalysis {
+  const cleanQuestions = Array.from(new Set(
+    questions.map((q) => normStr(q)).filter((q) => q.length > 0)
+  )).slice(0, 3);
+  const label = normStr(mealName) || 'وجبة تحتاج توضيح';
+  return {
+    dish_name: label,
+    ingredients: [],
+    total_macros: {calories_kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0},
+    wazin_analysis: message,
+    need_clarification: true,
+    questions: cleanQuestions.length ? cleanQuestions : ['اكتب اسم الوجبة والكمية أو حجم الطلب بوضوح ثم أعد التحليل.'],
+    meal: {name_ar: label, name_en: 'needs clarification'},
+    items: [],
+    portion_grams: null,
+    portion_desc_ar: null,
+    name_ar: label,
+    name_en: 'needs clarification',
+    label,
+  };
+}
+
+function detectKnownRestaurantName(text: string): string {
+  const raw = normStr(text);
+  const low = normalizeEnText(raw).toLowerCase();
+  const pairs: Array<[string, RegExp]> = [
+    ['ماكدونالدز', /(mcdonald|mc donald|macdonald|ماك|ماكدونالد|ماكدونالدز|mcd)/i],
+    ['كنتاكي', /(kfc|kentucky|كنتاكي|كي اف سي|كي إف سي)/i],
+    ['البيك', /(albaik|al baik|البيك)/i],
+    ['برجر كنج', /(burger king|برجر كنج|بيرقر كنج)/i],
+    ['ستاربكس', /(starbucks|ستاربكس)/i],
+    ['صب واي', /(subway|صب واي|سب واي)/i],
+    ['هرفي', /(herfy|هرفي)/i],
+    ['مايسترو بيتزا', /(maestro|مايسترو)/i],
+    ['دومينوز', /(domino|dominos|دومينوز)/i],
+    ['بيتزا هت', /(pizza hut|بيتزا هت)/i],
+    ['شاورمر', /(shawarmer|شاورمر)/i],
+    ['شاورما هاوس', /(shawarma house|شاورما هاوس)/i],
+  ];
+  for (const [name, pattern] of pairs) {
+    if (pattern.test(low) || pattern.test(raw)) return name;
+  }
+  return '';
+}
+
+function hasRestaurantFoodSignal(text: string): boolean {
+  const raw = normStr(text);
+  const low = normalizeEnText(raw).toLowerCase();
+  return /(restaurant|menu|logo|branded|fast food|مطعم|منيو|شعار|طلب|وجبة مطعم|علبة|كيس|كوب)/i.test(low) ||
+    /(مطعم|منيو|شعار|طلب|وجبة مطعم|علبة|كيس|كوب)/.test(raw) ||
+    !!detectKnownRestaurantName(text);
+}
+
+function isGenericVisionFoodName(text: string): boolean {
+  const raw = normalizeArabicText(normStr(text)).toLowerCase();
+  if (!raw) return true;
+  if (isGenericVisionDishName(raw)) return true;
+  return /^(برجر|برغر|burger|ساندويتش|سندويتش|sandwich|شاورما|shawarma|بيتزا|pizza|بطاطس|fries|مشروب|drink|وجبة مطعم)$/i.test(raw);
+}
+
+function hasRestaurantSizeWord(text: string): boolean {
+  const raw = normStr(text).toLowerCase();
+  return /(صغير|وسط|متوسط|كبير|small|medium|large|regular|حجم|size|s|m|l)\b/i.test(raw) ||
+    /(صغير|وسط|متوسط|كبير|حجم)/.test(raw);
+}
+
+function hasDrinkSugarStatus(text: string): boolean {
+  const raw = normStr(text).toLowerCase();
+  return /(diet|zero|regular|normal|sugar free|دايت|زيرو|عادي|بدون سكر|صفر سكر|سكر)/i.test(raw);
+}
+
+function isDrinkOrFriesText(text: string): boolean {
+  const raw = normStr(text).toLowerCase();
+  return /(fries|french fries|بطاطس|بطاطا|مشروب|drink|cola|coke|pepsi|sprite|fanta|كولا|بيبسي|سبرايت|فانتا|عصير)/i.test(raw);
+}
+
+function enforceWazenVisionV2StrictGate(base: WazenVisionAnalysis, userNote = ''): WazenVisionAnalysis {
+  const note = normStr(userNote);
+  const items = Array.isArray(base.items) ? base.items : [];
+  const mealName = normStr(base.meal?.name_ar || base.dish_name || base.name_ar || base.label || 'وجبة');
+  const allSignals = [
+    mealName,
+    base.meal?.name_en || '',
+    base.name_en || '',
+    base.wazin_analysis || '',
+    note,
+    ...items.flatMap((item) => [item.name_ar, item.name_en, item.primary_query]),
+    ...(Array.isArray(base.questions) ? base.questions : []),
+  ].join(' ');
+
+  const questions: string[] = [];
+  const restaurant = detectKnownRestaurantName(allSignals);
+  const restaurantSignal = hasRestaurantFoodSignal(allSignals);
+  const hasUserNote = note.length >= 3;
+  const unclearWords = /(غير محدد|غير واضحة|غير واضح|غير معروف|غير معروفه|مش واضح|مو واضح|unclear|unknown|not sure|cannot identify|غير متأكد)/i.test(allSignals);
+  const genericMeal = isGenericVisionFoodName(mealName) || items.some((item) => isGenericVisionFoodName(item.name_ar || item.name_en || ''));
+  const avgConf = items.length ? items.reduce((sum, item) => sum + clamp01(num(item.confidence)), 0) / items.length : 0;
+  const majorMissingPortion = items.some((item) => {
+    const name = `${normStr(item.name_ar)} ${normStr(item.name_en)} ${normStr(item.primary_query)}`;
+    const zeroOk = /(water|ice|black coffee|americano|espresso|tea|diet|zero|ماء|موية|ثلج|قهوة سوداء|شاي|دايت|زيرو)/i.test(name);
+    return !zeroOk && num(item.grams) <= 0 && num(item.ml) <= 0;
+  });
+  const hasDrinkOrFries = isDrinkOrFriesText(allSignals);
+  const maybeDrink = /(drink|cola|coke|pepsi|sprite|fanta|مشروب|كولا|بيبسي|سبرايت|فانتا)/i.test(allSignals);
+
+  if (base.need_clarification === true && Array.isArray(base.questions) && base.questions.length > 0) {
+    return makeStrictVisionClarification(
+      mealName,
+      base.questions,
+      'نحتاج توضيح بسيط قبل الحساب عشان ما نعطيك ماكروز غلط.'
+    );
+  }
+
+  if (restaurantSignal && (unclearWords || genericMeal || !items.length)) {
+    questions.push(restaurant ? `واضح أنها من ${restaurant}. وش اسم الطلب بالضبط؟` : 'وش اسم المطعم واسم الطلب بالضبط؟');
+  }
+
+  if (restaurantSignal && hasDrinkOrFries && !hasRestaurantSizeWord(allSignals)) {
+    questions.push('حجم البطاطس أو المشروب صغير ولا وسط ولا كبير؟');
+  }
+
+  if (restaurantSignal && maybeDrink && !hasDrinkSugarStatus(allSignals)) {
+    questions.push('المشروب عادي أو دايت/زيرو؟');
+  }
+
+  if (!restaurantSignal && genericMeal && !hasUserNote) {
+    questions.push('وش اسم الوجبة أو مكوناتها الأساسية؟ وهل هي من مطعم أو منزلية؟');
+  }
+
+  if (majorMissingPortion && !hasUserNote) {
+    questions.push('كم تقريبًا كمية أو حجم الحصة لكل عنصر واضح بالصورة؟');
+  }
+
+  if (items.length > 0 && avgConf > 0 && avgConf < 0.62 && !hasUserNote) {
+    questions.push('الصورة غير واضحة كفاية. اكتب اسم الوجبة والكمية تقريبًا ثم أعد التحليل.');
+  }
+
+  if (questions.length > 0) {
+    return makeStrictVisionClarification(
+      mealName,
+      questions,
+      'وازن ما راح يحسب الماكروز الآن لأن الوجبة تحتاج تأكيد بسيط. اكتب التفاصيل ثم أعد التحليل.'
+    );
+  }
+
+  return base;
 }
 
 function makeBusyTextFallback(description: string, gateUsed = 0) {
@@ -2919,6 +3108,19 @@ function _makeQ(
   return {id, type, title, question, ingredient, reason, priority, options};
 }
 
+function _hasKnownRestaurantText(description: string): boolean {
+  return !!detectKnownRestaurantName(description) || _hasAnyArabicOrEnglish(description, [
+    'مطعم', 'ماك', 'ماكدونالدز', 'mcdonald', 'kfc', 'كنتاكي', 'البيك', 'albaik', 'برجر كنج', 'burger king',
+    'ستاربكس', 'starbucks', 'صب واي', 'subway', 'هرفي', 'herfy', 'دومينوز', 'dominos', 'بيتزا هت', 'pizza hut'
+  ]);
+}
+
+function _hasExactRestaurantItemText(description: string): boolean {
+  const d = normalizeEnText(description).toLowerCase();
+  return /(big mac|quarter pounder|mcchicken|cheeseburger|double cheeseburger|nuggets|happy meal|zinger|twister|whopper|latte|frappuccino|موكا|لاتيه|فرابتشينو|بيج ماك|كوارتر|ماك تشيكن|تشيز برجر|دبل تشيز|ناجت|زنجر|تويستر|وابر|مسحب|بروست|ساندويتش دجاج|ساندويتش لحم)/i.test(d) ||
+    /(بيج ماك|كوارتر|ماك تشيكن|تشيز برجر|دبل تشيز|ناجت|زنجر|تويستر|وابر|لاتيه|فرابتشينو|موكا|مسحب|بروست)/.test(description);
+}
+
 function buildPreMealTextClarifications(description: string): TextClarificationQuestion[] {
   const desc = normStr(description);
   const low = normalizeEnText(desc).toLowerCase();
@@ -2933,6 +3135,19 @@ function buildPreMealTextClarifications(description: string): TextClarificationQ
   const hasOilWord = _hasAnyArabicOrEnglish(desc, [
     'زيت', 'دهن', 'سمن', 'زبدة', 'مايونيز', 'صوص', 'oil', 'butter', 'mayo', 'sauce'
   ]);
+
+  if (_hasKnownRestaurantText(desc) && !_hasExactRestaurantItemText(desc)) {
+    add(_makeQ(
+      'restaurant_exact_order',
+      'text',
+      'تفاصيل طلب المطعم',
+      'اكتب اسم الطلب كاملًا مع الحجم لو موجود.',
+      'طلب مطعم',
+      'طلبات المطاعم تختلف كثير بين صنف وصنف، وما نحسب الماكروز إلا إذا عرفنا الطلب بوضوح.',
+      125,
+      []
+    ));
+  }
 
   if (_hasAnyArabicOrEnglish(desc, ['دجاج', 'فراخ', 'chicken']) && !hasCookingWord) {
     add(_makeQ(
@@ -3043,6 +3258,39 @@ function buildPreMealTextClarifications(description: string): TextClarificationQ
       [
         {label: 'بدون صوص/جبن', value: 'plain', append: 'الساندويتش بدون صوص ثقيل وبدون جبن'},
         {label: 'فيه صوص أو جبن', value: 'sauce_cheese', append: 'الساندويتش فيه صوص أو جبن'}
+      ]
+    ));
+  }
+
+  if (_hasKnownRestaurantText(desc) && _hasAnyArabicOrEnglish(desc, ['بطاطس', 'fries', 'مشروب', 'drink', 'كولا', 'cola', 'بيبسي', 'pepsi']) && !hasRestaurantSizeWord(desc)) {
+    add(_makeQ(
+      'restaurant_size',
+      'choice',
+      'حجم الطلب',
+      'حجم البطاطس أو المشروب؟',
+      'حجم الطلب',
+      'الحجم يفرق كثير في السعرات.',
+      118,
+      [
+        {label: 'صغير', value: 'small', append: 'حجم البطاطس أو المشروب صغير'},
+        {label: 'وسط', value: 'medium', append: 'حجم البطاطس أو المشروب وسط'},
+        {label: 'كبير', value: 'large', append: 'حجم البطاطس أو المشروب كبير'}
+      ]
+    ));
+  }
+
+  if (_hasKnownRestaurantText(desc) && _hasAnyArabicOrEnglish(desc, ['مشروب', 'drink', 'كولا', 'cola', 'بيبسي', 'pepsi', 'سبرايت', 'sprite']) && !hasDrinkSugarStatus(desc)) {
+    add(_makeQ(
+      'restaurant_drink_sugar',
+      'choice',
+      'نوع المشروب',
+      'المشروب عادي أو دايت/زيرو؟',
+      'مشروب',
+      'المشروب العادي يفرق كثير عن الدايت/زيرو.',
+      116,
+      [
+        {label: 'دايت / زيرو', value: 'zero', append: 'المشروب دايت أو زيرو بدون سكر'},
+        {label: 'عادي بسكر', value: 'regular', append: 'المشروب عادي بسكر'}
       ]
     ));
   }
@@ -3281,26 +3529,85 @@ function normalizeTextV2Item(raw: any, description: string): TextV2ItemOut | nul
   };
 }
 
+function makeTextV2NeedsAnswers(description: string, questions: TextClarificationQuestion[], gateUsed = 0) {
+  return stripUndefinedDeep({
+    ok: true,
+    itemized: false,
+    source: 'wazin_text_v2_clarification',
+    name_ar: description,
+    name_en: '',
+    calories_kcal: 0,
+    protein_g: 0,
+    carbs_g: 0,
+    fat_g: 0,
+    confidence: 0,
+    needs_confirmation: true,
+    needs_user_answers: true,
+    clarification_questions: questions.slice(0, 3),
+    clarifications: questions.slice(0, 3).map((q) => ({
+      ingredient: q.ingredient,
+      question: q.question,
+      reason: q.reason,
+    })),
+    ingredients: [],
+    ingredients_breakdown: [],
+    meal: {name_ar: description, name_en: ''},
+    items: [],
+    total_macros: {kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0},
+    wazin_analysis: 'نحتاج تأكيد بسيط قبل الحساب عشان وازن ما يعطيك ماكروز غلط.',
+    _debug: {gateUsed, version: 'text_v2_clarification_gate'},
+  });
+}
+
 function normalizeTextV2Response(raw: any, description: string, gateUsed: number) {
   let root = raw;
   if (Array.isArray(root)) root = root.find((x) => x && typeof x === 'object') || {};
   if (!root || typeof root !== 'object') root = {};
 
+  const rawQuestions = (Array.isArray(root.questions) ? root.questions : [])
+    .map((q: any) => normStr(q))
+    .filter((q: string) => q.length > 0)
+    .slice(0, 3);
+  if ((root.need_clarification === true || root.needs_clarification === true) && rawQuestions.length > 0) {
+    return makeTextV2NeedsAnswers(
+      description,
+      rawQuestions.map((q: string, index: number) => _makeQ(
+        `text_v2_model_question_${index + 1}`,
+        'text',
+        'توضيح مطلوب',
+        q,
+        'الوجبة',
+        'هذا التوضيح يغيّر حساب الماكروز.',
+        120 - index,
+        []
+      )),
+      gateUsed
+    );
+  }
+
   const rawItems = Array.isArray(root.ingredients) ? root.ingredients :
     (Array.isArray(root.items) ? root.items :
       (Array.isArray(root.ingredients_breakdown) ? root.ingredients_breakdown : []));
 
-  let items = rawItems
+  const items = rawItems
     .map((x: any) => normalizeTextV2Item(x, description))
     .filter((x: any) => x) as TextV2ItemOut[];
 
   if (!items.length) {
-    const candidates = splitFoodDescriptionCandidates(description).slice(0, 6);
-    items = candidates.map((name) => {
-      const grams = estimateTextV2Grams(name, description);
-      const est = estimateTextV2Macros(name, grams);
-      return {name: cleanTextV2Name(name), grams, ...est, confidence: 0.65, guessed: true};
-    }).filter((x) => x.name);
+    return makeTextV2NeedsAnswers(
+      description,
+      [_makeQ(
+        'text_v2_need_more_detail',
+        'text',
+        'تفاصيل الوجبة',
+        'اكتب مكونات الوجبة والكميات أو الأحجام بوضوح.',
+        'الوجبة',
+        'ما وصلنا مكونات كافية لحساب الماكروز بثقة.',
+        120,
+        []
+      )],
+      gateUsed
+    );
   }
 
   const totals = items.reduce((acc, it) => {
@@ -3315,6 +3622,26 @@ function normalizeTextV2Response(raw: any, description: string, gateUsed: number
   const mealName = rawMealName && rawMealName.length <= 34 ? rawMealName :
     buildShortMealNameV2(description, items.map((x) => x.name));
   const conf = items.length ? items.reduce((sum, x) => sum + x.confidence, 0) / items.length : 0.6;
+
+  const explicitQty = _hasQuantitySignal(description);
+  const lowConfidence = conf < 0.62;
+  const mostlyGuessed = items.length > 0 && items.filter((it) => it.guessed).length / items.length >= 0.7;
+  if ((lowConfidence || (mostlyGuessed && !explicitQty)) && !/تأكيدات المستخدم قبل التحليل/.test(description)) {
+    return makeTextV2NeedsAnswers(
+      description,
+      [_makeQ(
+        'text_v2_confirm_quantities',
+        'text',
+        'تأكيد الكميات',
+        'اكتب الكميات أو الأحجام بشكل أوضح، مثل: 150 جم دجاج + رز 130 جم + مشروب دايت.',
+        'الوجبة',
+        'التحليل الحالي اعتمد على تخمين عالي، ووازن ما يعرض ماكروز إلا بعد تأكيد كافٍ.',
+        115,
+        []
+      )],
+      gateUsed
+    );
+  }
 
   const breakdown = items.map((it) => ({
     name_ar: it.name,
@@ -3385,19 +3712,23 @@ async function callGeminiTextV2FastJson({
   const cleanModel = normalizeGeminiModelForUrl(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent`;
   const systemInstruction = [
-    'You are Wazin nutrition analyzer.',
+    'You are Wazin nutrition analyzer V2.',
     'Return ONLY compact valid JSON, no markdown.',
     'Use this exact JSON shape:',
-    '{"meal_name":"short Arabic meal name","ingredients":[{"item":"Arabic ingredient","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}]}',
+    '{"need_clarification":boolean,"questions":["Arabic question"],"meal_name":"short Arabic meal name","ingredients":[{"item":"Arabic ingredient","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}]}',
     'Extract a short meal name, not the full user sentence and not quantities.',
     'Split the meal into editable ingredients.',
-    'If grams are missing, estimate realistic grams instead of asking questions.',
+    'Strict safety rule: if the description is missing a detail that materially changes calories/macros, return need_clarification=true with questions and ingredients=[].',
+    'For restaurant food, do not calculate unless restaurant name, exact menu item, size, and drink sugar status are clear.',
+    'If grams are missing for a normal homemade food but the portion is obvious from count (e.g. two eggs, one sandwich), estimate conservatively with lower confidence.',
+    'Do not invent restaurant macros or exact items.',
   ].join('\n');
   const prompt = [
-    'حلّل وصف الوجبة لتطبيق وازن بسرعة.',
+    'حلّل وصف الوجبة لتطبيق وازن بدقة.',
     'رجّع JSON مضغوط فقط بالمفاتيح المطلوبة.',
     'اسم الوجبة مختصر بدون كميات. مثال: ساندويتش تونة وبيض.',
-    'كل عنصر لازم يحتوي grams/calories/protein_g/carbs_g/fat_g/confidence.',
+    'كل عنصر لازم يحتوي grams/calories/protein_g/carbs_g/fat_g/confidence إذا كانت الوجبة مؤكدة.',
+    'إذا الطلب من مطعم والاسم/الحجم/المشروب غير واضح، لا تحسب الماكروز وارجع need_clarification=true.',
     `المقاطع المتوقعة: ${JSON.stringify(partsHint)}`,
     `الوصف: ${description}`,
   ].join('\n');
@@ -3477,6 +3808,19 @@ export const analyzeMealTextV2 = onCall(
     const description = normStr(req.data?.description || req.data?.text || req.data?.query);
     if (description.length < 3) throw new HttpsError('invalid-argument', 'الوصف قصير جدًا');
 
+    const clarificationAnswersRaw = Array.isArray(req.data?.clarificationAnswers) ?
+      req.data.clarificationAnswers : [];
+    const hasClarificationAnswers = clarificationAnswersRaw.length > 0;
+
+    if (!hasClarificationAnswers) {
+      const preQuestions = buildPreMealTextClarifications(description);
+      if (preQuestions.length > 0) {
+        return makeTextV2NeedsAnswers(description, preQuestions, 0);
+      }
+    }
+
+    const analysisDescription = buildClarifiedDescription(description, clarificationAnswersRaw);
+
     const textGate = await checkAndIncUsage(req.auth.uid, 'food_text', 20, 'Asia/Riyadh', true);
     if (!textGate.allowed) throw new HttpsError('resource-exhausted', gateMessage('food_text'));
 
@@ -3484,18 +3828,18 @@ export const analyzeMealTextV2 = onCall(
     if (!geminiKey) throw new HttpsError('failed-precondition', 'GEMINI_API_KEY غير مضبوط في Secrets.');
 
     const model = process.env.GEMINI_TEXT_MODEL || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-    const partsHint = splitFoodDescriptionCandidates(description).slice(0, 8);
+    const partsHint = splitFoodDescriptionCandidates(analysisDescription).slice(0, 8);
 
     try {
-      const raw = await callGeminiTextV2FastJson({description, partsHint, model, apiKey: geminiKey});
-      return normalizeTextV2Response(raw, description, textGate.current);
+      const raw = await callGeminiTextV2FastJson({description: analysisDescription, partsHint, model, apiKey: geminiKey});
+      return normalizeTextV2Response(raw, analysisDescription, textGate.current);
     } catch (err: any) {
       logger.warn('analyzeMealTextV2 fast path failed; returning local estimate fallback', {
         status: err?.status,
         code: err?.code,
         message: String(err?.message || '').slice(0, 180),
       });
-      return normalizeTextV2Response({ingredients: []}, description, textGate.current);
+      return normalizeTextV2Response({ingredients: []}, analysisDescription, textGate.current);
     }
   }
 );
@@ -4355,13 +4699,27 @@ export const analyzeFood = onRequest(
       const systemInstruction = useVisionV2
         ? buildWazenVisionSystemInstructionV2(userClarifier)
         : buildWazenVisionSystemInstruction(userClarifier);
-      const userText = [
+      const userTextV1 = [
         "حلل صورة الطعام التالية لتطبيق وازن.",
         userClarifier ? `ملاحظة المستخدم: ${userClarifier}` : "ملاحظة المستخدم: لا يوجد.",
         "إذا ظهر على العبوة أو الملصق وزن صريح فاستخدمه كما هو.",
         "إذا كان العنصر قابلًا للعد بصريًا فاذكر العدد داخل الاسم العربي بشكل طبيعي.",
         "أعد JSON فقط حسب الـ schema المطلوب.",
       ].join("\n");
+      const userTextV2 = [
+        "حلل صورة الطعام التالية لتطبيق وازن بدقة عالية جدًا.",
+        userClarifier ? `ملاحظة المستخدم: ${userClarifier}` : "ملاحظة المستخدم: لا يوجد.",
+        "افحص الصورة كاملة، وليس الطعام فقط: الشعارات، الأكياس، الأكواب، العلب، الورق، الملصقات، الفاتورة، أو أي كتابة ظاهرة.",
+        "إذا ظهر شعار مطعم أو علامة تجارية، اعتبرها دليلًا قويًا جدًا ولا ترجع اسمًا عامًا مثل برجر أو برجر مشوي.",
+        "إذا ظهر شعار ماكدونالدز مثلًا والساندويتش غير واضح، اكتب ماكدونالدز - برجر غير محدد واطلب توضيح اسم الطلب بدل التخمين.",
+        "إذا كانت الوجبة من مطعم وحجم البطاطس أو المشروب غير واضح، لا تحسب الماكروز واطلب توضيح الحجم.",
+        "إذا كان المشروب قد يكون دايت أو عادي ولم يظهر بوضوح، لا تفترض واطلب توضيح.",
+        "إذا لم تكن متأكدًا من الوجبة كاملة، اجعل need_clarification=true وitems=[] وtotal_macros كلها صفر.",
+        "إذا ظهر على العبوة أو الملصق وزن صريح فاستخدمه كما هو.",
+        "إذا كان العنصر قابلًا للعد بصريًا فاذكر العدد داخل الاسم العربي بشكل طبيعي.",
+        "أعد JSON فقط حسب الـ schema المطلوب.",
+      ].join("\n");
+      const userText = useVisionV2 ? userTextV2 : userTextV1;
 
       const parts: any[] = [
         {text: userText},
@@ -4444,7 +4802,9 @@ export const analyzeFood = onRequest(
       }
 
       let normalized = normalizeWazenVisionResponse(raw);
-      if (useVisionV2) normalized = enhanceWazenVisionV2(normalized, userClarifier);
+      if (useVisionV2) {
+        normalized = enforceWazenVisionV2StrictGate(enhanceWazenVisionV2(normalized, userClarifier), userClarifier);
+      }
 
       if (!hasUsableWazenVisionAnalysis(normalized)) {
         const schemaRepairSystemInstruction = [
@@ -4478,7 +4838,9 @@ export const analyzeFood = onRequest(
           const repairedRaw = tryExtractJson(repairedText);
           if (repairedRaw) {
             normalized = normalizeWazenVisionResponse(repairedRaw);
-            if (useVisionV2) normalized = enhanceWazenVisionV2(normalized, userClarifier);
+            if (useVisionV2) {
+              normalized = enforceWazenVisionV2StrictGate(enhanceWazenVisionV2(normalized, userClarifier), userClarifier);
+            }
           }
         } catch (e: any) {
           logger.warn('analyzeFood schema-repair failed', {
@@ -4503,7 +4865,11 @@ export const analyzeFood = onRequest(
         apiKey: geminiKey,
         systemInstruction,
       });
-      res.status(200).json(stripUndefinedDeep(useVisionV2 ? enhanceWazenVisionV2(repaired, userClarifier) : repaired));
+      let finalVisionOut = useVisionV2 ? enhanceWazenVisionV2(repaired, userClarifier) : repaired;
+      if (useVisionV2) {
+        finalVisionOut = enforceWazenVisionV2StrictGate(finalVisionOut, userClarifier);
+      }
+      res.status(200).json(stripUndefinedDeep(finalVisionOut));
     } catch (err: any) {
       const status = Number(err?.status ?? 0);
       const msg = String(err?.message ?? "internal");

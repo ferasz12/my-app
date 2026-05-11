@@ -2799,16 +2799,179 @@ if (mounted) Navigator.pop(context);
   
   void _bumpTodayPoints(int delta) { if (!mounted) return; setState(() { todayPoints = (todayPoints + delta); }); }
 // ===== ستريك الدخول اليومي =====
+  static const int _kStreakRetentionBaseId = 22310;
+  static const int _kStreakRetentionCount = 4;
+
+  String _ymd(DateTime date) => date.toIso8601String().split('T').first;
+
+  DateTime? _parseYmdDate(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final parsed = DateTime.tryParse(value.trim());
+    if (parsed == null) return null;
+    return DateUtils.dateOnly(parsed);
+  }
+
+  String _streakDateLabel(String? ymd) {
+    final raw = ymd?.trim();
+    final d = _parseYmdDate(raw);
+    if (d == null) return 'لم يبدأ بعد';
+
+    final today = DateUtils.dateOnly(DateTime.now());
+    final diff = today.difference(d).inDays;
+    if (diff == 0) return 'اليوم';
+    if (diff == 1) return 'أمس';
+    if (diff == 2) return 'قبل يومين';
+    return raw ?? 'لم يبدأ بعد';
+  }
+
+  String _streakLevelName(int count) {
+    if (count >= 100) return 'أسطوري';
+    if (count >= 60) return 'نخبة وازن';
+    if (count >= 30) return 'ثابت جدًا';
+    if (count >= 14) return 'ملتزم';
+    if (count >= 7) return 'منطلق';
+    if (count >= 3) return 'بداية قوية';
+    return 'ابدأ بقوة';
+  }
+
+  int _nextStreakMilestone(int count) {
+    const milestones = [3, 7, 14, 30, 60, 100];
+    for (final m in milestones) {
+      if (count < m) return m;
+    }
+    return (((count ~/ 50) + 1) * 50);
+  }
+
+  Future<void> _cancelStreakRetentionReminders() async {
+    try {
+      for (var i = 0; i < _kStreakRetentionCount; i++) {
+        await FastingNotifications.instance.cancel(_kStreakRetentionBaseId + i);
+      }
+    } catch (_) {}
+  }
+
+  String _streakRetentionBody({required int count, required int dayOffset}) {
+    final safeCount = count < 1 ? 1 : count;
+    switch (dayOffset) {
+      case 2:
+        return 'غبت يوم تقريبًا. افتح وازن دقيقة وسجّل يومك عشان ترجع للمسار.';
+      case 3:
+        return 'لا تطول الغيبة، رجوعك اليوم أسهل من البداية من الصفر. ستريكك كان $safeCount يوم.';
+      case 5:
+        return 'وازن ينتظرك. افتح التطبيق وشوف هدفك اليومي وخذ خطوة بسيطة.';
+      default:
+        return 'مرّت فترة بدون دخول. ابدأ من جديد اليوم، أهم شيء الاستمرارية.';
+    }
+  }
+
   Future<void> _scheduleNextStreakWarning(int count) async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final allEnabled = prefs.getBool(AppNotifications.kAll) ?? true;
+
+      await _cancelStreakRetentionReminders();
+      if (!allEnabled) {
+        await AppNotifications.instance.cancelStreakWarning();
+        return;
+      }
+
       await AppNotifications.instance.scheduleStreakWarningForTomorrow(
         streakCount: count,
         hour: 21,
         minute: 0,
       );
+
+      final now = DateTime.now();
+      final reminders = <({int days, int hour, String title})>[
+        (days: 2, hour: 12, title: 'لا تطول الغيبة عن وازن 🔥'),
+        (days: 3, hour: 18, title: 'رجّع رتمك اليوم 💪'),
+        (days: 5, hour: 19, title: 'خطوة صغيرة تكفي اليوم'),
+        (days: 7, hour: 20, title: 'وازن مشتاق لالتزامك'),
+      ];
+
+      for (var i = 0; i < reminders.length; i++) {
+        final r = reminders[i];
+        final at = DateTime(now.year, now.month, now.day + r.days, r.hour);
+        await FastingNotifications.instance.scheduleOnce(
+          id: _kStreakRetentionBaseId + i,
+          title: r.title,
+          body: _streakRetentionBody(count: count, dayOffset: r.days),
+          at: at,
+          androidChannelId: 'wazen_streak_retention_v1',
+          androidChannelName: 'Streak reminders',
+          androidChannelDescription: 'تذكيرات الرجوع لوازن عند الغياب',
+        );
+      }
     } catch (e) {
       debugPrint('[HomeScreen] schedule streak warning failed: $e');
     }
+  }
+
+  Future<void> _recordStreakHistory({
+    required SharedPreferences prefs,
+    required String email,
+    required String ymd,
+    required int count,
+    required bool broken,
+    required int missedDays,
+  }) async {
+    final key = 'streak_history_$email';
+    List<Map<String, dynamic>> history = [];
+    try {
+      final raw = prefs.getString(key);
+      final decoded = raw == null ? null : json.decode(raw);
+      if (decoded is List) {
+        history = decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    } catch (_) {}
+
+    history.removeWhere((e) => e['date']?.toString() == ymd);
+    history.insert(0, {
+      'date': ymd,
+      'count': count,
+      'broken': broken,
+      'missedDays': missedDays,
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+
+    if (history.length > 21) {
+      history = history.take(21).toList();
+    }
+    await prefs.setString(key, json.encode(history));
+  }
+
+  Future<List<Map<String, dynamic>>> _loadStreakHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ??
+        FirebaseAuth.instance.currentUser?.email ??
+        'local';
+    final key = 'streak_history_$email';
+    try {
+      final raw = prefs.getString(key);
+      final decoded = raw == null ? null : json.decode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .take(7)
+            .toList();
+      }
+    } catch (_) {}
+
+    final last = prefs.getString('streak_lastDate_$email');
+    final count = prefs.getInt('streak_count_$email') ?? _streakCount;
+    if (last == null) return [];
+    return [
+      {
+        'date': last,
+        'count': count,
+        'broken': false,
+        'missedDays': 0,
+      }
+    ];
   }
 
   Future<void> _checkAndUpdateDailyStreak({bool showSnack = true}) async {
@@ -2817,35 +2980,41 @@ if (mounted) Navigator.pop(context);
       final email = prefs.getString('currentEmail') ??
           FirebaseAuth.instance.currentUser?.email ??
           'local';
-      final today = DateTime.now();
-      final ymd = today.toIso8601String().split('T').first;
+      final today = DateUtils.dateOnly(DateTime.now());
+      final ymd = _ymd(today);
 
-      final lastKey = 'streak_lastDate_' + email;
-      final countKey = 'streak_count_' + email;
+      final lastKey = 'streak_lastDate_$email';
+      final countKey = 'streak_count_$email';
 
       final last = prefs.getString(lastKey);
       int count = prefs.getInt(countKey) ?? 0;
+      var missedDays = 0;
+      var wasBroken = false;
 
       if (last == ymd) {
-        // نفس اليوم، لا شيء — فقط نضمن أن تذكير بكرة مجدول.
-        if (mounted && _streakCount != count) setState(() => _streakCount = count);
+        if (mounted) {
+          setState(() {
+            _streakLastDate = ymd;
+            _streakCount = count;
+          });
+        }
         await _scheduleNextStreakWarning(count);
         return;
       }
 
       if (last == null) {
-        // أول تسجيل
         count = 1;
       } else {
-        final lastDate = DateTime.tryParse(last);
+        final lastDate = _parseYmdDate(last);
         if (lastDate == null) {
           count = 1;
         } else {
-          final diff = today.difference(DateUtils.dateOnly(lastDate)).inDays;
+          final diff = today.difference(lastDate).inDays;
           if (diff == 1) {
-            count = (count + 1);
+            count = count + 1;
           } else if (diff >= 2) {
-            // فات يوم أو أكثر -> نعيد من جديد
+            missedDays = diff - 1;
+            wasBroken = count > 0;
             count = 1;
           }
         }
@@ -2853,8 +3022,14 @@ if (mounted) Navigator.pop(context);
 
       await prefs.setString(lastKey, ymd);
       await prefs.setInt(countKey, count);
-
-      // نلغي تذكير أمس ونجدول تذكير بكرة آخر اليوم.
+      await _recordStreakHistory(
+        prefs: prefs,
+        email: email,
+        ymd: ymd,
+        count: count,
+        broken: wasBroken,
+        missedDays: missedDays,
+      );
       await _scheduleNextStreakWarning(count);
 
       if (mounted) {
@@ -2864,44 +3039,371 @@ if (mounted) Navigator.pop(context);
         });
       }
 
-      // منح نقاط يومية بسبب الستريك (+2 نقطة) مرة واحدة لليوم
       final meta = {'source': 'daily_streak', 'streak': count};
-      await _awardOnce(eventKey: 'daily_streak', points: 2, dedupeKey: ymd, meta: meta, showUI: false);
-if (mounted) _bumpTodayPoints(2);
-if (mounted && showSnack) {
+      await _awardOnce(
+        eventKey: 'daily_streak',
+        points: 2,
+        dedupeKey: ymd,
+        meta: meta,
+        showUI: false,
+      );
+      if (mounted) _bumpTodayPoints(2);
+
+      if (mounted && showSnack) {
+        final message = wasBroken
+            ? 'رجعت لوازن! بدأنا ستريك جديد بعد غياب $missedDays يوم 🔥'
+            : 'كسبت نقاط بسبب الستريك اليومي! 🔥';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               mainAxisAlignment: MainAxisAlignment.start,
-              children: const [
-                Icon(Icons.local_fire_department),
-                SizedBox(width: 8),
-                Expanded(child: Text('كسبت نقاط بسبب الستريك اليومي! 🔥')),
+              children: [
+                const Icon(Icons.local_fire_department),
+                const SizedBox(width: 8),
+                Expanded(child: Text(message)),
               ],
             ),
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[HomeScreen] streak update failed: $e');
+    }
+  }
+
+  Widget _streakInfoTile({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(.25),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: cs.outlineVariant.withOpacity(.75)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: cs.primary, size: 20),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11.5, color: cs.onSurfaceVariant),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _streakBenefit(String text, IconData icon) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: cs.primary.withOpacity(.10),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 16, color: cs.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontWeight: FontWeight.w700, height: 1.25),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _streakHistoryTile(Map<String, dynamic> item) {
+    final cs = Theme.of(context).colorScheme;
+    final date = item['date']?.toString() ?? '';
+    final count = (item['count'] is num) ? (item['count'] as num).toInt() : 0;
+    final broken = item['broken'] == true;
+    final missed = (item['missedDays'] is num) ? (item['missedDays'] as num).toInt() : 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: broken ? Colors.orange.withOpacity(.08) : cs.surfaceVariant.withOpacity(.18),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: broken ? Colors.orange.withOpacity(.35) : cs.outlineVariant,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            broken ? Icons.restart_alt_rounded : Icons.local_fire_department,
+            color: broken ? Colors.orange.shade700 : cs.primary,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  broken ? 'بداية جديدة' : 'تم تسجيل يوم الستريك',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  broken && missed > 0
+                      ? '$date • غياب $missed يوم • الستريك الآن $count'
+                      : '$date • الستريك $count يوم',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showStreakSheet() {
+    final cs = Theme.of(context).colorScheme;
+    final count = _streakCount;
+    final next = _nextStreakMilestone(count);
+    final remaining = (next - count).clamp(0, 9999);
+
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetContext).size.height * .86,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          cs.primary.withOpacity(.18),
+                          cs.secondaryContainer.withOpacity(.30),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: cs.primary.withOpacity(.16)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: cs.primary.withOpacity(.25),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.local_fire_department,
+                            color: Colors.white,
+                            size: 30,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ستريك وازن الخاص بك',
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                count > 0
+                                    ? '$count يوم مستمر • ${_streakLevelName(count)}'
+                                    : 'ابدأ اليوم وخلك مستمر',
+                                style: TextStyle(
+                                  color: cs.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _streakInfoTile(
+                        icon: Icons.calendar_today_rounded,
+                        title: 'آخر دخول',
+                        value: _streakDateLabel(_streakLastDate),
+                      ),
+                      const SizedBox(width: 10),
+                      _streakInfoTile(
+                        icon: Icons.flag_rounded,
+                        title: 'الهدف القادم',
+                        value: remaining == 0 ? 'تم' : '$remaining يوم',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cs.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: cs.outlineVariant),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'فوائد الستريك',
+                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                        ),
+                        const SizedBox(height: 10),
+                        _streakBenefit('يعطيك +2 نقطة يوميًا عند دخولك لوازن.', Icons.stars_rounded),
+                        _streakBenefit('يرسلك تذكير قبل نهاية اليوم حتى لا يضيع عليك التسلسل.', Icons.notifications_active_rounded),
+                        _streakBenefit('إذا غبت أكثر من يوم، توصلك تذكيرات رجوع خلال الأسبوع.', Icons.replay_circle_filled_rounded),
+                        _streakBenefit('يساعدك تثبت عادة المتابعة اليومية للأكل والوزن والماء.', Icons.timeline_rounded),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _loadStreakHistory(),
+                    builder: (context, snap) {
+                      final history = snap.data ?? const <Map<String, dynamic>>[];
+                      if (history.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: cs.surface,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: cs.outlineVariant),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'سجل الستريك',
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                            ),
+                            const SizedBox(height: 10),
+                            ...history.map(_streakHistoryTile),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                          label: const Text('إغلاق'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const AchievementsPage()),
+                            );
+                          },
+                          icon: const Icon(Icons.emoji_events_rounded),
+                          label: const Text('الإنجازات'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildStreakPill() {
     final theme = Theme.of(context);
     final int c = _streakCount;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondaryContainer.withOpacity(0.5),
+    return Tooltip(
+      message: 'تفاصيل الستريك',
+      child: InkWell(
         borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.local_fire_department, size: 18),
-          const SizedBox(width: 4),
-          Text('$c'),
-        ],
+        onTap: _showStreakSheet,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.secondaryContainer.withOpacity(0.5),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: theme.colorScheme.primary.withOpacity(.10),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.local_fire_department, size: 18),
+              const SizedBox(width: 4),
+              Text(
+                '$c',
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
