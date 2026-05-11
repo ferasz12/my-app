@@ -15,13 +15,20 @@ import '../../settings/contact_page.dart';
 /// - تعرض الاسم/اليوزر/الإيميل/الصورة/النقاط/الدور/الحظر
 /// - أوامر: تغيير الدور، حظر/فكّ الحظر، تعليق/إلغاء تعليق نشر الوصفات،
  ///          زيادة/إنقاص/تعيين النقاط، إرسال إشعار
-class AdminSupportDashboardPage extends StatelessWidget {
+class AdminSupportDashboardPage extends StatefulWidget {
   const AdminSupportDashboardPage({super.key});
+
+  @override
+  State<AdminSupportDashboardPage> createState() => _AdminSupportDashboardPageState();
+}
+
+class _AdminSupportDashboardPageState extends State<AdminSupportDashboardPage> {
+  late final Future<AppRole> _roleFuture = RolesService().currentUserRoleOnce();
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<AppRole>(
-      future: RolesService().currentUserRoleOnce(),
+      future: _roleFuture,
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -372,7 +379,7 @@ class _UsersTabState extends State<_UsersTab> {
         // ===== قائمة المستخدمين =====
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _db.collection('users').limit(400).snapshots(),
+            stream: _db.collection('users').limit(120).snapshots(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -659,22 +666,26 @@ class _GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: cs.surface.withOpacity(0.55),
-            borderRadius: borderRadius,
-            border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
+
+    // BackdropFilter داخل كل كرت في قائمة طويلة يستهلك GPU/RAM كثير،
+    // وكان ممكن يسبب تهنيق أو كراش في لوحة الإدارة.
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(0.82),
+        borderRadius: borderRadius,
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: child,
-          ),
-        ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: child,
       ),
     );
   }

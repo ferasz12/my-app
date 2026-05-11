@@ -39,15 +39,13 @@ class FoodCameraScreen extends StatelessWidget {
   }
 }
 
-/// كاميرا تحليل الطعام.
+/// كاميرا وازن لتحليل الطعام.
 ///
-/// التعديل هنا يعالج مشكلة الصفحة السوداء:
-/// - لا نعرض شاشة سوداء صامتة أثناء التهيئة.
-/// - أزلنا imageFormatGroup من CameraController لأنه سبب مشاكل معاينة على بعض أجهزة iOS.
-/// - أضفنا timeout للتهيئة حتى لا يعلق المستخدم.
-/// - أضفنا زر فلاش اختياري داخل الواجهة، ويكون مطفأ افتراضيًا.
-/// - الفلاش لا يعمل كإضاءة مستمرة؛ يتم استخدامه فقط عند الالتقاط إذا فعّله المستخدم.
-/// - عند فشل المعاينة نفتح كاميرا النظام كخطة بديلة، وهي فيها زر الفلاش الأصلي.
+/// التعديل هنا يجعل الصفحة تفتح كاميرا واحدة فقط داخل التطبيق:
+/// - لا تفتح كاميرا النظام تلقائيًا ولا يوجد زر كاميرا نظام.
+/// - يوجد زر معلومات يشرح طريقة التصوير الصحيحة.
+/// - يوجد زر اختيار من المعرض بجانب المعلومات.
+/// - عند اختيار صورة أو التقاطها يتم إغلاق الكاميرا قبل الانتقال للتحليل لتخفيف الذاكرة.
 class _FoodCameraInner extends StatefulWidget {
   const _FoodCameraInner({super.key});
 
@@ -66,7 +64,6 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
   bool _cameraInitFailed = false;
   bool _isDisposingCamera = false;
   bool _flashOn = false;
-  bool _autoFallbackTried = false;
 
   String? _initError;
   int _cameraInitToken = 0;
@@ -77,7 +74,7 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _initCamera(force: true, openFallbackIfFailed: true);
+      _initCamera(force: true);
     });
   }
 
@@ -93,16 +90,13 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
     try {
       await oldController.dispose();
     } catch (e) {
-      debugPrint('[FoodCamera] dispose skipped: $e');
+      debugPrint('[WazenCamera] dispose skipped: $e');
     } finally {
       _isDisposingCamera = false;
     }
   }
 
-  Future<void> _initCamera({
-    bool force = false,
-    bool openFallbackIfFailed = false,
-  }) async {
+  Future<void> _initCamera({bool force = false}) async {
     final token = ++_cameraInitToken;
 
     if (!mounted || _isDisposingCamera) return;
@@ -165,7 +159,7 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
       try {
         await controller.setFlashMode(FlashMode.off);
       } catch (e) {
-        debugPrint('[FoodCamera] flash off skipped: $e');
+        debugPrint('[WazenCamera] flash off skipped: $e');
       }
 
       if (!mounted || token != _cameraInitToken) return;
@@ -176,7 +170,7 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
         _initError = null;
       });
     } catch (e) {
-      debugPrint('[FoodCamera] init failed: $e');
+      debugPrint('[WazenCamera] init failed: $e');
       await _disposeCamera();
       if (!mounted || token != _cameraInitToken) return;
 
@@ -186,13 +180,6 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
         _initError = _friendlyCameraError(e);
         _flashOn = false;
       });
-
-      // لا نترك المستخدم على شاشة سوداء. افتح كاميرا النظام مرة واحدة تلقائيًا.
-      if (openFallbackIfFailed && !_autoFallbackTried && mounted) {
-        _autoFallbackTried = true;
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-        if (mounted) await _openSystemCameraFallback(restartPreviewOnCancel: false);
-      }
     }
   }
 
@@ -202,9 +189,9 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
       return 'صلاحية الكاميرا غير مفعّلة. فعّلها من إعدادات الجهاز ثم جرّب مرة ثانية.';
     }
     if (text.contains('timeout')) {
-      return 'تهيئة الكاميرا أخذت وقت طويل. جرّب فتح كاميرا النظام أو أعد المحاولة.';
+      return 'تشغيل كاميرا وازن أخذ وقت أطول من المعتاد. أعد المحاولة أو اختر صورة من المعرض.';
     }
-    return 'تعذّر تشغيل معاينة الكاميرا. جرّب كاميرا النظام أو أعد المحاولة.';
+    return 'تعذّر تشغيل كاميرا وازن. أعد المحاولة أو اختر صورة من المعرض.';
   }
 
   @override
@@ -213,12 +200,12 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.hidden) {
-      _disposeCamera();
+      unawaited(_disposeCamera());
       return;
     }
 
     if (state == AppLifecycleState.resumed) {
-      _initCamera(force: true, openFallbackIfFailed: false);
+      unawaited(_initCamera(force: true));
     }
   }
 
@@ -257,20 +244,18 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('انتظر تشغيل الكاميرا أولًا')),
+        const SnackBar(content: Text('انتظر تشغيل كاميرا وازن أولًا')),
       );
       return;
     }
 
     final next = !_flashOn;
     try {
-      // FlashMode.always يفعّل فلاش لحظة الالتقاط فقط.
-      // لا نستخدم FlashMode.torch حتى لا يكون الفلاش شغالًا طوال الوقت.
       await controller.setFlashMode(next ? FlashMode.always : FlashMode.off);
       if (!mounted) return;
       setState(() => _flashOn = next);
     } catch (e) {
-      debugPrint('[FoodCamera] flash toggle failed: $e');
+      debugPrint('[WazenCamera] flash toggle failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('الفلاش غير مدعوم في هذه الكاميرا')),
@@ -287,66 +272,35 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
       final controller = _controller;
       final initFuture = _initFuture;
 
-      if (!_cameraInitFailed && controller != null && initFuture != null) {
-        await initFuture;
-
-        if (!mounted) return;
-
-        if (controller.value.isInitialized && !controller.value.isTakingPicture) {
-          final shot = await controller.takePicture();
-          await _goToAnalysis(shot);
-          return;
-        }
+      if (controller == null || initFuture == null) {
+        throw Exception('كاميرا وازن غير جاهزة');
       }
 
-      await _openSystemCameraFallback();
+      await initFuture;
+      if (!mounted) return;
+
+      if (!controller.value.isInitialized) {
+        throw Exception('كاميرا وازن غير جاهزة');
+      }
+
+      if (controller.value.isTakingPicture) return;
+
+      final shot = await controller.takePicture();
+      await _goToAnalysis(shot);
     } catch (e) {
-      debugPrint('[FoodCamera] take photo failed: $e');
+      debugPrint('[WazenCamera] take photo failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذّر الالتقاط: $e')),
+        SnackBar(content: Text('تعذّر الالتقاط: ${_cleanError(e)}')),
       );
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
   }
 
-  Future<void> _openSystemCameraFallback({
-    bool restartPreviewOnCancel = true,
-  }) async {
-    final wasBusy = _isBusy;
-    if (!wasBusy && mounted) {
-      setState(() => _isBusy = true);
-    }
-
-    try {
-      await _disposeCamera();
-      if (!mounted) return;
-
-      final x = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        imageQuality: 100,
-      );
-
-      if (x != null) {
-        await _goToAnalysis(x);
-      } else if (mounted && restartPreviewOnCancel) {
-        await _initCamera(force: true, openFallbackIfFailed: false);
-      }
-    } catch (e) {
-      debugPrint('[FoodCamera] system camera fallback failed: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذّر فتح كاميرا النظام: $e')),
-      );
-      if (restartPreviewOnCancel) {
-        await _initCamera(force: true, openFallbackIfFailed: false);
-      }
-    } finally {
-      if (!wasBusy && mounted) {
-        setState(() => _isBusy = false);
-      }
-    }
+  String _cleanError(Object e) {
+    final raw = e.toString();
+    return raw.replaceFirst('Exception: ', '').trim();
   }
 
   Future<void> _pickFromGallery() async {
@@ -355,24 +309,125 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
     setState(() => _isBusy = true);
 
     try {
+      await _disposeCamera();
+      if (!mounted) return;
+
       final x = await ImagePicker().pickImage(
         source: ImageSource.gallery,
-        imageQuality: 100,
+        imageQuality: 85,
+        maxWidth: 1600,
+        maxHeight: 1600,
       );
+
       if (x != null) {
         await _goToAnalysis(x);
       } else if (mounted) {
-        await _initCamera(force: true, openFallbackIfFailed: false);
+        await _initCamera(force: true);
       }
     } catch (e) {
-      debugPrint('[FoodCamera] gallery failed: $e');
+      debugPrint('[WazenCamera] gallery failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذّر اختيار الصورة: $e')),
+        SnackBar(content: Text('تعذّر اختيار الصورة: ${_cleanError(e)}')),
       );
+      await _initCamera(force: true);
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
+  }
+
+  void _showShootingTipsSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(.10),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(
+                          Icons.info_outline_rounded,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'كيف تصور عشان تطلع أدق نتيجة؟',
+                          style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const _CameraTipTile(
+                    icon: Icons.crop_free_rounded,
+                    title: 'خل الوجبة كاملة داخل الإطار',
+                    body: 'لا تقص أطراف الطبق أو الكوب لأن الكمية تتأثر.',
+                  ),
+                  const _CameraTipTile(
+                    icon: Icons.wb_sunny_outlined,
+                    title: 'استخدم إضاءة واضحة',
+                    body: 'ابتعد عن الظل القوي أو التصوير المظلم.',
+                  ),
+                  const _CameraTipTile(
+                    icon: Icons.zoom_out_map_rounded,
+                    title: 'لا تقرّب زيادة عن اللزوم',
+                    body: 'صوّر من فوق أو بزاوية بسيطة بحيث يظهر حجم الوجبة.',
+                  ),
+                  const _CameraTipTile(
+                    icon: Icons.storefront_rounded,
+                    title: 'للمطاعم: وضّح الشعار أو اسم الطلب',
+                    body: 'إذا فيه كيس/علبة/فاتورة أو شعار، خله ظاهر عشان نعرف المطعم.',
+                  ),
+                  const _CameraTipTile(
+                    icon: Icons.edit_note_rounded,
+                    title: 'اكتب توضيح بعد الصورة عند الحاجة',
+                    body: 'مثل: بيج ماك، بطاطس وسط، كولا دايت، أو 150 جم دجاج.',
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: const Text(
+                      'فهمت',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -384,31 +439,29 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
         appBar: AppBar(
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
-          title: const Text('صوّر الطعام'),
+          title: const Text(
+            'كاميرا وازن',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
           centerTitle: true,
           actions: [
             IconButton(
-              onPressed: _isBusy ? null : _toggleFlash,
-              icon: Icon(_flashOn ? Icons.flash_on_rounded : Icons.flash_off_rounded),
-              tooltip: _flashOn ? 'التصوير بدون فلاش' : 'التصوير بفلاش',
+              onPressed: _isBusy ? null : _showShootingTipsSheet,
+              icon: const Icon(Icons.info_outline_rounded),
+              tooltip: 'تعليمات التصوير',
             ),
             IconButton(
-              onPressed: _isBusy
-                  ? null
-                  : () {
-                      _autoFallbackTried = false;
-                      _initCamera(force: true, openFallbackIfFailed: false);
-                    },
-              icon: const Icon(Icons.refresh_rounded),
-              tooltip: 'إعادة تشغيل الكاميرا',
+              onPressed: _isBusy ? null : _pickFromGallery,
+              icon: const Icon(Icons.photo_library_outlined),
+              tooltip: 'اختيار من المعرض',
             ),
           ],
         ),
         body: Stack(
           children: [
             Positioned.fill(child: _buildPreview()),
-            const _SquareOverlay(),
-            _buildTopActions(),
+            const _WazenCameraOverlay(),
+            _buildTopGuideBar(),
             _buildBottomCaptureButton(),
             if (_isBusy) _buildBusyLayer(),
           ],
@@ -417,7 +470,7 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
     );
   }
 
-  Widget _buildTopActions() {
+  Widget _buildTopGuideBar() {
     return SafeArea(
       child: Align(
         alignment: Alignment.topCenter,
@@ -426,36 +479,18 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
           child: Row(
             children: [
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _isBusy ? null : _pickFromGallery,
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('المعرض'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white.withOpacity(0.16),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
+                child: _GlassActionButton(
+                  icon: Icons.info_outline_rounded,
+                  label: 'طريقة التصوير',
+                  onTap: _isBusy ? null : _showShootingTipsSheet,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _isBusy ? null : () => _openSystemCameraFallback(),
-                  icon: const Icon(Icons.camera_alt_outlined),
-                  label: const Text('كاميرا النظام'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white.withOpacity(0.16),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
+                child: _GlassActionButton(
+                  icon: Icons.photo_library_outlined,
+                  label: 'اختيار من المعرض',
+                  onTap: _isBusy ? null : _pickFromGallery,
                 ),
               ),
             ],
@@ -470,42 +505,68 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
       child: Align(
         alignment: Alignment.bottomCenter,
         child: Padding(
-          padding: const EdgeInsets.only(bottom: 24),
+          padding: const EdgeInsets.only(left: 18, right: 18, bottom: 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              GestureDetector(
-                onTap: _isBusy ? null : _takePhoto,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 180),
-                  opacity: _isBusy ? 0.45 : 1,
-                  child: Container(
-                    width: 82,
-                    height: 82,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 4),
-                      color: Colors.black.withOpacity(0.08),
-                    ),
-                    child: Center(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _RoundToolButton(
+                    icon: _flashOn
+                        ? Icons.flash_on_rounded
+                        : Icons.flash_off_rounded,
+                    label: _flashOn ? 'فلاش' : 'بدون فلاش',
+                    onTap: _isBusy ? null : _toggleFlash,
+                  ),
+                  const SizedBox(width: 22),
+                  GestureDetector(
+                    onTap: _isBusy ? null : _takePhoto,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 180),
+                      opacity: _isBusy ? 0.45 : 1,
                       child: Container(
-                        width: 60,
-                        height: 60,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
+                        width: 88,
+                        height: 88,
+                        decoration: BoxDecoration(
                           shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 4),
+                          color: Colors.white.withOpacity(0.10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(.30),
+                              blurRadius: 24,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 64,
+                            height: 64,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 22),
+                  _RoundToolButton(
+                    icon: Icons.refresh_rounded,
+                    label: 'تحديث',
+                    onTap: _isBusy ? null : () => _initCamera(force: true),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Text(
-                _flashOn ? 'الفلاش مفعّل عند الالتقاط' : 'بدون فلاش - اضغط زر الفلاش عند الحاجة',
+                'صوّر الوجبة كاملة وبوضوح',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.82),
-                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withOpacity(0.88),
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
@@ -518,13 +579,14 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
   Widget _buildBusyLayer() {
     return Positioned.fill(
       child: ColoredBox(
-        color: const Color(0x55000000),
+        color: const Color(0x66000000),
         child: Center(
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.72),
-              borderRadius: BorderRadius.circular(16),
+              color: Colors.black.withOpacity(0.74),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white.withOpacity(.10)),
             ),
             child: const Row(
               mainAxisSize: MainAxisSize.min,
@@ -532,12 +594,18 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
                 SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 ),
                 SizedBox(width: 12),
                 Text(
-                  'جاري فتح الكاميرا...',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                  'جاري تجهيز كاميرا وازن...',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -557,12 +625,9 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
 
     if (_cameraInitFailed || controller == null || initFuture == null) {
       return _CameraErrorView(
-        message: _initError ?? 'تعذّر تشغيل الكاميرا.',
-        onRetry: () {
-          _autoFallbackTried = false;
-          _initCamera(force: true, openFallbackIfFailed: true);
-        },
-        onSystemCamera: () => _openSystemCameraFallback(),
+        message: _initError ?? 'تعذّر تشغيل كاميرا وازن.',
+        onRetry: () => _initCamera(force: true),
+        onGallery: _pickFromGallery,
       );
     }
 
@@ -575,9 +640,9 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
 
         if (snap.hasError || !controller.value.isInitialized) {
           return _CameraErrorView(
-            message: 'تعذّر تشغيل المعاينة. جرّب كاميرا النظام.',
-            onRetry: () => _initCamera(force: true, openFallbackIfFailed: true),
-            onSystemCamera: () => _openSystemCameraFallback(),
+            message: 'تعذّر تشغيل المعاينة. أعد المحاولة أو اختر صورة من المعرض.',
+            onRetry: () => _initCamera(force: true),
+            onGallery: _pickFromGallery,
           );
         }
 
@@ -634,11 +699,11 @@ class _CameraLoadingView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(),
+            CircularProgressIndicator(color: Colors.white),
             SizedBox(height: 14),
             Text(
-              'جاري تشغيل الكاميرا...',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              'جاري تشغيل كاميرا وازن...',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
             ),
           ],
         ),
@@ -651,52 +716,135 @@ class _CameraErrorView extends StatelessWidget {
   const _CameraErrorView({
     required this.message,
     required this.onRetry,
-    required this.onSystemCamera,
+    required this.onGallery,
   });
 
   final String message;
   final VoidCallback onRetry;
-  final VoidCallback onSystemCamera;
+  final VoidCallback onGallery;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: Colors.black,
       padding: const EdgeInsets.all(22),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white.withOpacity(0.16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 44),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
+      child: SafeArea(
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.10),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withOpacity(.14)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.camera_alt_outlined,
                   color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
+                  size: 42,
                 ),
-              ),
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                onPressed: onSystemCamera,
-                icon: const Icon(Icons.camera_alt_rounded),
-                label: const Text('فتح الكاميرا الآن'),
-              ),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('إعادة المحاولة'),
-                style: TextButton.styleFrom(foregroundColor: Colors.white),
+                const SizedBox(height: 12),
+                Text(
+                  'كاميرا وازن غير جاهزة',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(.82),
+                    height: 1.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onGallery,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: BorderSide(color: Colors.white.withOpacity(.35)),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: const Text('اختيار من المعرض'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: onRetry,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: const Text('إعادة المحاولة'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassActionButton extends StatelessWidget {
+  const _GlassActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white.withOpacity(.14),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withOpacity(.16)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
             ],
           ),
@@ -706,9 +854,97 @@ class _CameraErrorView extends StatelessWidget {
   }
 }
 
+class _RoundToolButton extends StatelessWidget {
+  const _RoundToolButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white.withOpacity(.12),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: 56,
+          height: 56,
+          child: Icon(icon, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+class _CameraTipTile extends StatelessWidget {
+  const _CameraTipTile({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(.20),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: cs.primary.withOpacity(.10),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: cs.primary, size: 20),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  body,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// طبقة شفافة مع نافذة مربعة في الوسط + تلميح.
-class _SquareOverlay extends StatelessWidget {
-  const _SquareOverlay();
+class _WazenCameraOverlay extends StatelessWidget {
+  const _WazenCameraOverlay();
 
   @override
   Widget build(BuildContext context) {
@@ -717,7 +953,7 @@ class _SquareOverlay extends StatelessWidget {
         builder: (context, c) {
           final w = c.maxWidth;
           final h = c.maxHeight;
-          final size = (w * 0.8).clamp(220.0, h * 0.58).toDouble();
+          final size = (w * 0.82).clamp(230.0, h * 0.58).toDouble();
           final left = (w - size) / 2;
           final top = (h - size) / 2;
 
@@ -731,22 +967,41 @@ class _SquareOverlay extends StatelessWidget {
                 height: size,
                 child: Container(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white, width: 2.2),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.white, width: 2.4),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(.22),
+                        blurRadius: 24,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
                   ),
                 ),
               ),
               Positioned(
                 bottom: h * 0.18,
-                left: 0,
-                right: 0,
-                child: const Center(
-                  child: Text(
-                    'ضع الطعام داخل الإطار',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
+                left: 18,
+                right: 18,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.40),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Colors.white.withOpacity(.14)),
+                    ),
+                    child: const Text(
+                      'ضع الطعام داخل الإطار بوضوح',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ),

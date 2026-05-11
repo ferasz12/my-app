@@ -164,23 +164,39 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
-  /// نجهّز الشاشات مرة وحدة.
-  /// ملاحظة: أبقينا AchievementsPage بدون const (قد لا يكون لها constructor const).
-  late final List<Widget> _screens = <Widget>[
-    const HomeScreen(key: PageStorageKey('home')),
-    const MyDataPage(key: PageStorageKey('mydata')),
-    const WeightTrackingPage(key: PageStorageKey('weight')),
-    const PremiumGate(
-      feature: PremiumFeature.regimen,
-      child: const RegimenScreen(key: PageStorageKey('regimen')),
-    ),
-    const PremiumGate(
-      feature: PremiumFeature.virtualClubGuide,
-      child: const GuidePage(key: PageStorageKey('guide')),
-    ),
-    AchievementsPage(key: const PageStorageKey('achievements')),
-    const SettingsPage(key: PageStorageKey('settings')),
-  ];
+  // مهم للأداء: لا نستخدم IndexedStack هنا.
+  // IndexedStack كان يبقي كل التبويبات شغالة في الخلفية: Streams/Timers/صور/Firestore
+  // وهذا يسبب تهنيق أو كراش بعد التنقل بين صفحات كثيرة.
+  // الآن نبني الصفحة النشطة فقط، وأي صفحة تتركها يتم التخلص منها وإيقاف اشتراكاتها.
+  final PageStorageBucket _pageStorageBucket = PageStorageBucket();
+  bool _switchLocked = false;
+
+  Widget _buildScreen(int index) {
+    switch (index) {
+      case 0:
+        return const HomeScreen(key: PageStorageKey('home'));
+      case 1:
+        return const MyDataPage(key: PageStorageKey('mydata'));
+      case 2:
+        return const WeightTrackingPage(key: PageStorageKey('weight'));
+      case 3:
+        return const PremiumGate(
+          feature: PremiumFeature.regimen,
+          child: RegimenScreen(key: PageStorageKey('regimen')),
+        );
+      case 4:
+        return const PremiumGate(
+          feature: PremiumFeature.virtualClubGuide,
+          child: GuidePage(key: PageStorageKey('guide')),
+        );
+      case 5:
+        return AchievementsPage(key: const PageStorageKey('achievements'));
+      case 6:
+        return const SettingsPage(key: PageStorageKey('settings'));
+      default:
+        return const HomeScreen(key: PageStorageKey('home'));
+    }
+  }
 
   @override
   void initState() {
@@ -190,9 +206,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _onItemTapped(int index) {
-    if (index == _selectedIndex) return;
+    if (index == _selectedIndex || _switchLocked) return;
+    _switchLocked = true;
     HapticFeedback.selectionClick();
     setState(() => _selectedIndex = index);
+
+    // حماية من الضغط السريع المتكرر على أكثر من تبويب بنفس اللحظة.
+    Future<void>.delayed(const Duration(milliseconds: 280), () {
+      _switchLocked = false;
+    });
   }
 
   @override
@@ -206,8 +228,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           body: SafeArea(
             top: false,
             bottom: false,
-            // ✅ استخدام IndexedStack يمنع إعادة بناء/تفكيكツ
-            child: IndexedStack(index: _selectedIndex, children: _screens),
+            child: PageStorage(
+              bucket: _pageStorageBucket,
+              child: KeyedSubtree(
+                key: ValueKey<int>(_selectedIndex),
+                child: _buildScreen(_selectedIndex),
+              ),
+            ),
           ),
           bottomNavigationBar: _GlassAdaptiveNavBar(
             currentIndex: _selectedIndex,

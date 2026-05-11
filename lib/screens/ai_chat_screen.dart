@@ -28,6 +28,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
     final reply = await GeminiHelper.sendMessage(message: input);
 
+    if (!mounted) return;
     setState(() {
       messages.add({'role': 'bot', 'text': reply});
       isLoading = false;
@@ -48,6 +49,12 @@ class _AiChatScreenState extends State<AiChatScreen> {
         child: Text(text, style: const TextStyle(fontSize: 14)),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override

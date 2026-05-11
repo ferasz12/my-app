@@ -148,7 +148,11 @@ class ReportStore {
     if (targetType != null && targetType.isNotEmpty) {
       q = q.where('targetType', isEqualTo: targetType);
     }
-    return q.snapshots().map((snap) => snap.docs.map(PostReport.fromFirestore).toList());
+    // لا نفتح Stream على كل البلاغات بدون حد؛ هذا يحمي لوحة الإدارة من ثقل الشبكة والذاكرة.
+    return q
+        .limit(120)
+        .snapshots()
+        .map((snap) => snap.docs.map(PostReport.fromFirestore).toList());
   }
 
   /// قراءة كل البلاغات مرة واحدة (الأحدث أولاً)

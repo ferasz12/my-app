@@ -17,13 +17,15 @@ class OwnerPage extends StatefulWidget {
 }
 
 class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMixin {
+  final _db = FirebaseFirestore.instance;
+  final _roles = RolesService();
+
   late final TabController _tab = TabController(length: 3, vsync: this);
+  late final Future<AppRole> _roleFuture = _roles.currentUserRoleOnce();
   final _searchCtrl = TextEditingController();
   String _search = '';
   bool _savingRevenue = false;
 
-  final _db = FirebaseFirestore.instance;
-  final _roles = RolesService();
   final _currency = NumberFormat.currency(locale: 'ar', symbol: 'ر.س', decimalDigits: 2);
   final _intFmt = NumberFormat.decimalPattern('ar');
 
@@ -37,7 +39,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<AppRole>(
-      future: _roles.currentUserRoleOnce(),
+      future: _roleFuture,
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -86,7 +88,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
   }
 
   Widget _buildOverviewTab() {
-    final usersStream = _db.collection('users').snapshots();
+    final usersStream = _db.collection('users').limit(250).snapshots();
     final metricsStream = _db.collection('appConfig').doc('owner_metrics').snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -243,7 +245,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _db.collection('users').snapshots(),
+            stream: _db.collection('users').limit(250).snapshots(),
             builder: (context, snap) {
               if (!snap.hasData) {
                 return const Center(child: CircularProgressIndicator());

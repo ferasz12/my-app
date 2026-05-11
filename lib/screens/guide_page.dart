@@ -124,6 +124,21 @@ class _GuidePageState extends State<GuidePageInner> {
   bool _loading = true;
 
   StreamSubscription<AppRole>? _roleSub;
+  bool _routeOpening = false;
+
+  Future<void> _safePush(Widget page) async {
+    if (_routeOpening || !mounted) return;
+    _routeOpening = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => page),
+      );
+    } finally {
+      // نترك مهلة بسيطة حتى لا يضغط المستخدم مرتين ويفتح نفس الصفحة مرتين.
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      _routeOpening = false;
+    }
+  }
 
   @override
   void initState() {
@@ -191,31 +206,31 @@ class _GuidePageState extends State<GuidePageInner> {
         icon: Icons.restaurant,
         title: 'استكشف الوصفات',
         description: 'تصفّح وصفات المجتمع مع الماكروز والسعرات.',
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RecipesExplorePage())),
+        onTap: () => _safePush(RecipesExplorePage()),
       ),
       _GuideCard(
         icon: Icons.fastfood_rounded,
         title: 'المطاعم',
         description: 'دليل الأكل الجاهز والاختيارات المناسبة لأهدافك.',
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RestaurantsPage())),
+        onTap: () => _safePush(RestaurantsPage()),
       ),
       _GuideCard(
         icon: Icons.fitness_center,
         title: 'الصالة الافتراضية',
         description: 'تمارين وفيديوهات بإرشادات بسيطة.',
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => VirtualGymPage())),
+        onTap: () => _safePush(VirtualGymPage()),
       ),
       _GuideCard(
         icon: Icons.schedule_rounded,
         title: 'جداول التدريب',
         description: 'أنشئ جدولك أو اختر من جداول جاهزة.',
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrainingSchedulePage())),
+        onTap: () => _safePush(TrainingSchedulePage()),
       ),
       _GuideCard(
         icon: Icons.map_outlined,
         title: 'النوادي القريبة',
         description: 'استكشف نوادي قريبة منك على الخريطة.',
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GymsMapPage())),
+        onTap: () => _safePush(GymsMapPage()),
       ),
 
       // 👇 تظهر حسب الصلاحيات (لا تغيّر)
@@ -224,7 +239,7 @@ class _GuidePageState extends State<GuidePageInner> {
           icon: Icons.dashboard_customize_rounded,
           title: 'لوحة المدرب',
           description: 'إدارة المتدربين وخططهم (للحسابات المصرّح لها).',
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrainerDashboardScreen())),
+          onTap: () => _safePush(TrainerDashboardScreen()),
         ),
 
       if (showSupportPanel)
@@ -232,7 +247,7 @@ class _GuidePageState extends State<GuidePageInner> {
           icon: Icons.support_agent,
           title: 'الدعم الفني',
           description: 'مراقبة التطبيق، إدارة المستخدمين والبلاغات.',
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SupportPage())),
+          onTap: () => _safePush(SupportPage()),
         ),
 
       if (showOwnerPanel)
@@ -240,19 +255,16 @@ class _GuidePageState extends State<GuidePageInner> {
           icon: Icons.workspace_premium_rounded,
           title: 'لوحة المالك',
           description: 'تعديل الرتب، تبنيد، إيقاف وصفات، نقاط وإشعارات.',
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => OwnerPage())),
+          onTap: () => _safePush(OwnerPage()),
         ),
 
       _GuideCard(
         icon: Icons.chat_bubble_outline_rounded,
         title: 'تواصل مع المدرب',
         description: 'بوابة تواصل — سيتم تحويلك لواجهة المدرب.',
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TrainerContactGate(
-              child: MyTrainerScreen(),
-            ),
+        onTap: () => _safePush(
+          TrainerContactGate(
+            child: MyTrainerScreen(),
           ),
         ),
       ),

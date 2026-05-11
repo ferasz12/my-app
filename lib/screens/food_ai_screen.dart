@@ -437,6 +437,8 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
                   child: Image.file(
                     File(_currentImage.path),
                     fit: BoxFit.cover,
+                    cacheWidth: 900,
+                    filterQuality: FilterQuality.low,
                   ),
                 ),
               ),
@@ -459,17 +461,19 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
-              FilledButton.icon(
+              FilledButton(
                 onPressed: () {
                   Navigator.of(ctx).pop();
                   _startAnalysis();
                 },
-                icon: const Icon(Icons.analytics_outlined),
-                label: const Text('تحليل'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18)),
+                ),
+                child: const Text(
+                  'تحليل',
+                  style: TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
               const SizedBox(height: 8),
@@ -925,7 +929,7 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
           ),
         ],
       ),
-    );
+    ).whenComplete(ctrl.dispose);
     return result;
   }
 
@@ -1156,6 +1160,7 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       // لذلك نثبت نسخة غير قابلة للـ null هنا ونستخدمها داخل setState.
       final Map<String, dynamic> mapFinal = Map<String, dynamic>.from(map);
 
+      if (!mounted) return;
       setState(() {
         // ثبت نسخة الأساس ثم طبّق وزن الحصّة (افتراضيًا نفس وزن الحصّة الأساسي)
         final baseMap = Map<String, dynamic>.from(mapFinal);
@@ -1280,6 +1285,7 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       // تثبيت نسخة غير nullable لاستخدامها داخل setState
       final Map<String, dynamic> mapFinal = Map<String, dynamic>.from(map);
 
+      if (!mounted) return;
       setState(() {
         final baseMap = Map<String, dynamic>.from(mapFinal);
 
@@ -1337,6 +1343,7 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       if (_food != null) {
         final raw = e.toString();
         final kind = _inferErrorKind(raw);
+        if (!mounted) return;
         setState(() {
           _errorKind = _ErrorKind.none;
           _error = null;
@@ -1352,7 +1359,12 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
   // اختيار صورة جديدة من المعرض وإعادة التحليل
   Future<void> _pickFromGallery() async {
     final picker = ImagePicker();
-    final XFile? picked = await picker.pickImage(source: ImageSource.gallery);
+    final XFile? picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1600,
+      maxHeight: 1600,
+    );
     if (picked == null) return;
     if (!mounted) return;
     setState(() {
@@ -2232,6 +2244,8 @@ class _MealHeaderCard extends StatelessWidget {
                 child: Image.file(
                   File(imagePath),
                   fit: BoxFit.cover,
+                  cacheWidth: 300,
+                  filterQuality: FilterQuality.low,
                   errorBuilder: (_, __, ___) => Center(
                     child: Icon(Icons.image_not_supported_outlined,
                         color: cs.onSurfaceVariant),
@@ -2978,7 +2992,12 @@ class _FoodImageWithBox extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.file(File(filePath), fit: BoxFit.contain),
+              Image.file(
+                File(filePath),
+                fit: BoxFit.contain,
+                cacheWidth: 1200,
+                filterQuality: FilterQuality.low,
+              ),
               // تظليل لطيف لإحساس "فخم" بدون التأثير على الصورة
               Align(
                 alignment: Alignment.bottomCenter,
@@ -3235,12 +3254,11 @@ class _AnalyzingViewState extends State<_AnalyzingView>
   late final AnimationController _controller;
 
   static const List<String> _scanSteps = [
-    'جاري تحليل الصورة',
-    'جاري تحديد الوجبة الرئيسية',
-    'جاري استخراج المكونات',
-    'جاري تقدير الأوزان والقرامات',
-    'جاري حساب السعرات والماكروز',
-    'جاري تجهيز النتيجة',
+    'نراجع الصورة والتفاصيل',
+    'نحدد الوجبة والمكونات',
+    'نقدّر الكميات والقرامات',
+    'نحسب السعرات والماكروز',
+    'نجهز النتيجة النهائية',
   ];
 
   @override
@@ -3304,7 +3322,7 @@ class _AnalyzingViewState extends State<_AnalyzingView>
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'وازن يحلل وجبتك الآن',
+                  'انتظر شوي عشان نحسب لك الماكروز',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                       ),
@@ -3435,31 +3453,11 @@ class _AnalyzingImageStage extends StatelessWidget {
             ),
           ),
         ),
-        const Positioned(
-          top: 14,
-          right: 14,
-          child: _ScanCorner(top: true, right: true),
-        ),
-        const Positioned(
-          top: 14,
-          left: 14,
-          child: _ScanCorner(top: true, right: false),
-        ),
-        const Positioned(
-          bottom: 14,
-          right: 14,
-          child: _ScanCorner(top: false, right: true),
-        ),
-        const Positioned(
-          bottom: 14,
-          left: 14,
-          child: _ScanCorner(top: false, right: false),
-        ),
         AnimatedBuilder(
           animation: controller,
           builder: (context, _) {
             final progress = controller.value.clamp(0.0, 1.0);
-            return _ScanLineOverlay(progress: progress);
+            return _MacroPulseOverlay(progress: progress);
           },
         ),
         Positioned(
@@ -3487,7 +3485,7 @@ class _AnalyzingImageStage extends StatelessWidget {
                 SizedBox(width: 9),
                 Flexible(
                   child: Text(
-                    'جاري فحص مكونات الوجبة',
+                    'انتظر شوي عشان نحسب لك الماكروز',
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -3507,63 +3505,67 @@ class _AnalyzingImageStage extends StatelessWidget {
   }
 }
 
-class _ScanLineOverlay extends StatelessWidget {
+class _MacroPulseOverlay extends StatelessWidget {
   final double progress;
-  const _ScanLineOverlay({required this.progress});
+  const _MacroPulseOverlay({required this.progress});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final eased = Curves.easeInOutCubic.transform(progress.clamp(0.0, 1.0));
+    final pulse = Curves.easeInOut.transform(progress.clamp(0.0, 1.0));
+    final softScale = 0.92 + (pulse * 0.16);
+    final softOpacity = 0.18 + (pulse * 0.24);
 
-    return LayoutBuilder(
-      builder: (context, box) {
-        final y = (box.maxHeight - 48) * eased;
-        return Stack(
-          children: [
-            Positioned(
-              top: y,
-              left: 0,
-              right: 0,
-              child: RepaintBoundary(
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.center,
+                radius: 0.82,
+                colors: [
+                  cs.primary.withOpacity(softOpacity),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ),
+        Center(
+          child: Transform.scale(
+            scale: softScale,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white.withOpacity(.34),
+                  width: 1.6,
+                ),
+                color: cs.primary.withOpacity(.12),
+              ),
+              child: Center(
                 child: Container(
-                  height: 48,
+                  width: 82,
+                  height: 82,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        cs.primary.withOpacity(0.0),
-                        cs.primary.withOpacity(.12),
-                        cs.primary.withOpacity(.38),
-                        cs.primary.withOpacity(.14),
-                        cs.primary.withOpacity(0.0),
-                      ],
-                    ),
+                    shape: BoxShape.circle,
+                    color: Colors.black.withOpacity(.32),
+                    border: Border.all(color: Colors.white.withOpacity(.18)),
                   ),
-                  child: Center(
-                    child: Container(
-                      height: 3.2,
-                      margin: const EdgeInsets.symmetric(horizontal: 18),
-                      decoration: BoxDecoration(
-                        color: cs.primary,
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: cs.primary.withOpacity(.75),
-                            blurRadius: 16,
-                            spreadRadius: 1.0,
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Colors.white,
+                    size: 34,
                   ),
                 ),
               ),
             ),
-          ],
-        );
-      },
+          ),
+        ),
+      ],
     );
   }
 }

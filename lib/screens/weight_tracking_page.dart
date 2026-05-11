@@ -32,6 +32,41 @@ import '../data/app_repository.dart';
 // ==== Global helpers for insights ====
 double _toD(v) => (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
 
+num? _prefNum(SharedPreferences prefs, String key) {
+  final v = prefs.get(key);
+  if (v == null) return null;
+  if (v is num) return v;
+  if (v is String) {
+    final normalized = v
+        .trim()
+        .replaceAll('٫', '.')
+        .replaceAll('،', '.')
+        .replaceAll(',', '.');
+    return num.tryParse(normalized);
+  }
+  return null;
+}
+
+double? _prefDouble(SharedPreferences prefs, String key) =>
+    _prefNum(prefs, key)?.toDouble();
+
+int? _prefInt(SharedPreferences prefs, String key) =>
+    _prefNum(prefs, key)?.round();
+
+int _asSafeInt(dynamic value, {int fallback = 0}) {
+  if (value == null) return fallback;
+  if (value is num) return value.round();
+  if (value is String) return num.tryParse(value.trim())?.round() ?? fallback;
+  return fallback;
+}
+
+double _asSafeDouble(dynamic value, {double fallback = 0.0}) {
+  if (value == null) return fallback;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value.trim().replaceAll(',', '.')) ?? fallback;
+  return fallback;
+}
+
 /// Sum possible nutrient maps/lists (k/cal, p, c, f)
 Map<String, double> sumFromIterable(Iterable items) {
   double cal = 0, p = 0, c = 0, f = 0;
@@ -430,14 +465,10 @@ Future<_UserProfile> _loadUserProfile() async {
   }
 
   // مفاتيح شائعة للطول/العمر/الجنس
-  double? height = prefs.getDouble('height_cm_$email') ??
-      prefs.getDouble('height_$email') ??
-      ((prefs.getInt('height_$email'))?.toDouble());
+  double? height = _prefDouble(prefs, 'height_cm_$email') ??
+      _prefDouble(prefs, 'height_$email');
 
-  int? age = prefs.getInt('age_$email') ??
-      ((prefs.getString('age_$email') != null)
-          ? int.tryParse(prefs.getString('age_$email')!)
-          : null);
+  int? age = _prefInt(prefs, 'age_$email');
 
   String? gender = _readStringFlexible(prefs, 'gender_$email');
   if (gender != null && gender.trim().isEmpty) gender = null;
@@ -445,7 +476,7 @@ Future<_UserProfile> _loadUserProfile() async {
   final goal = _readStringFlexible(prefs, 'goal_$email') ?? 'نمط حياة صحي';
 
   final weight =
-      prefs.getDouble('current_weight_$email') ?? prefs.getDouble('weight_$email');
+      _prefDouble(prefs, 'current_weight_$email') ?? _prefDouble(prefs, 'weight_$email');
 
   return _UserProfile(
     email: email,
@@ -624,17 +655,23 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
   }
 @override
   void dispose() {
+    _userNameSub?.cancel();
+    _tick?.cancel();
     _tab.dispose();
     super.dispose();
   }
 
   // ====== زر تصدير PDF (مُحسَّن مع بيانات المستخدم) ======
   Future<void> _exportTrackingPdf(BuildContext context) async {
-    showDialog(
+    if (!mounted) return;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
+      useRootNavigator: true,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
+    await Future<void>.delayed(Duration.zero);
 
     try {
       final profile = await _loadUserProfile();
@@ -1032,7 +1069,7 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
 // ====== صفحة "ملفّي الصحي" — ملخص شخصي ======
 final prefsPdf = await SharedPreferences.getInstance();
 final pdfEmail = await _currentEmail() ?? 'unknown_user';
-final tCalPdf = prefsPdf.getDouble('caloriesNeeded_$pdfEmail') ?? 2000.0;
+final tCalPdf = _prefDouble(prefsPdf, 'caloriesNeeded_$pdfEmail') ?? 2000.0;
 
 final wkCals = week.calories.where((e) => e > 0).toList();
 final wkAvgCal = wkCals.isNotEmpty ? wkCals.reduce((a,b)=>a+b)/wkCals.length : 0.0;
@@ -1137,9 +1174,11 @@ doc.addPage(
 final dir = await getApplicationDocumentsDirectory();
       final name = 'tracking_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf';
       final file = File('${dir.path}/$name');
-      await file.writeAsBytes(await doc.save());
+      await Future<void>.delayed(Duration.zero);
+      final bytes = await doc.save();
+      await file.writeAsBytes(bytes, flush: true);
       if (mounted) {
-        Navigator.pop(context);
+        if (navigator.canPop()) navigator.pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('تم إنشاء الملف: $name')),
         );
@@ -1147,7 +1186,7 @@ final dir = await getApplicationDocumentsDirectory();
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        if (navigator.canPop()) navigator.pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('فشل تصدير PDF: $e')),
         );
@@ -1200,8 +1239,8 @@ final dir = await getApplicationDocumentsDirectory();
     }
 
     // لو اليوم له وزن حالي ولم يكن في الخريطة
-    final current = prefs.getDouble('current_weight_$email') ??
-        prefs.getDouble('weight_$email');
+    final current = _prefDouble(prefs, 'current_weight_$email') ??
+        _prefDouble(prefs, 'weight_$email');
     final todayYmd =
         DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)
             .toIso8601String()
@@ -1296,25 +1335,25 @@ final dir = await getApplicationDocumentsDirectory();
       if (aRaw != null) {
         try {
           final a = jsonDecode(aRaw) as Map<String, dynamic>;
-          s = (a['steps'] ?? 0) as int;
-          b = (a['burned'] ?? 0) as int;
+          s = _asSafeInt(a['steps']);
+          b = _asSafeInt(a['burned']);
         } catch (_) {}
       }
 
       // الماء (الهدف في التطبيق بالمل، التخزين باللتر)
-      double liters = prefs.getDouble('water_${key}_$email') ??
+      double liters = _prefDouble(prefs, 'water_${key}_$email') ??
           waterLitersMap[key] ??
           0.0;
 
       // legacy (إن وُجد) – ماء مخزن كمل
-      final legacyMlInt = prefs.getInt('waterMl_${key}_$email') ??
-          prefs.getInt('water_ml_${key}_$email') ??
-          prefs.getInt('water_${key}_$email');
+      final legacyMlInt = _prefInt(prefs, 'waterMl_${key}_$email') ??
+          _prefInt(prefs, 'water_ml_${key}_$email') ??
+          _prefInt(prefs, 'water_${key}_$email');
       if (legacyMlInt != null && legacyMlInt > 0) {
         liters = legacyMlInt / 1000.0;
       } else {
-        final legacyMlD = prefs.getDouble('waterMl_${key}_$email') ??
-            prefs.getDouble('water_ml_${key}_$email');
+        final legacyMlD = _prefDouble(prefs, 'waterMl_${key}_$email') ??
+            _prefDouble(prefs, 'water_ml_${key}_$email');
         if (legacyMlD != null && legacyMlD > 0) {
           liters = legacyMlD / 1000.0;
         }
@@ -1899,7 +1938,7 @@ class _CaloriesHistoryScreenState extends State<_CaloriesHistoryScreen> with Wid
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _tick?.cancel();
-    _tick = Timer.periodic(const Duration(seconds: 5), (_) => _load());
+    _tick = Timer.periodic(const Duration(seconds: 20), (_) => _load());
     _load();
     _macrosSub = MacrosLiveBus.listen(_load);
   }
@@ -1915,6 +1954,7 @@ class _CaloriesHistoryScreenState extends State<_CaloriesHistoryScreen> with Wid
     WidgetsBinding.instance.removeObserver(this);
     _tick?.cancel();
     _macrosSub?.cancel();
+    _userNameSub?.cancel();
     super.dispose();
   }
 Future<void> _load() async {
@@ -1926,10 +1966,10 @@ Future<void> _load() async {
     
     // تحميل الأهداف من صفحة بياناتي
     if (email != null) {
-      _tCal = prefs.getDouble('caloriesNeeded_${email}');
-      _tP   = prefs.getDouble('protein_${email}');
-      _tC   = prefs.getDouble('carbs_${email}');
-      _tF   = prefs.getDouble('fat_${email}');
+      _tCal = _prefDouble(prefs, 'caloriesNeeded_${email}');
+      _tP   = _prefDouble(prefs, 'protein_${email}');
+      _tC   = _prefDouble(prefs, 'carbs_${email}');
+      _tF   = _prefDouble(prefs, 'fat_${email}');
     }
 final now = DateTime.now();
     final list = <Map<String, dynamic>>[];
@@ -2637,13 +2677,14 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadWeights();
     _weightSub = WeightLiveBus.stream.listen((_) => _loadWeights());
-    _tick = Timer.periodic(const Duration(seconds: 10), (_) => _loadWeights());
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) => _loadWeights());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _weightSub?.cancel();
+    _userNameSub?.cancel();
     _tick?.cancel();
     super.dispose();
   }
@@ -2660,11 +2701,11 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
     final email = await _currentEmail() ?? 'unknown_user';
 
     // وزن اليوم الحالي للعرض السريع
-    currentWeight = prefs.getDouble('current_weight_$email') ??
-        prefs.getDouble('weight_$email');
+    currentWeight = _prefDouble(prefs, 'current_weight_$email') ??
+        _prefDouble(prefs, 'weight_$email');
 
-    targetWeight = prefs.getDouble('goal_target_$email') ??
-        prefs.getDouble('targetWeight_$email');
+    targetWeight = _prefDouble(prefs, 'goal_target_$email') ??
+        _prefDouble(prefs, 'targetWeight_$email');
 
     // بعد حذف التطبيق: استرجع قراءات الوزن من السحابة مرة واحدة ثم ادمجها مع المحلي.
     final remoteWeights = !_cloudWeightsRestored
@@ -3130,11 +3171,12 @@ class _ActivityTabState extends State<_ActivityTab> {
     super.initState();
     _loadSaved();
     _fetchFromHealth();
-    _tick = Timer.periodic(const Duration(seconds: 10), (_) => _loadSaved());
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) => _loadSaved());
   }
 
   @override
   void dispose() {
+    _userNameSub?.cancel();
     _tick?.cancel();
     super.dispose();
   }
@@ -3611,8 +3653,8 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadAll();
-    _tick = Timer.periodic(const Duration(seconds: 10), (_) => _loadAll());
-    _auto = Timer.periodic(const Duration(seconds: 4), (_) {
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) => _loadAll());
+    _auto = Timer.periodic(const Duration(seconds: 8), (_) {
       if (!mounted) return;
       final next = (_idx + 1) % 5; // خمس شرائح
       _page.animateToPage(next, duration: const Duration(milliseconds: 280), curve: Curves.easeOut);
@@ -3623,6 +3665,7 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
   void dispose() {
     _auto?.cancel();
     _tick?.cancel();
+    _userNameSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _page.dispose();
     super.dispose();
@@ -3643,28 +3686,24 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     }
 
     // -------- بيانات أساسية (قراءة مرنة للمفاتيح) --------
-    heightCm = prefs.getDouble('height_$email') ??
-        prefs.getDouble('height_cm_$email') ??
-        (prefs.getInt('height_$email')?.toDouble());
+    heightCm = _prefDouble(prefs, 'height_$email') ??
+        _prefDouble(prefs, 'height_cm_$email');
 
-    weightKg = prefs.getDouble('current_weight_$email') ??
-        prefs.getDouble('weight_$email') ??
-        prefs.getDouble('goal_current_$email');
+    weightKg = _prefDouble(prefs, 'current_weight_$email') ??
+        _prefDouble(prefs, 'weight_$email') ??
+        _prefDouble(prefs, 'goal_current_$email');
 
-    age = prefs.getInt('age_$email') ??
-        (prefs.getString('age_$email') != null
-            ? int.tryParse(prefs.getString('age_$email')!)
-            : null);
+    age = _prefInt(prefs, 'age_$email');
 
     gender = _readStringFlexible(prefs, 'gender_$email');
 
-    targetCal = prefs.getDouble('caloriesNeeded_$email');
-    targetProteinG = prefs.getDouble('protein_$email');
-    targetCarbG = prefs.getDouble('carbs_$email') ?? prefs.getDouble('carb_$email');
-    targetFatG = prefs.getDouble('fat_$email');
+    targetCal = _prefDouble(prefs, 'caloriesNeeded_$email');
+    targetProteinG = _prefDouble(prefs, 'protein_$email');
+    targetCarbG = _prefDouble(prefs, 'carbs_$email') ?? _prefDouble(prefs, 'carb_$email');
+    targetFatG = _prefDouble(prefs, 'fat_$email');
 
-    waterTargetMl = prefs.getInt('waterMlTarget_$email') ?? waterTargetMl;
-    stepsTarget = prefs.getInt('stepsTarget_$email') ?? stepsTarget;
+    waterTargetMl = _prefInt(prefs, 'waterMlTarget_$email') ?? waterTargetMl;
+    stepsTarget = _prefInt(prefs, 'stepsTarget_$email') ?? stepsTarget;
 
     // -------- خرائط مساعدة (ماء/وزن) --------
     final waterLitersMap = <String, double>{};
@@ -3717,8 +3756,8 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
             .toIso8601String()
             .split('T')
             .first;
-    final currentW = prefs.getDouble('current_weight_$email') ??
-        prefs.getDouble('weight_$email');
+    final currentW = _prefDouble(prefs, 'current_weight_$email') ??
+        _prefDouble(prefs, 'weight_$email');
     if (currentW != null && !weightMap.containsKey(todayYmd)) {
       weightMap[todayYmd] = currentW;
     }
@@ -3750,7 +3789,7 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
       final f = (totals['f'] ?? 0.0);
 
       // الماء — التخزين باللتر في water_$ymd_$email
-      double liters = prefs.getDouble('water_${ymd}_$email') ??
+      double liters = _prefDouble(prefs, 'water_${ymd}_$email') ??
           waterLitersMap[ymd] ??
           0.0;
       final waterMl = (liters * 1000).round();
@@ -3761,8 +3800,8 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
       if (aRaw != null) {
         try {
           final a = jsonDecode(aRaw) as Map<String, dynamic>;
-          steps = (a['steps'] ?? 0) as int;
-          burned = (a['burned'] ?? 0) as int;
+          steps = _asSafeInt(a['steps']);
+          burned = _asSafeInt(a['burned']);
         } catch (_) {}
       }
 

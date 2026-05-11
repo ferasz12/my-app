@@ -36,10 +36,17 @@ class _TrainerPayoutSetupScreenState extends State<TrainerPayoutSetupScreen> {
     } catch (e) {
       error = e.toString();
     } finally {
+      if (!mounted) return;
       setState(() {
         loading = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _ibanCtrl.dispose();
+    super.dispose();
   }
 
   @override

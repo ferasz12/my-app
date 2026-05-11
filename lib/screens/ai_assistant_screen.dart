@@ -23,6 +23,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
 
     // محاكاة رد الذكاء الاصطناعي
     await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
     setState(() {
       loading = false;
       response =
@@ -31,6 +32,12 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
 
     // إذا فعلياً عندك API:
     // final res = await http.post(... إلى ChatGPT أو غيره)
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override

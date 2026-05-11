@@ -18,8 +18,14 @@ class _CommunityPageState extends State<CommunityPage> {
 
   Future<void> pickImage() async {
     final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery);
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1600,
+      maxHeight: 1600,
+    );
     if (picked != null) {
+      if (!mounted) return;
       setState(() {
         selectedImage = File(picked.path);
       });
@@ -54,7 +60,12 @@ class _CommunityPageState extends State<CommunityPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             selectedImage != null
-                ? Image.file(selectedImage!, height: 150)
+                ? Image.file(
+                    selectedImage!,
+                    height: 150,
+                    cacheWidth: 600,
+                    filterQuality: FilterQuality.low,
+                  )
                 : ElevatedButton.icon(
                     onPressed: pickImage,
                     icon: const Icon(Icons.image),
@@ -112,7 +123,13 @@ class _CommunityPageState extends State<CommunityPage> {
           )
         ],
       ),
-    );
+    ).whenComplete(commentCtrl.dispose);
+  }
+
+  @override
+  void dispose() {
+    _captionController.dispose();
+    super.dispose();
   }
 
   @override
@@ -149,10 +166,14 @@ class _CommunityPageState extends State<CommunityPage> {
                         ClipRRect(
                           borderRadius: const BorderRadius.vertical(
                               top: Radius.circular(16)),
-                          child: Image.file(post['image'],
+                          child: Image.file(
+                              post['image'],
                               width: double.infinity,
                               height: 200,
-                              fit: BoxFit.cover),
+                              fit: BoxFit.cover,
+                              cacheWidth: 900,
+                              filterQuality: FilterQuality.low,
+                            ),
                         ),
                       Padding(
                         padding: const EdgeInsets.all(12),
