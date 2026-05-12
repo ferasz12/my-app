@@ -180,7 +180,7 @@ class AllDietsPage extends StatelessWidget {
               onTap: () {
                 Provider.of<DietProvider>(context, listen: false)
                     .selectDiet(diet);
-                Navigator.push(
+                Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(builder: (_) => RegimenScreen()),
                 );

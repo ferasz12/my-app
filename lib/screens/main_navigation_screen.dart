@@ -2,6 +2,7 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/painting.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -208,11 +209,22 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void _onItemTapped(int index) {
     if (index == _selectedIndex || _switchLocked) return;
     _switchLocked = true;
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    // عند التنقل بين صفحات ثقيلة مثل الرجيم/الهوم/التصوير، نفرّغ كاش الصور
+    // حتى لا يضغط iOS الذاكرة ويقفل التطبيق بعد عدة انتقالات.
+    try {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    } catch (_) {}
+
     HapticFeedback.selectionClick();
+    if (!mounted) return;
     setState(() => _selectedIndex = index);
 
     // حماية من الضغط السريع المتكرر على أكثر من تبويب بنفس اللحظة.
-    Future<void>.delayed(const Duration(milliseconds: 280), () {
+    Future<void>.delayed(const Duration(milliseconds: 420), () {
+      if (!mounted) return;
       _switchLocked = false;
     });
   }

@@ -9,6 +9,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import '../widgets/points_earned_toast.dart';
 import 'package:image_picker/image_picker.dart';
@@ -181,6 +182,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
+  bool _openingFoodCamera = false;
 
   // ===== Toast UI for points (Home) =====
   void _showPointsToast(int points, {String? reason, IconData icon = Icons.star_rounded}) {
@@ -2108,24 +2110,36 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                         title: 'تصوير الطعام',
                         subtitle: 'تحليل الصورة واستخراج القيم',
                         onTap: () async {
+                          if (_openingFoodCamera) return;
+                          _openingFoodCamera = true;
                           Navigator.of(sheetCtx).pop();
 
                           // انتظر إغلاق الـ BottomSheet قبل فتح الكاميرا.
                           // هذا يمنع تعارض الـ Navigator/الكاميرا عند الفتح المتكرر.
-                          await Future<void>.delayed(const Duration(milliseconds: 220));
+                          await Future<void>.delayed(const Duration(milliseconds: 260));
 
-                          if (!mounted) return;
+                          if (!mounted) {
+                            _openingFoodCamera = false;
+                            return;
+                          }
 
                           try {
+                            FocusManager.instance.primaryFocus?.unfocus();
+                            PaintingBinding.instance.imageCache.clear();
+                            PaintingBinding.instance.imageCache.clearLiveImages();
+
                             final result = await Navigator.of(parentContext).push(
                               MaterialPageRoute(builder: (_) => const FoodCameraScreen()),
                             );
+                            if (!mounted) return;
                             await _handleFoodAiResult(mealIndex, result);
                           } catch (e) {
                             if (!mounted) return;
                             ScaffoldMessenger.of(parentContext).showSnackBar(
                               SnackBar(content: Text('تعذّر فتح الكاميرا: $e')),
                             );
+                          } finally {
+                            _openingFoodCamera = false;
                           }
                         },
 

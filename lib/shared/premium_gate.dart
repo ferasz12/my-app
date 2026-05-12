@@ -158,12 +158,20 @@ class PremiumGate extends StatefulWidget {
 
 class _PremiumGateState extends State<PremiumGate> {
   bool _loadedLocal = false;
+  bool _canShowLockedUi = false;
   DateTime? _localExpiry;
 
   @override
   void initState() {
     super.initState();
     _loadLocal();
+
+    // يمنع ظهور بطاقة "تحتاج اشتراك" لجزء من الثانية عند التنقل السريع
+    // قبل اكتمال قراءة الاشتراك من الكاش/Firestore.
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      setState(() => _canShowLockedUi = true);
+    });
   }
 
   Future<void> _loadLocal() async {
@@ -225,7 +233,7 @@ class _PremiumGateState extends State<PremiumGate> {
             final effective = PremiumAccess._maxDate(remoteExpiry, _localExpiry);
             final active = effective != null && effective.isAfter(now);
 
-            final checking = !_loadedLocal && !snap.hasData;
+            final checking = (!_loadedLocal && !snap.hasData) || !_canShowLockedUi;
             if (checking) {
               return Stack(
                 children: [

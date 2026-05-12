@@ -203,7 +203,7 @@ class MealAnalysisResult {
 /// ==========================
 class MealAnalysisService {
   static const Duration _timeout = Duration(seconds: 25);
-  static const Duration _fastTextTimeout = Duration(seconds: 16);
+  static const Duration _fastTextTimeout = Duration(seconds: 30);
   static const int _maxRetries = 1;
 
   // نحدّد هل نستخدم البروكسي أم الفنكشن تلقائيًا
@@ -533,25 +533,31 @@ class MealAnalysisService {
         final data = (res.data is Map<String, dynamic>)
             ? res.data as Map<String, dynamic>
             : Map<String, dynamic>.from(res.data as Map);
-        return MealAnalysisResult.fromJson(data);
+        final v2 = MealAnalysisResult.fromJson(data);
+
+        // إذا رجع V2 سؤال توضيحي، نعرضه للمستخدم.
+        if (v2.raw?['needs_user_answers'] == true) return v2;
+
+        // إذا رجع V2 أصفار/نتيجة سيئة، لا نوقف التحليل؛ ننزل تلقائيًا للنسخة القديمة.
+        if (v2.ok && !_looksBad(v2, description)) return v2;
       } on FirebaseFunctionsException catch (e) {
         final code = e.code.toLowerCase();
         final msg = (e.message ?? '').toLowerCase();
         final isMissingV2 = code.contains('not-found') || msg.contains('not found');
-        if (!isMissingV2) {
-          return MealAnalysisResult.error(
-            e.message?.trim().isNotEmpty == true
-                ? e.message!.trim()
-                : FriendlyErrors.message(e),
-          );
+        // أي خطأ غير not-found من V2 لا نخليه يكسر التحليل النصي.
+        // نجرّب analyzeMealText القديمة لأنها أبطأ لكنها أثبت.
+        if (!isMissingV2 && kDebugMode) {
+          // ignore: avoid_print
+          print('analyzeMealTextV2 failed, falling back to legacy: ${e.code} ${e.message}');
         }
       } on TimeoutException {
-        return MealAnalysisResult.error(
-          'تحليل النص أخذ وقت أطول من المتوقع. اكتب الوصف بشكل مختصر وواضح ثم حاول مرة ثانية.',
-        );
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('analyzeMealTextV2 timeout, falling back to legacy');
+        }
       }
 
-      // fallback آمن للنسخ التي لم تنشر analyzeMealTextV2 بعد.
+      // fallback آمن للنسخ التي لم تنشر analyzeMealTextV2 أو إذا فشل V2.
       final legacyCallable = fns.httpsCallable(
         'analyzeMealText',
         options: HttpsCallableOptions(timeout: _timeout),

@@ -16,6 +16,11 @@ class AppNotifications {
   AppNotifications._();
   static final AppNotifications instance = AppNotifications._();
 
+  static const bool disableAppleLocalNotificationsForCrashTest = true;
+
+  bool get _appleNotificationsDisabled =>
+      disableAppleLocalNotificationsForCrashTest && (Platform.isIOS || Platform.isMacOS);
+
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
 
@@ -90,6 +95,12 @@ class AppNotifications {
   Future<void> init() async {
     if (_ready) return;
 
+    if (_appleNotificationsDisabled) {
+      // اختبار تشخيصي: لا نلمس iOS notification/badge APIs لتجنب Watchdog/OneSignal hang.
+      _ready = true;
+      return;
+    }
+
     // ضبط المنطقة الزمنية (لتفادي جدولة UTC بالخطأ)
     TzConfig.ensureInitialized();
 
@@ -134,6 +145,7 @@ class AppNotifications {
   }
 
   Future<bool> requestPermission() async {
+    if (_appleNotificationsDisabled) return false;
     if (!_ready) await init();
     bool ok = true;
 
@@ -162,6 +174,7 @@ class AppNotifications {
 
   /// يعيد جدولة إشعارات العادات من SharedPreferences (مفيد بعد إعادة تشغيل التطبيق)
   Future<void> restoreFromLocalPrefs() async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     final p = await SharedPreferences.getInstance();
 
@@ -243,6 +256,7 @@ class AppNotifications {
     required int caloriesHour,
     required int caloriesMinute,
   }) async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
 
     if (!allEnabled) {
@@ -307,6 +321,7 @@ class AppNotifications {
     required int endMinute,
     required int intervalMinutes,
   }) async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
 
     // أولاً ألغِ أي جدولة قديمة
@@ -354,6 +369,7 @@ class AppNotifications {
   }
 
   Future<void> cancelWaterReminders() async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     // جديد
     for (var i = 0; i < 200; i++) {
@@ -413,6 +429,7 @@ class AppNotifications {
   }
 
   Future<void> cancelWorkoutReminders() async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     for (var wd = 1; wd <= 7; wd++) {
       await _plugin.cancel(_workoutBaseId + wd);
@@ -425,6 +442,7 @@ class AppNotifications {
   // ----------------------------
 
   Future<void> scheduleDailyTip({required int hour, required int minute}) async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
 
     await cancelDailyTips();
@@ -459,6 +477,7 @@ class AppNotifications {
   }
 
   Future<void> cancelDailyTips() async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     await _plugin.cancel(_tipsId);
     await _plugin.cancel(_legacyTipsId);
@@ -469,6 +488,7 @@ class AppNotifications {
   // ----------------------------
 
   Future<void> scheduleWeighInReminder({required int hour, required int minute}) async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     await cancelWeighInReminder();
 
@@ -502,6 +522,7 @@ class AppNotifications {
   }
 
   Future<void> cancelWeighInReminder() async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     await _plugin.cancel(_weightId);
   }
@@ -511,6 +532,7 @@ class AppNotifications {
   // ----------------------------
 
   Future<void> scheduleCaloriesReminder({required int hour, required int minute}) async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     await cancelCaloriesReminder();
 
@@ -544,6 +566,7 @@ class AppNotifications {
   }
 
   Future<void> cancelCaloriesReminder() async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     await _plugin.cancel(_caloriesId);
   }
@@ -578,6 +601,7 @@ class AppNotifications {
     int hour = 21,
     int minute = 0,
   }) async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
 
     final prefs = await SharedPreferences.getInstance();
@@ -622,6 +646,7 @@ class AppNotifications {
   }
 
   Future<void> cancelStreakWarning() async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
     await _plugin.cancel(_streakWarningId);
   }

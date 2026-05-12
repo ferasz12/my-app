@@ -161,9 +161,18 @@ Future<void> _printEnvDiagnostics() async {
   debugPrint('🔎 Platform: $defaultTargetPlatform');
 }
 
+// تعطيل مؤقت لإشعارات iOS/Apple لاختبار سبب Watchdog/OneSignal crash.
+// هذا لا يؤثر على فتح التطبيق أو الاشتراكات أو التحليل؛ فقط يوقف الإشعارات على iPhone مؤقتًا.
+const bool kDisableApplePushForCrashTest = true;
+
 Future<void> _initNotificationsIfSupported() async {
   if (_isWindows) {
     debugPrint('ℹ️ Notifications init skipped on Windows.');
+    return;
+  }
+
+  if (_isApple && kDisableApplePushForCrashTest) {
+    debugPrint('🧪 Apple local notifications skipped for crash test.');
     return;
   }
 
@@ -180,6 +189,11 @@ Future<void> _initNotificationsIfSupported() async {
 Future<void> _initFcmIfSupported() async {
   if (_isWindows) {
     debugPrint('ℹ️ FCM marketing push skipped on Windows.');
+    return;
+  }
+
+  if (_isApple && kDisableApplePushForCrashTest) {
+    debugPrint('🧪 Apple FCM/marketing push skipped for crash test.');
     return;
   }
 

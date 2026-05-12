@@ -63,7 +63,18 @@ class FcmMarketingPush {
   StreamSubscription<String>? _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _foregroundSub;
 
+  static const bool disableApplePushForCrashTest = true;
+
+  bool get _applePushDisabled =>
+      !kIsWeb && disableApplePushForCrashTest && (Platform.isIOS || Platform.isMacOS);
+
   Future<void> init() async {
+    if (_applePushDisabled) {
+      debugPrint('🧪 FCM/marketing push disabled on Apple for crash test.');
+      _inited = true;
+      return;
+    }
+
     if (_inited || _initializing) return;
     _initializing = true;
 
@@ -146,6 +157,7 @@ class FcmMarketingPush {
   }
 
   Future<void> refreshUserTokenNow() async {
+    if (_applePushDisabled) return;
     final u = FirebaseAuth.instance.currentUser;
     if (u == null || u.isAnonymous) return;
     await _saveTokenForUser(u.uid, forceRefresh: true);
@@ -180,6 +192,10 @@ class FcmMarketingPush {
   }
 
   Future<void> applyPrefs({required bool allEnabled, required bool marketingEnabled}) async {
+    if (_applePushDisabled) {
+      await _persistTopicState(allEnabled: false, marketingEnabled: false);
+      return;
+    }
     if (!allEnabled) {
       await _safeUnsub(topicAll);
       await _safeUnsub(topicMarketing);

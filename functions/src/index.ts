@@ -3834,12 +3834,36 @@ export const analyzeMealTextV2 = onCall(
       const raw = await callGeminiTextV2FastJson({description: analysisDescription, partsHint, model, apiKey: geminiKey});
       return normalizeTextV2Response(raw, analysisDescription, textGate.current);
     } catch (err: any) {
-      logger.warn('analyzeMealTextV2 fast path failed; returning local estimate fallback', {
+      logger.warn('analyzeMealTextV2 fast path failed; using deterministic fallback instead of zero result', {
         status: err?.status,
         code: err?.code,
         message: String(err?.message || '').slice(0, 180),
       });
-      return normalizeTextV2Response({ingredients: []}, analysisDescription, textGate.current);
+
+      // لا نرجّع ingredients: [] لأنها تظهر للمستخدم كأن التحليل النصي لا يعمل.
+      // نطلع عناصر من النص ونقدرها بقواعد محلية كحل سريع ومستقر، والـ legacy function يبقى موجود كنسخة أدق.
+      const fallbackIngredients = splitFoodDescriptionCandidates(analysisDescription)
+        .slice(0, 6)
+        .map((item: string) => {
+          const grams = estimateTextV2Grams(item, analysisDescription);
+          const est = estimateTextV2Macros(item, grams);
+          return {
+            item,
+            grams,
+            calories: est.calories,
+            protein_g: est.protein,
+            carbs_g: est.carbs,
+            fat_g: est.fat,
+            confidence: 0.55,
+          };
+        })
+        .filter((x: any) => normStr(x.item).length > 0);
+
+      return normalizeTextV2Response({
+        need_clarification: false,
+        meal_name: buildShortMealNameV2(analysisDescription, fallbackIngredients.map((x: any) => x.item)),
+        ingredients: fallbackIngredients,
+      }, analysisDescription, textGate.current);
     }
   }
 );
