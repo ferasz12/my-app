@@ -1,0 +1,49 @@
+workflows:
+  ios-release:
+    name: iOS Release
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Flutter clean
+        script: |
+          flutter clean
+
+      - name: Get packages
+        script: |
+          flutter pub get
+
+      - name: Install pods
+        script: |
+          cd ios
+          pod install
+          cd ..
+
+      - name: Build iOS IPA
+        script: |
+          flutter build ipa --release
+
+      - name: Zip dSYM files
+        script: |
+          echo "Searching for dSYM files..."
+          find "$CM_BUILD_DIR" -name "*.dSYM" -print
+
+          DSYM_OUTPUT="$CM_BUILD_DIR/dSYMs.zip"
+
+          find "$CM_BUILD_DIR" -name "*.dSYM" -exec zip -r "$DSYM_OUTPUT" {} +
+
+          if [ -f "$DSYM_OUTPUT" ]; then
+            echo "dSYMs.zip created at $DSYM_OUTPUT"
+          else
+            echo "No dSYM files found"
+          fi
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/ios/archive/*.xcarchive
+      - dSYMs.zip
