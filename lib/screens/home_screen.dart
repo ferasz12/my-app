@@ -525,6 +525,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     // المرحلة الأولى: محلي فقط وسريع حتى ترسم الصفحة بدون تعليق.
     await SafePrefs.fixKnownMismatches();
     await _ensurePrefsEmail();
+    await _loadStreakFromLocalCache();
     await _migrateLegacyMacrosToPerUser();
     await refreshTargets();
     await _ensureTodaySnapshot();
@@ -2918,6 +2919,29 @@ if (mounted) Navigator.pop(context);
       }
     } catch (e) {
       debugPrint('[HomeScreen] schedule streak warning failed: $e');
+    }
+  }
+
+
+  /// تحميل الستريك من التخزين المحلي فورًا عند فتح الهوم.
+  /// لا يعتمد على السحابة حتى تظهر شارة الستريك بسرعة وبدون انتظار Firestore.
+  Future<void> _loadStreakFromLocalCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('currentEmail') ??
+          FirebaseAuth.instance.currentUser?.email ??
+          'local';
+      final lastKey = 'streak_lastDate_$email';
+      final countKey = 'streak_count_$email';
+      final last = prefs.getString(lastKey);
+      final count = prefs.getInt(countKey) ?? 0;
+      if (!mounted) return;
+      setState(() {
+        _streakLastDate = last;
+        _streakCount = count;
+      });
+    } catch (e) {
+      debugPrint('[HomeScreen] load local streak failed: $e');
     }
   }
 

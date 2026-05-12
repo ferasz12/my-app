@@ -14,6 +14,27 @@ import 'premium_feature.dart';
 class PremiumAccess {
   PremiumAccess._();
 
+  static final Map<String, DateTime?> _localExpiryMemory = <String, DateTime?>{};
+  static final Set<String> _localExpiryMemoryReady = <String>{};
+
+  static bool localExpiryMemoryReadyForCurrentUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return false;
+    return _localExpiryMemoryReady.contains(user.uid);
+  }
+
+  static DateTime? localExpirySyncForCurrentUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return null;
+    return _localExpiryMemory[user.uid];
+  }
+
+  static Future<void> warmLocalSubscriptionCache() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return;
+    await _readLocalExpiry(uid: user.uid, email: user.email);
+  }
+
   static Future<bool> hasActiveSubscription() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) return false;
@@ -106,8 +127,20 @@ class PremiumAccess {
       bestMs = expUid > expEmail ? expUid : expEmail;
     }
 
-    if (bestMs == null) return null;
-    return DateTime.fromMillisecondsSinceEpoch(bestMs);
+    if (bestMs == null) {
+      if (uid.isNotEmpty) {
+        _localExpiryMemory[uid] = null;
+        _localExpiryMemoryReady.add(uid);
+      }
+      return null;
+    }
+
+    final expiry = DateTime.fromMillisecondsSinceEpoch(bestMs);
+    if (uid.isNotEmpty) {
+      _localExpiryMemory[uid] = expiry;
+      _localExpiryMemoryReady.add(uid);
+    }
+    return expiry;
   }
 
   static DateTime? _maxDate(DateTime? a, DateTime? b) {
@@ -158,20 +191,18 @@ class PremiumGate extends StatefulWidget {
 
 class _PremiumGateState extends State<PremiumGate> {
   bool _loadedLocal = false;
-  bool _canShowLockedUi = false;
   DateTime? _localExpiry;
 
   @override
   void initState() {
     super.initState();
-    _loadLocal();
 
-    // يمنع ظهور بطاقة "تحتاج اشتراك" لجزء من الثانية عند التنقل السريع
-    // قبل اكتمال قراءة الاشتراك من الكاش/Firestore.
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      setState(() => _canShowLockedUi = true);
-    });
+    // قراءة فورية من الذاكرة إن كانت محملة عند تشغيل التطبيق أو من دخول سابق.
+    // هذا يمنع ظهور صفحة الاشتراك أو المحتوى بشكل خاطئ عند التنقل السريع.
+    _localExpiry = PremiumAccess.localExpirySyncForCurrentUser();
+    _loadedLocal = PremiumAccess.localExpiryMemoryReadyForCurrentUser();
+
+    _loadLocal();
   }
 
   Future<void> _loadLocal() async {
@@ -233,28 +264,13 @@ class _PremiumGateState extends State<PremiumGate> {
             final effective = PremiumAccess._maxDate(remoteExpiry, _localExpiry);
             final active = effective != null && effective.isAfter(now);
 
-            final checking = (!_loadedLocal && !snap.hasData) || !_canShowLockedUi;
-            if (checking) {
-              return Stack(
-                children: [
-                  widget.child,
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.black.withOpacity(.08),
-                      child: const Center(
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.4),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            }
-
+            // لا نعرض الصفحة أثناء التأكد، ولا نعرض تحميل مزعج.
+            // لو المستخدم مشترك ومحفوظ محليًا تفتح الصفحة فورًا.
+            // لو ما عندنا حكم مؤكد، نعرض واجهة محايدة ثابتة بدون Spinner حتى لا يرى غير المشترك الصفحة لجزء من الثانية.
+            final checking = (!_loadedLocal && !snap.hasData) ||
+                (snap.connectionState == ConnectionState.waiting && !snap.hasData);
             if (active) return widget.child;
+            if (checking) return _PremiumDecisionShell(feature: widget.feature);
 
             if (!widget.blurPreview) {
               return _PremiumLockedFullScreen(feature: widget.feature);
@@ -281,6 +297,45 @@ class _PremiumGateState extends State<PremiumGate> {
           },
         );
       },
+    );
+  }
+}
+
+
+class _PremiumDecisionShell extends StatelessWidget {
+  final PremiumFeature feature;
+  const _PremiumDecisionShell({required this.feature});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: s.surface,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(feature.icon, size: 42, color: s.primary.withOpacity(.45)),
+                  const SizedBox(height: 10),
+                  Text(
+                    feature.titleAr,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: s.onSurface.withOpacity(.72),
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

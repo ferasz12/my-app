@@ -62,6 +62,7 @@ import 'notifications/app_notifications.dart';
 import 'notifications/notification_sync_service.dart';
 import 'notifications/tz_config.dart';
 import 'shared/safe_prefs.dart';
+import 'shared/premium_gate.dart';
 import 'features/recipes/data/recipe_repository.dart';
 import 'features/recipes/providers/recipe_provider.dart';
 import 'features/recipes/ui/recipes_explore_page.dart';
@@ -258,6 +259,7 @@ void main() {
 
     // 3. تهيئة الإعدادات الأساسية فقط قبل runApp
     await SafePrefs.fixKnownMismatches();
+    await PremiumAccess.warmLocalSubscriptionCache();
 
     final prefs = await SharedPreferences.getInstance();
     final isDarkMode = prefs.getBool('darkMode') ?? false;

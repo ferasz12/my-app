@@ -3108,6 +3108,7 @@ function _makeQ(
   return {id, type, title, question, ingredient, reason, priority, options};
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function _hasKnownRestaurantText(description: string): boolean {
   return !!detectKnownRestaurantName(description) || _hasAnyArabicOrEnglish(description, [
     'مطعم', 'ماك', 'ماكدونالدز', 'mcdonald', 'kfc', 'كنتاكي', 'البيك', 'albaik', 'برجر كنج', 'burger king',
@@ -3115,12 +3116,14 @@ function _hasKnownRestaurantText(description: string): boolean {
   ]);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function _hasExactRestaurantItemText(description: string): boolean {
   const d = normalizeEnText(description).toLowerCase();
   return /(big mac|quarter pounder|mcchicken|cheeseburger|double cheeseburger|nuggets|happy meal|zinger|twister|whopper|latte|frappuccino|موكا|لاتيه|فرابتشينو|بيج ماك|كوارتر|ماك تشيكن|تشيز برجر|دبل تشيز|ناجت|زنجر|تويستر|وابر|مسحب|بروست|ساندويتش دجاج|ساندويتش لحم)/i.test(d) ||
     /(بيج ماك|كوارتر|ماك تشيكن|تشيز برجر|دبل تشيز|ناجت|زنجر|تويستر|وابر|لاتيه|فرابتشينو|موكا|مسحب|بروست)/.test(description);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildPreMealTextClarifications(description: string): TextClarificationQuestion[] {
   const desc = normStr(description);
   const low = normalizeEnText(desc).toLowerCase();
@@ -3810,14 +3813,8 @@ export const analyzeMealTextV2 = onCall(
 
     const clarificationAnswersRaw = Array.isArray(req.data?.clarificationAnswers) ?
       req.data.clarificationAnswers : [];
-    const hasClarificationAnswers = clarificationAnswersRaw.length > 0;
-
-    if (!hasClarificationAnswers) {
-      const preQuestions = buildPreMealTextClarifications(description);
-      if (preQuestions.length > 0) {
-        return makeTextV2NeedsAnswers(description, preQuestions, 0);
-      }
-    }
+    // لا نوقف التحليل النصي بأسئلة مسبقة؛ نحلل مباشرة ونقدّر الحصة عند غياب الكمية.
+    // الأسئلة التوضيحية تبقى فقط داخل Gemini إذا كان النص غامضًا جدًا فعلًا.
 
     const analysisDescription = buildClarifiedDescription(description, clarificationAnswersRaw);
 
@@ -3885,35 +3882,8 @@ export const analyzeMealText = onCall(
 
     const clarificationAnswersRaw = Array.isArray(req.data?.clarificationAnswers) ?
       req.data.clarificationAnswers : [];
-    const hasClarificationAnswers = clarificationAnswersRaw.length > 0;
-
-    // ✅ قبل ما نصرف تحليل Gemini: نسأل المستخدم عن أكثر نقطة مؤثرة إذا كان الوصف ناقص.
-    // مثال: "دجاجة" ← مشوية أو مقلية؟ هذا يرفع دقة السعرات والدهون كثير.
-    if (!hasClarificationAnswers) {
-      const preQuestions = buildPreMealTextClarifications(description);
-      if (preQuestions.length > 0) {
-        return stripUndefinedDeep({
-          ok: true,
-          itemized: false,
-          source: "wazin_pre_clarification",
-          name_ar: description,
-          calories_kcal: 0,
-          protein_g: 0,
-          carbs_g: 0,
-          fat_g: 0,
-          confidence: 0,
-          needs_confirmation: true,
-          needs_user_answers: true,
-          clarification_questions: preQuestions,
-          clarifications: preQuestions.map((q) => ({
-            ingredient: q.ingredient,
-            question: q.question,
-            reason: q.reason,
-          })),
-          wazin_analysis: "نحتاج تأكيد بسيط قبل الحساب عشان تكون النتيجة أدق.",
-        });
-      }
-    }
+    // تحليل مباشر: لا نعرض أسئلة مسبقة مزعجة مثل حجم المشروب إلا إذا ذكر المستخدم مشروبًا بوضوح
+    // وكان Gemini نفسه يرى أن الغموض جوهري. عند غياب الكمية نقدّر حصة واقعية ونخفض الثقة.
 
     const analysisDescription = buildClarifiedDescription(description, clarificationAnswersRaw);
 
@@ -4085,7 +4055,7 @@ export const analyzeMealText = onCall(
       "If uncertain, choose a conservative realistic estimate and lower confidence instead of returning zero for a normal edible food.",
       "Use realistic portion estimates when the user does not specify a quantity.",
       "Keep total_macros exactly equal to the sum of all items after rounding.",
-      "Ask short Arabic clarification questions only when the description is genuinely too ambiguous.",
+      "Ask short Arabic clarification questions only when the text is impossible to identify. If the food is identifiable but quantity is missing, estimate a realistic serving and lower confidence.",
       "wazin_analysis must be a short friendly Saudi-dialect tip.",
     ].join("\n");
 
@@ -4736,9 +4706,9 @@ export const analyzeFood = onRequest(
         "افحص الصورة كاملة، وليس الطعام فقط: الشعارات، الأكياس، الأكواب، العلب، الورق، الملصقات، الفاتورة، أو أي كتابة ظاهرة.",
         "إذا ظهر شعار مطعم أو علامة تجارية، اعتبرها دليلًا قويًا جدًا ولا ترجع اسمًا عامًا مثل برجر أو برجر مشوي.",
         "إذا ظهر شعار ماكدونالدز مثلًا والساندويتش غير واضح، اكتب ماكدونالدز - برجر غير محدد واطلب توضيح اسم الطلب بدل التخمين.",
-        "إذا كانت الوجبة من مطعم وحجم البطاطس أو المشروب غير واضح، لا تحسب الماكروز واطلب توضيح الحجم.",
-        "إذا كان المشروب قد يكون دايت أو عادي ولم يظهر بوضوح، لا تفترض واطلب توضيح.",
-        "إذا لم تكن متأكدًا من الوجبة كاملة، اجعل need_clarification=true وitems=[] وtotal_macros كلها صفر.",
+        "إذا كانت الوجبة من مطعم والحجم غير واضح، قدّر حجمًا متوسطًا شائعًا واخفض الثقة بدل إيقاف التحليل.",
+        "لا تسأل عن المشروب إلا إذا ذكر المستخدم مشروبًا صراحة. إذا ذكر مشروبًا ولم يحدد دايت/عادي، افترض عادي بسكر واخفض الثقة.",
+        "إذا كانت الوجبة قابلة للتعرّف، احسبها بتقدير محافظ ولا ترجع أصفارًا. استخدم need_clarification فقط للنصوص غير المفهومة تمامًا.",
         "إذا ظهر على العبوة أو الملصق وزن صريح فاستخدمه كما هو.",
         "إذا كان العنصر قابلًا للعد بصريًا فاذكر العدد داخل الاسم العربي بشكل طبيعي.",
         "أعد JSON فقط حسب الـ schema المطلوب.",
