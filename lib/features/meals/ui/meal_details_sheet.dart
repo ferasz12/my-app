@@ -195,7 +195,7 @@ class _MealDetailsSheetBody extends StatelessWidget {
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: FractionallySizedBox(
-          heightFactor: 0.88,
+          heightFactor: 0.96,
           child: Container(
             decoration: const BoxDecoration(
               color: _wazenSheetBg,
@@ -209,7 +209,12 @@ class _MealDetailsSheetBody extends StatelessWidget {
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+              padding: EdgeInsets.fromLTRB(
+                14,
+                10,
+                14,
+                14 + MediaQuery.of(context).padding.bottom,
+              ),
               child: Column(
                 children: [
                   const _FixedHandle(),
@@ -222,9 +227,12 @@ class _MealDetailsSheetBody extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: SingleChildScrollView(
-                      physics: const NeverScrollableScrollPhysics(),
-                      child: Column(
+                    child: Scrollbar(
+                      thumbVisibility: false,
+                      child: SingleChildScrollView(
+                        physics: const ClampingScrollPhysics(),
+                        padding: const EdgeInsets.only(bottom: 18),
+                        child: Column(
                         children: [
                           _SectionCard(
                             child: Column(
@@ -479,6 +487,7 @@ class _MealDetailsSheetBody extends StatelessWidget {
                           ],
                           const SizedBox(height: 4),
                         ],
+                        ),
                       ),
                     ),
                   ),

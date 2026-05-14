@@ -734,6 +734,124 @@ function defaultWazenAnalysis(dishName: string, total: {calories_kcal: number; p
   return `أبدعت 👌 ${name} تعتبر خيار جيد إذا ضبطت الكمية ووزنت يومك صح.`;
 }
 
+
+const WAZEN_AI_ADVICE_SCHEMA: any = {
+  type: "object",
+  additionalProperties: false,
+  required: ["advice"],
+  properties: {
+    advice: {type: "string"},
+  },
+};
+
+function compactVisionAdvicePayload(analysis: WazenVisionAnalysis) {
+  const totalAny: any = analysis.total_macros || {};
+  const total = {
+    calories_kcal: round1(num(totalAny.calories_kcal ?? totalAny.kcal ?? totalAny.calories)),
+    protein_g: round1(num(totalAny.protein_g ?? totalAny.protein)),
+    carbs_g: round1(num(totalAny.carbs_g ?? totalAny.carbs ?? totalAny.carb)),
+    fat_g: round1(num(totalAny.fat_g ?? totalAny.fat)),
+  };
+  const items = (Array.isArray(analysis.items) ? analysis.items : [])
+    .slice(0, 6)
+    .map((it) => ({
+      name_ar: normStr(it?.name_ar || it?.name_en || "عنصر"),
+      grams: num(it?.grams) > 0 ? Math.round(num(it.grams)) : null,
+      ml: num(it?.ml) > 0 ? Math.round(num(it.ml)) : null,
+      kcal: round1(num(it?.est?.kcal)),
+      protein_g: round1(num(it?.est?.protein_g)),
+      carbs_g: round1(num(it?.est?.carbs_g)),
+      fat_g: round1(num(it?.est?.fat_g)),
+      confidence: round1(num(it?.confidence) * 100) / 100,
+    }));
+  const ingredients = (Array.isArray(analysis.ingredients) ? analysis.ingredients : [])
+    .slice(0, 6)
+    .map((it) => ({
+      name: normStr(it?.name),
+      grams: num(it?.estimated_weight_g) > 0 ? Math.round(num(it.estimated_weight_g)) : null,
+      kcal: round1(num(it?.calories_kcal)),
+      protein_g: round1(num(it?.protein_g)),
+      carbs_g: round1(num(it?.carbs_g)),
+      fat_g: round1(num(it?.fat_g)),
+    }))
+    .filter((it) => it.name);
+
+  return {
+    meal_name: normStr(analysis.dish_name || analysis.meal?.name_ar || analysis.name_ar || analysis.label || "وجبة"),
+    portion_grams: analysis.portion_grams ?? null,
+    portion_desc_ar: normStr(analysis.portion_desc_ar || ""),
+    confidence_hint: (items.length ? Math.min(...items.map((it) => num(it.confidence) || 1)) : null),
+    total_macros: total,
+    items,
+    ingredients,
+  };
+}
+
+async function generateAiWazenVisionAdvice({
+  analysis,
+  model,
+  apiKey,
+  userClarifier,
+}: {
+  analysis: WazenVisionAnalysis;
+  model: string;
+  apiKey: string;
+  userClarifier: string;
+}): Promise<string> {
+  const payload = compactVisionAdvicePayload(analysis);
+  const fallback = defaultWazenAnalysis(payload.meal_name, payload.total_macros);
+
+  if (!apiKey || process.env.WAZEN_AI_ADVICE_DISABLED === "1") return fallback;
+
+  const systemInstruction = [
+    "You are Wazin Coach for an Arabic Saudi health app.",
+    "Write ONE short useful Arabic Saudi-dialect nutrition tip based ONLY on the provided analyzed meal and macros.",
+    "The tip must be specific to the meal: mention protein/carbs/fat/calories/portion when relevant.",
+    "Examples of good style:",
+    "- وجبتك فيها بروتين عالي، وهذا يساعدك تشبع مدة أطول ويحافظ على عضلك.",
+    "- الكارب هنا مرتفع شوي بسبب الرز، فوازن باقي يومك بخضار وبروتين أخف.",
+    "- القهوة السوداء شبه صفر سعرات، انتبه فقط من السكر أو الحليب المضاف.",
+    "Do not repeat a fixed generic sentence. Do not invent medical claims. Do not mention that you are AI.",
+    "Return ONLY JSON: {\"advice\":\"...\"}",
+  ].join("\n");
+
+  const prompt = [
+    "اكتب نصيحة وازن قصيرة ومخصصة لهذه الوجبة فقط.",
+    userClarifier ? `ملاحظة المستخدم: ${userClarifier}` : "ملاحظة المستخدم: لا يوجد.",
+    JSON.stringify(payload),
+  ].join("\n");
+
+  try {
+    const adviceText = await Promise.race([
+      geminiGenerateStructuredJsonWithRetry({
+        parts: [{text: prompt}],
+        model,
+        apiKey,
+        systemInstruction,
+        responseSchema: WAZEN_AI_ADVICE_SCHEMA,
+        temperature: 0.55,
+        maxOutputTokens: 420,
+        maxAttempts: 1,
+      }),
+      sleep(4500).then(() => {
+        const e: any = new Error("wazen_ai_advice_timeout");
+        e.status = 408;
+        throw e;
+      }),
+    ]);
+    const raw = tryExtractJson(String(adviceText));
+    const advice = normStr(raw?.advice || "");
+    if (advice.length >= 15) return advice.slice(0, 260);
+  } catch (e: any) {
+    logger.warn("Wazen AI advice fallback", {
+      error: String(e?.message || e).slice(0, 160),
+      meal: payload.meal_name,
+    });
+  }
+
+  return fallback;
+}
+
 function makeBusyVisionFallback(message = "خدمة تحليل الصورة تحت ضغط حالياً. جرّب بعد قليل أو أضف وصفاً نصياً للوجبة."): WazenVisionAnalysis {
   const label = 'تعذر تحليل الصورة الآن';
   return {
@@ -4968,6 +5086,21 @@ export const analyzeFood = onRequest(
           };
         }
       }
+
+      // توليد نصيحة وازن من Gemini حسب الوجبة نفسها بدون تغيير شكل الاستجابة.
+      // إذا تأخر Gemini أو فشل، نرجع النصيحة الاحتياطية مباشرة حتى لا يتأثر المستخدمون.
+      if (hasUsableWazenVisionAnalysis(finalVisionOut)) {
+        finalVisionOut = {
+          ...finalVisionOut,
+          wazin_analysis: await generateAiWazenVisionAdvice({
+            analysis: finalVisionOut,
+            model,
+            apiKey: geminiKey,
+            userClarifier,
+          }),
+        };
+      }
+
       res.status(200).json(stripUndefinedDeep(finalVisionOut));
     } catch (err: any) {
       const status = Number(err?.status ?? 0);

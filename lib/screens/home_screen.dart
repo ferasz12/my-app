@@ -1938,23 +1938,91 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
 
   Future<void> _handleFoodAiResult(int mealIndex, dynamic result) async {
     try {
-      if (result == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
-      final map = (result is Map) ? result : null;
-      if (map == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
-
-      String name =
-          (map['label'] ?? map['name'] ?? 'صنف من الصورة').toString();
-      final serving = map['serving'];
-      if (serving != null && '$serving'.trim().isNotEmpty) {
-        name = '$name (${serving.toString()})';
+      if (result == null) {
+        debugPrint('[FoodAnalyze] camera:cancelled');
+        return;
       }
 
-      final cal = _toD(map['calories'] ?? map['cal']);
-      final p = _toD(map['protein']);
-      final c = _toD(map['carbs'] ?? map['carb']);
-      final f = _toD(map['fat']);
+      final Map<String, dynamic>? map = result is Map
+          ? Map<String, dynamic>.from(result as Map)
+          : null;
+      if (map == null) {
+        debugPrint('[FoodAnalyze] camera:invalid-result=${result.runtimeType}');
+        return;
+      }
 
-      final bool zeroAllowed = cal <= 0 && p <= 0 && c <= 0 && f <= 0 && _isAllowedZeroFoodAiResult(map);
+      // بعض نسخ التحليل ترجع البيانات داخل food/result/data أو total_macros.
+      final Map<String, dynamic> food = (map['food'] is Map)
+          ? Map<String, dynamic>.from(map['food'] as Map)
+          : (map['result'] is Map)
+              ? Map<String, dynamic>.from(map['result'] as Map)
+              : (map['data'] is Map)
+                  ? Map<String, dynamic>.from(map['data'] as Map)
+                  : map;
+
+      String name = (food['label'] ??
+              food['name_ar'] ??
+              food['name'] ??
+              food['food_name'] ??
+              'صنف من الصورة')
+          .toString()
+          .trim();
+      if (name.isEmpty) name = 'صنف من الصورة';
+
+      final serving = food['serving'] ??
+          food['portion_desc_ar'] ??
+          food['portion_desc'] ??
+          food['estimated_weight_g'] ??
+          food['portion_grams'];
+      if (serving != null && '$serving'.trim().isNotEmpty) {
+        final s = serving.toString().trim();
+        if (!name.contains(s)) name = '$name ($s)';
+      }
+
+      double cal = _toD(food['calories'] ??
+          food['cal'] ??
+          food['kcal'] ??
+          food['calories_kcal']);
+      double p = _toD(food['protein'] ?? food['protein_g'] ?? food['p']);
+      double c = _toD(food['carbs'] ?? food['carb'] ?? food['carbs_g'] ?? food['c']);
+      double f = _toD(food['fat'] ?? food['fat_g'] ?? food['f']);
+
+      final totalMacros = food['total_macros'];
+      if (totalMacros is Map) {
+        cal = cal > 0 ? cal : _toD(totalMacros['calories_kcal'] ?? totalMacros['calories'] ?? totalMacros['kcal']);
+        p = p > 0 ? p : _toD(totalMacros['protein_g'] ?? totalMacros['protein']);
+        c = c > 0 ? c : _toD(totalMacros['carbs_g'] ?? totalMacros['carbs'] ?? totalMacros['carb']);
+        f = f > 0 ? f : _toD(totalMacros['fat_g'] ?? totalMacros['fat']);
+      }
+
+      // لو رجع التحليل مكونات فقط بدون إجمالي، نجمعها بدل ما تفشل الإضافة.
+      if (cal <= 0 && p <= 0 && c <= 0 && f <= 0) {
+        final rawItems = food['items'] ??
+            food['ingredients_breakdown'] ??
+            food['components'] ??
+            food['detected_items'];
+        if (rawItems is List) {
+          for (final raw in rawItems) {
+            if (raw is! Map) continue;
+            final it = Map<String, dynamic>.from(raw);
+            cal += _toD(it['cal'] ?? it['calories'] ?? it['calories_kcal'] ?? it['kcal']);
+            p += _toD(it['protein'] ?? it['protein_g'] ?? it['p']);
+            c += _toD(it['carb'] ?? it['carbs'] ?? it['carbs_g'] ?? it['c']);
+            f += _toD(it['fat'] ?? it['fat_g'] ?? it['f']);
+          }
+        }
+      }
+
+      // حماية: إذا وصلت الماكروز بدون سعرات، احسب السعرات من الماكروز.
+      if (cal <= 0 && (p > 0 || c > 0 || f > 0)) {
+        cal = (p * 4 + c * 4 + f * 9).roundToDouble();
+      }
+
+      final bool zeroAllowed = cal <= 0 &&
+          p <= 0 &&
+          c <= 0 &&
+          f <= 0 &&
+          _isAllowedZeroFoodAiResult(food);
       if (cal <= 0 && !zeroAllowed) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1963,15 +2031,14 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
         return;
       }
 
-      await _addItemsToMealAndPersist(mealIndex, [
+      final added = await _tryAddItemsToMealAndPersist(mealIndex, [
         {'name': name, 'cal': cal, 'protein': p, 'carb': c, 'fat': f}
       ]);
 
       if (!mounted) return;
+      if (!added) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content:
-                Text('تمت إضافة "$name" إلى ${meals[mealIndex]['name']}')),
+        SnackBar(content: Text('تمت إضافة "$name" إلى ${meals[mealIndex]['name']}')),
       );
     } catch (e) {
       if (!mounted) return;

@@ -228,15 +228,18 @@ class _FoodCameraInnerState extends State<_FoodCameraInner>
     await _disposeCamera();
     if (!mounted) return;
 
-    // مهم جدًا للأداء على iPhone:
-    // لا نخلي صفحة الكاميرا موجودة تحت صفحة التحليل.
-    // pushReplacement يجعل المسار: Home -> Analysis بدل Home -> Camera -> Analysis
-    // وهذا يمنع تراكم CameraController والصورة الثقيلة في الذاكرة.
-    await Navigator.of(context).pushReplacement(
+    // مهم:
+    // لا نستخدم pushReplacement هنا؛ لأنه كان يرجّع null للهوم قبل أن ترجع
+    // نتيجة FoodAiScreen، لذلك زر "إضافة الوجبة" يظهر أنه اشتغل لكن الوجبة لا تصل للهوم.
+    // نفتح التحليل فوق صفحة الكاميرا بعد التخلص من CameraController، ثم نمرر النتيجة للهوم.
+    final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => FoodAiScreen(imageFile: _ensureXFile(fileLike)),
       ),
     );
+
+    if (!mounted) return;
+    Navigator.of(context).pop(result);
   }
 
   Future<void> _toggleFlash() async {
