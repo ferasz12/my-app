@@ -198,7 +198,7 @@ class _SubscriptionEntitlementGateState extends State<SubscriptionEntitlementGat
     final cap = diff > const Duration(hours: 6) ? const Duration(hours: 6) : diff + const Duration(seconds: 2);
     _expiryTimer = Timer(cap, () async {
       if (!mounted) return;
-      // 🔒 لا نستدعي المتجر تلقائيًا عند انتهاء الوقت (حتى لا يعمل Restore تلقائي أو يكتب اشتراك غلط)
+      //  لا نستدعي المتجر تلقائيًا عند انتهاء الوقت (حتى لا يعمل Restore تلقائي أو يكتب اشتراك غلط)
       await _loadLocal();
       if (mounted) setState(() {});
     });
@@ -299,7 +299,7 @@ class _SubscriptionEntitlementGateState extends State<SubscriptionEntitlementGat
       builder: (context, snap) {
         final data = snap.data?.data();
 
-        // 🧹 إذا كان عندك بيانات اشتراك خاطئة قديمة مكتوبة بـ FALLBACK (بدون شراء حقيقي),
+        //  إذا كان عندك بيانات اشتراك خاطئة قديمة مكتوبة بـ FALLBACK (بدون شراء حقيقي),
         // نلغيها مرة واحدة حتى لا يعتبرك التطبيق "مشترك" بالغلط.
         if (!_sanitizedRemoteFallback && data != null) {
           _sanitizedRemoteFallback = true;
@@ -353,7 +353,7 @@ class _SubscriptionEntitlementGateState extends State<SubscriptionEntitlementGat
 
         if (!locked) return widget.child;
 
-        // 🔒 مقفل: نعرض الشاشة خلف تغبيش + قائمة صغيرة للاشتراك
+        //  مقفل: نعرض الشاشة خلف تغبيش + قائمة صغيرة للاشتراك
         return _LockedAppShell(
           child: widget.child,
           loading: !_loadedLocal,
@@ -1260,9 +1260,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
       return;
     }
 
-    final code = raw.toUpperCase();
-    int? pct = _localCoupons[code];
+    final code = raw.toLowerCase();
+    final displayCode = raw.toUpperCase();
+    int? pct = _localCoupons[code] ?? _localCoupons[displayCode];
     pct ??= await _fetchCouponPctRemote(code);
+    pct ??= await _fetchCouponPctRemote(displayCode);
 
     if (pct == null || pct <= 0 || pct >= 95) {
       setState(() {
@@ -1284,14 +1286,14 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         _activeCouponPct = 0;
         _monthlyDiscount = null;
         _yearlyDiscount = null;
-        _couponMsg = 'هذا الكوبون يتطلب باقات خصم في المتجر (مثل vip_monthly_$pct / vip_yearly_$pct)';
+        _couponMsg = 'هذا الكوبون يتطلب تفعيل باقات الخصم في المتجر مثل ${_kMonthlyId}_$pct و ${_kYearlyId}_$pct';
       });
       await _persistCoupon();
       return;
     }
 
     setState(() {
-      _activeCouponCode = code;
+      _activeCouponCode = displayCode;
       _activeCouponPct = pct!;
       _couponMsg = 'تم تطبيق خصم $pct% — سيتم احتساب السعر المخفّض من المتجر.';
     });
@@ -1548,7 +1550,7 @@ for (final p in purchases) {
         continue;
       }
 
-      // 🛡️ على iOS قد يصل حدث "restored" تلقائياً عند فتح صفحة الاشتراك بسبب مزامنة المتجر،
+      //  على iOS قد يصل حدث "restored" تلقائياً عند فتح صفحة الاشتراك بسبب مزامنة المتجر،
       // ولا نريد اعتباره اشتراكاً جديداً أو نكتب بيانات في Firestore إلا إذا المستخدم ضغط "اشترك" أو "استعادة".
       final now = DateTime.now();
       final purchaseInitiatedRecently =
@@ -1814,9 +1816,9 @@ String _planLabel(String? pid) {
                       ],
 _PlanCardNew(
                         icon: Icons.calendar_month_rounded,
-                        title: 'وازن شهري',
-                        subtitle: 'المدة: شهر واحد • يتجدد تلقائيًا\nجرّب 3 أيام مجانًا من المتجر (حسب الأهلية)',
-                        badge: 'الأكثر شيوعًا',
+                        title: 'الخطة الشهرية',
+                        subtitle: 'اشتراك شهري يتجدد تلقائيًا\nيشمل تجربة مجانية 3 أيام من المتجر حسب الأهلية',
+                        badge: 'مرن',
                         discountLabel: monthlyHasDiscount ? 'خصم $_activeCouponPct%' : null,
                         priceText: m?.price ?? '—',
                         oldPriceText: (_activeCouponPct > 0 && _monthly != null && _monthlyDiscount != null) ? _monthly!.price : null,
@@ -1826,9 +1828,9 @@ _PlanCardNew(
                       ),
                       const SizedBox(height: 14),
                       _PlanCardNew(
-                        icon: Icons.auto_awesome_rounded,
-                        title: 'وازن سنوي',
-                        subtitle: 'المدة: سنة واحدة • يتجدد تلقائيًا\nجرّب 3 أيام مجانًا من المتجر (حسب الأهلية)',
+                        icon: Icons.event_available_rounded,
+                        title: 'الخطة السنوية',
+                        subtitle: 'اشتراك سنوي يتجدد تلقائيًا\nالأفضل لمن يريد الالتزام لفترة أطول',
                         badge: 'أفضل قيمة',
                         discountLabel: yearlyHasDiscount ? 'خصم $_activeCouponPct%' : null,
                         priceText: y?.price ?? '—',
@@ -1889,10 +1891,10 @@ _PlanCardNew(
                       const SizedBox(height: 10),
                       _FinePrintNew(
                         lines: [
-                          '• التجربة المجانية (3 أيام) تُدار من المتجر Apple حسب الأهلية.',
-                          '• بعد انتهاء الفترة التجريبية (إن وُجدت) يلزم وجود اشتراك نشط للاستمرار.',
+                          '• التجربة المجانية، عند توفرها، تُدار من App Store أو Google Play حسب أهلية الحساب.',
+                          '• بعد انتهاء التجربة أو الاشتراك، يتطلب استخدام المزايا المدفوعة وجود اشتراك نشط.',
                           '• يتم تجديد الاشتراك تلقائيًا ما لم يتم الإلغاء قبل نهاية الفترة.',
-                          '• لإلغاء الاشتراك: من إعدادات Apple ID → الاشتراكات.',
+                          '• يمكن إدارة الاشتراك أو إلغاؤه من إعدادات الحساب في المتجر.',
                           if (_activeCouponPct > 0)
                             '• الكوبون يطبّق خصم فعلي عبر باقة مخفّضة في المتجر (Product ID مختلف).',
                           if (widget.force) '• لا يمكنك المتابعة بدون تفعيل (تجربة أو اشتراك).',
@@ -2034,18 +2036,18 @@ class _PaywallHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  active ? 'اشتراكك مفعل' : 'الاشتراك مطلوب',
+                  active ? 'اشتراكك مفعل' : 'فعّل تجربة وازن الكاملة',
                   style: t.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 6),
                 if (!active) ...[
                   Text(
-                    'اختر الخطة الشهرية أو السنوية — وقد تحصل على تجربة 3 أيام مجانًا من المتجر (حسب الأهلية).',
+                    'اختر الخطة المناسبة لك للوصول إلى أدوات التحليل، التتبع، الرجيمات، والمدرب الذكي في تجربة واحدة مرتبة.',
                     style: t.bodyMedium?.copyWith(color: s.onSurfaceVariant),
                   ),
                 ] else ...[
                   Text(
-                    'تفاصيل الاشتراك',
+                    'تفاصيل اشتراكك الحالي',
                     style: t.bodyMedium?.copyWith(color: s.onSurfaceVariant, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
@@ -2476,7 +2478,7 @@ class _PlanCardNew extends StatelessWidget {
                     textStyle: const TextStyle(fontWeight: FontWeight.w900),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: Text(disabled ? 'غير متاح' : 'ابدأ / اشترك'),
+                  child: Text(disabled ? 'غير متاح الآن' : 'اختيار الخطة'),
                 ),
               ),
             ],
@@ -2505,10 +2507,10 @@ class _RedeemOfferCodeCardNew extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: s.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: s.outlineVariant.withOpacity(0.55)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 16, offset: const Offset(0, 10)),
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 18, offset: const Offset(0, 12)),
         ],
       ),
       child: Column(
@@ -2516,24 +2518,42 @@ class _RedeemOfferCodeCardNew extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.discount_rounded, color: s.primary),
-              const SizedBox(width: 8),
-              Text('كود خصم', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: s.primary.withOpacity(0.10),
+                  border: Border.all(color: s.primary.withOpacity(0.22)),
+                ),
+                child: Icon(Icons.confirmation_number_rounded, color: s.primary, size: 19),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('كود خصم أو عرض خاص', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 2),
+                    Text('مثال: WAZEN50', style: t.bodySmall?.copyWith(color: s.onSurfaceVariant, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            'إذا عندك كود خصم لوازن حطه هنا عشان نخصم لك السعر',
-            style: t.bodyMedium,
-          ),
           const SizedBox(height: 12),
+          Text(
+            'يمكنك استبدال أكواد الخصم والعروض الخاصة من صفحة App Store الرسمية. بعد الاستبدال، حدّث حالة الاشتراك للتأكد من تفعيل العرض.',
+            style: t.bodyMedium?.copyWith(height: 1.45, color: s.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
                   onPressed: onRedeem,
-                  icon: const Icon(Icons.redeem_rounded),
-                  label: const Text('حط الكود هنا '),
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text('إدخال الكود'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -2545,7 +2565,7 @@ class _RedeemOfferCodeCardNew extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'بعد استبدال الكود، إذا ما تحدث الاشتراك تلقائيًا اضغط "تحديث الحالة" أو "استعادة المشتريات".',
+            'على iPhone تتم معالجة أكواد العروض من Apple مباشرة، لذلك قد يظهر السعر النهائي داخل نافذة App Store قبل تأكيد الشراء.',
             style: t.bodySmall?.copyWith(color: s.onSurfaceVariant),
           ),
         ],
@@ -2623,6 +2643,11 @@ class _CouponCardNew extends StatelessWidget {
                 ),
             ],
           ),
+          const SizedBox(height: 8),
+          Text(
+            'أدخل كود الخصم لتفعيل السعر المخفّض من المتجر. مثال: WAZEN50',
+            style: t.bodyMedium?.copyWith(color: s.onSurfaceVariant, height: 1.35),
+          ),
           const SizedBox(height: 12),
 
           // Input pill
@@ -2659,7 +2684,7 @@ class _CouponCardNew extends StatelessWidget {
                       letterSpacing: 1.6,
                     ),
                     decoration: InputDecoration(
-                      hintText: 'MIZAN10',
+                      hintText: 'WAZEN50',
                       hintStyle: t.titleSmall?.copyWith(
                         color: s.onSurfaceVariant.withOpacity(0.55),
                         letterSpacing: 1.6,
@@ -2713,50 +2738,139 @@ class _CouponCardNew extends StatelessWidget {
   }
 }
 
+class _PaywallFeatureItem {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _PaywallFeatureItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+}
+
+class _PaywallFeatureGroup {
+  final String title;
+  final List<_PaywallFeatureItem> items;
+
+  const _PaywallFeatureGroup({
+    required this.title,
+    required this.items,
+  });
+}
+
 class _FeaturesStrip extends StatelessWidget {
+  const _FeaturesStrip();
+
+  static const _groups = <_PaywallFeatureGroup>[
+    _PaywallFeatureGroup(
+      title: 'تحليل الطعام',
+      items: [
+        _PaywallFeatureItem(
+          icon: Icons.camera_alt_rounded,
+          title: 'تحليل الطعام بالتصوير',
+          subtitle: 'تقدير السعرات والماكروز من صورة الوجبة.',
+        ),
+        _PaywallFeatureItem(
+          icon: Icons.edit_note_rounded,
+          title: 'تحليل الطعام بالنص',
+          subtitle: 'اكتب وصف الوجبة واحصل على تحليل منظم.',
+        ),
+        _PaywallFeatureItem(
+          icon: Icons.restaurant_menu_rounded,
+          title: 'الأطعمة الجاهزة والمطاعم',
+          subtitle: 'اختيارات أسرع للأطعمة المتكررة والوجبات الجاهزة.',
+        ),
+      ],
+    ),
+    _PaywallFeatureGroup(
+      title: 'التتبع والالتزام',
+      items: [
+        _PaywallFeatureItem(
+          icon: Icons.picture_as_pdf_rounded,
+          title: 'تقرير PDF للتقدم',
+          subtitle: 'ملخص منظم للوزن، السعرات، الماء، والخطوات.',
+        ),
+        _PaywallFeatureItem(
+          icon: Icons.track_changes_rounded,
+          title: 'أنظمة رجيم متعددة',
+          subtitle: 'الصيام، الكيتو، اللو كارب، وقليل الدهون.',
+        ),
+        _PaywallFeatureItem(
+          icon: Icons.notifications_active_rounded,
+          title: 'تنبيهات قابلة للتخصيص',
+          subtitle: 'تذكيرات للماء، الوزن، الأكل، والتمرين.',
+        ),
+      ],
+    ),
+    _PaywallFeatureGroup(
+      title: 'الإرشاد والمحتوى',
+      items: [
+        _PaywallFeatureItem(
+          icon: Icons.smart_toy_rounded,
+          title: 'مدرب وازن الذكي',
+          subtitle: 'توجيهات يومية مبنية على بياناتك وسلوكك.',
+        ),
+        _PaywallFeatureItem(
+          icon: Icons.fitness_center_rounded,
+          title: 'النادي الافتراضي',
+          subtitle: 'تمارين وفيديوهات مرتبة حسب العضلة.',
+        ),
+        _PaywallFeatureItem(
+          icon: Icons.menu_book_rounded,
+          title: 'الوصفات الصحية',
+          subtitle: 'وصفات مع مكونات وخطوات وماكروز واضحة.',
+        ),
+      ],
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
     final t = Theme.of(context).textTheme;
 
-    final features = const <String>[
-      'تصوير الطعام وتحليله',
-      'تحليل الطعام عبر النص',
-      'تصدير PDF لمتابعة تقدمك',
-      'أنواع الرجيم المناسبة لك',
-      'مدرب وازن الذكي',
-      'استكشاف الوصفات مع الماكروز',
-      'دليل الأكل الجاهز والمطاعم',
-      'تمارين وفيديوهات بإرشادات بسيطة',
-      'جداول جاهزة للتدريب',
-      'النوادي القريبة مني',
-      'تخصيص مظهر التطبيق',
-      'جدولة إشعارات التطبيق',
-    ];
-
-    Widget row(String text) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 2),
-            width: 22,
-            height: 22,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: s.primary.withOpacity(0.12),
-              border: Border.all(color: s.primary.withOpacity(0.35)),
+    Widget featureTile(_PaywallFeatureItem item) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: s.surfaceVariant.withOpacity(0.22),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: s.outlineVariant.withOpacity(0.45)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: s.primary.withOpacity(0.10),
+                border: Border.all(color: s.primary.withOpacity(0.22)),
+              ),
+              child: Icon(item.icon, color: s.primary, size: 18),
             ),
-            child: Icon(Icons.check_rounded, size: 16, color: s.primary),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w800, height: 1.25),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.25),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.subtitle,
+                    style: t.bodySmall?.copyWith(color: s.onSurfaceVariant, height: 1.35),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     }
 
@@ -2776,31 +2890,43 @@ class _FeaturesStrip extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: [s.primary, s.secondary]),
+                  color: s.primary.withOpacity(0.10),
+                  border: Border.all(color: s.primary.withOpacity(0.22)),
                 ),
-                child: Icon(Icons.workspace_premium_rounded, color: s.onPrimary, size: 20),
+                child: Icon(Icons.verified_rounded, color: s.primary, size: 20),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('مميزات وازن المدفوعة', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                    Text('مميزات الاشتراك', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
                     const SizedBox(height: 2),
-                    Text('كل المزايا المتقدمة في مكان واحد', style: t.bodySmall?.copyWith(color: s.onSurfaceVariant)),
+                    Text('كل أدوات وازن المتقدمة مرتبة حسب الاستخدام', style: t.bodySmall?.copyWith(color: s.onSurfaceVariant)),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          for (int i = 0; i < features.length; i++) ...[
-            row(features[i]),
-            if (i != features.length - 1) const SizedBox(height: 10),
+          for (int g = 0; g < _groups.length; g++) ...[
+            Text(
+              _groups[g].title,
+              style: t.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: s.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (int i = 0; i < _groups[g].items.length; i++) ...[
+              featureTile(_groups[g].items[i]),
+              if (i != _groups[g].items.length - 1) const SizedBox(height: 8),
+            ],
+            if (g != _groups.length - 1) const SizedBox(height: 14),
           ],
         ],
       ),
@@ -3258,7 +3384,7 @@ static SubscriptionEntitlement _readLocal(SharedPreferences prefs, String email)
   }
 
   static Future<void> _writeFirestore(String uid, SubscriptionEntitlement ent, {required String source}) async {
-    // 🛑 لا تكتب اشتراك "Fallback" في Firestore أبداً. الكتابة تكون فقط عند شراء/استعادة حقيقية.
+    //  لا تكتب اشتراك "Fallback" في Firestore أبداً. الكتابة تكون فقط عند شراء/استعادة حقيقية.
     final src = source.toUpperCase();
     if (src.contains('FALLBACK') || src.contains('NO_APP_RECEIPT')) {
       return;

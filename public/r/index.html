@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>استرداد كود وازن</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#061f1c;color:#f7fffe;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,"Noto Sans Arabic",sans-serif}
+    .card{width:min(92%,520px);padding:28px;border:1px solid rgba(255,255,255,.16);border-radius:28px;background:rgba(255,255,255,.08);box-shadow:0 28px 90px rgba(0,0,0,.35);text-align:center}
+    img{width:92px;height:92px;border-radius:24px;margin-bottom:12px}
+    h1{margin:0 0 8px;font-size:26px}p{color:rgba(247,255,254,.75);line-height:1.8}.btn{display:inline-block;margin-top:12px;padding:14px 18px;border-radius:16px;background:#19ddd0;color:#05201d;font-weight:900;text-decoration:none}
+    code{direction:ltr;display:inline-block;background:rgba(255,255,255,.1);padding:3px 8px;border-radius:8px;color:#fff}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img src="/wazen_logo.png" alt="وازن" />
+    <h1>جاري تحويلك لاسترداد كود وازن</h1>
+    <p id="msg">سيتم فتح صفحة App Store الرسمية لتطبيق الكود.</p>
+    <a id="link" class="btn" href="https://apps.apple.com/sa/app/%D9%88%D8%A7%D8%B2%D9%86/id6757410841">فتح App Store</a>
+  </main>
+  <script>
+    const APP_ID = '6757410841';
+    const parts = location.pathname.split('/').filter(Boolean);
+    const query = new URLSearchParams(location.search);
+    const code = (query.get('code') || parts[1] || '').replace(/[^a-zA-Z0-9]/g,'').toUpperCase();
+    const link = document.getElementById('link');
+    const msg = document.getElementById('msg');
+    if (code) {
+      const url = `https://apps.apple.com/redeem?ctx=offercodes&id=${APP_ID}&code=${encodeURIComponent(code)}`;
+      link.href = url;
+      link.textContent = `استرداد الكود ${code}`;
+      msg.innerHTML = `سيتم فتح صفحة App Store الرسمية لاسترداد الكود <code>${code}</code>.`;
+      setTimeout(() => { location.href = url; }, 900);
+    }
+  </script>
+</body>
+</html>

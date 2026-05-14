@@ -1246,7 +1246,8 @@ final dir = await getApplicationDocumentsDirectory();
             .toIso8601String()
             .split('T')
             .first;
-    if (current != null && !weightMap.containsKey(todayYmd)) {
+    if (current != null && current > 0) {
+      // وزن صفحة بياناتي هو المصدر الأحدث لليوم، لذلك يغطي أي قراءة قديمة لنفس اليوم.
       weightMap[todayYmd] = current;
     }
 
@@ -2666,9 +2667,9 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
   Map<String, double> _cachedRemoteWeights = <String, double>{};
 
   Timer? _tick;
+  bool _loadingWeights = false;
 
   // اسم المستخدم للعرض + التقرير
-  String _displayName = '';
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userNameSub;
 
   @override
@@ -2696,87 +2697,203 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadWeights() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = await _currentEmail() ?? 'unknown_user';
-
-    // وزن اليوم الحالي للعرض السريع
-    currentWeight = _prefDouble(prefs, 'current_weight_$email') ??
-        _prefDouble(prefs, 'weight_$email');
-
-    targetWeight = _prefDouble(prefs, 'goal_target_$email') ??
-        _prefDouble(prefs, 'targetWeight_$email');
-
-    // بعد حذف التطبيق: استرجع قراءات الوزن من السحابة مرة واحدة ثم ادمجها مع المحلي.
-    final remoteWeights = !_cloudWeightsRestored
-        ? await AppRepository.readWeightLogs(limit: 370)
-        : _cachedRemoteWeights;
-    if (!_cloudWeightsRestored) {
-      _cachedRemoteWeights = remoteWeights;
-      _cloudWeightsRestored = true;
+  double? _numFrom(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final normalized = value
+          .trim()
+          .replaceAll('٫', '.')
+          .replaceAll('،', '.')
+          .replaceAll(',', '.');
+      return double.tryParse(normalized);
     }
+    return null;
+  }
 
-    // نجمع كل القراءات من المصدرين
-    final map = <String, double>{};
+  double? _readKg(Map<dynamic, dynamic> data) {
+    for (final key in const [
+      'kg',
+      'weight',
+      'weightKg',
+      'currentWeight',
+      'current_weight',
+      'value',
+    ]) {
+      final v = _numFrom(data[key]);
+      if (v != null && v > 0) return v;
+    }
+    return null;
+  }
 
-    // 1) الحديث: weight_log_$email => List<Map>{date, kg}
-    final raw = prefs.getString('weight_log_$email');
-    if (raw != null) {
+  String? _readDate(Map<dynamic, dynamic> data) {
+    for (final key in const [
+      'date',
+      'day',
+      'ymd',
+      'createdAt',
+      'updatedAt',
+      'timestamp',
+      'time',
+      't',
+    ]) {
+      final d = _normalizeYmd(data[key]);
+      if (d != null) return d;
+    }
+    return null;
+  }
+
+  Future<void> _upsertTodayWeightLog(
+    SharedPreferences prefs,
+    String email,
+    double kg,
+  ) async {
+    final today = _todayKey();
+    final key = 'weight_log_$email';
+    final list = <Map<String, dynamic>>[];
+
+    final raw = prefs.getString(key);
+    if (raw != null && raw.trim().isNotEmpty) {
       try {
-        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-        for (final e in list) {
-          final d = _normalizeYmd(e['date']);
-          final kg = (e['kg'] as num?)?.toDouble();
-          if (d != null && kg != null) map[d] = kg;
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              final m = Map<String, dynamic>.from(item);
+              final d = _readDate(m);
+              final w = _readKg(m);
+              if (d != null && w != null && w > 0) {
+                list.add({'date': d, 'kg': w});
+              }
+            }
+          }
         }
       } catch (_) {}
     }
 
-    // 2) القديم: weightHistory_$email => List<String(json)> {"date","weight"}
-    final histList = prefs.getStringList('weightHistory_$email');
-    if (histList != null) {
-      for (final s in histList) {
+    final index = list.indexWhere((e) => _normalizeYmd(e['date']) == today);
+    if (index >= 0) {
+      list[index] = {'date': today, 'kg': kg};
+    } else {
+      list.add({'date': today, 'kg': kg});
+    }
+
+    list.sort((a, b) => (a['date'] as String).compareTo(b['date'] as String));
+    await prefs.setString(key, jsonEncode(list));
+  }
+
+  Future<Map<String, double>> _readRemoteWeightsSafely() async {
+    if (_cloudWeightsRestored) return _cachedRemoteWeights;
+    try {
+      final remote = await AppRepository.readWeightLogs(limit: 370)
+          .timeout(const Duration(milliseconds: 1200));
+      _cachedRemoteWeights = remote;
+      _cloudWeightsRestored = true;
+      return remote;
+    } catch (_) {
+      _cloudWeightsRestored = true;
+      return _cachedRemoteWeights;
+    }
+  }
+
+  Future<void> _loadWeights() async {
+    if (_loadingWeights) return;
+    _loadingWeights = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = await _currentEmail() ?? 'unknown_user';
+
+      final loadedCurrentWeight = _prefDouble(prefs, 'current_weight_$email') ??
+          _prefDouble(prefs, 'weight_$email') ??
+          _prefDouble(prefs, 'user_weight_$email') ??
+          _prefDouble(prefs, 'weightKg_$email') ??
+          _prefDouble(prefs, 'currentWeight_$email');
+
+      final loadedTargetWeight = _prefDouble(prefs, 'goal_target_$email') ??
+          _prefDouble(prefs, 'targetWeight_$email') ??
+          _prefDouble(prefs, 'target_weight_$email') ??
+          _prefDouble(prefs, 'goalWeight_$email');
+
+      final remoteWeights = await _readRemoteWeightsSafely();
+
+      // نجمع كل القراءات من المحلي والسحابة، ثم نحدّث قراءة اليوم دائمًا من صفحة بياناتي.
+      final map = <String, double>{};
+
+      void addPoint(String? ymd, double? kg, {bool override = false}) {
+        if (ymd == null || kg == null || kg <= 0) return;
+        if (override || !map.containsKey(ymd)) {
+          map[ymd] = kg;
+        }
+      }
+
+      // 1) الحديث: weight_log_$email => List<Map>{date, kg}
+      final raw = prefs.getString('weight_log_$email');
+      if (raw != null && raw.trim().isNotEmpty) {
         try {
-          final m = jsonDecode(s) as Map<String, dynamic>;
-          final d = _normalizeYmd(m['date']);
-          final kg = (m['weight'] as num?)?.toDouble();
-          if (d != null && kg != null) {
-            map.putIfAbsent(d, () => kg); // لا نغطي الحديث لو موجود
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            for (final item in decoded) {
+              if (item is Map) {
+                addPoint(_readDate(item), _readKg(item));
+              }
+            }
           }
         } catch (_) {}
       }
-    }
 
-    // 3) لو عندنا وزن اليوم الحالي وغير موجود كقراءة اليوم
-    final ymd =
-        DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)
-            .toIso8601String()
-            .split('T')
-            .first;
-    if (currentWeight != null && !map.containsKey(ymd)) {
-      map[ymd] = currentWeight!;
-    }
+      // 2) القديم: weightHistory_$email => List<String(json)> {"date","weight"}
+      for (final key in <String>['weightHistory_$email', 'weightHistory']) {
+        final histList = prefs.getStringList(key);
+        if (histList == null) continue;
+        for (final s in histList) {
+          try {
+            final decoded = jsonDecode(s);
+            if (decoded is Map) {
+              addPoint(_readDate(decoded), _readKg(decoded));
+            }
+          } catch (_) {}
+        }
+      }
 
-    for (final e in remoteWeights.entries) {
-      map.putIfAbsent(e.key, () => e.value);
-    }
-    if (currentWeight == null && remoteWeights.isNotEmpty) {
-      final sortedRemoteDates = remoteWeights.keys.toList()..sort();
-      currentWeight = remoteWeights[sortedRemoteDates.last];
-      await prefs.setDouble('weight_$email', currentWeight!);
-    }
+      // 3) السحابة
+      for (final e in remoteWeights.entries) {
+        addPoint(_normalizeYmd(e.key), e.value);
+      }
 
-    // تحويل إلى نقاط مرتبة (مع تحمّل أي مفاتيح غير صالحة)
-    final pts = <_WeightPoint>[];
-    for (final e in map.entries) {
-      final dt = DateTime.tryParse(e.key);
-      if (dt == null) continue;
-      pts.add(_WeightPoint(DateTime(dt.year, dt.month, dt.day), e.value));
-    }
-    pts.sort((a, b) => a.t.compareTo(b.t));
+      // 4) الأهم: وزن صفحة بياناتي يعتبر قراءة اليوم دائمًا، ويغطي أي قيمة قديمة لنفس اليوم.
+      if (loadedCurrentWeight != null && loadedCurrentWeight > 0) {
+        final today = _todayKey();
+        addPoint(today, loadedCurrentWeight, override: true);
+        await _upsertTodayWeightLog(prefs, email, loadedCurrentWeight);
+      }
 
-    if (!mounted) return;
-    setState(() => points = pts);
+      double? finalCurrentWeight = loadedCurrentWeight;
+      if (finalCurrentWeight == null && map.isNotEmpty) {
+        final sortedDates = map.keys.toList()..sort();
+        finalCurrentWeight = map[sortedDates.last];
+        if (finalCurrentWeight != null && finalCurrentWeight > 0) {
+          await prefs.setDouble('weight_$email', finalCurrentWeight);
+          await prefs.setDouble('current_weight_$email', finalCurrentWeight);
+        }
+      }
+
+      final pts = <_WeightPoint>[];
+      for (final e in map.entries) {
+        final dt = DateTime.tryParse(e.key);
+        if (dt == null || e.value <= 0) continue;
+        pts.add(_WeightPoint(DateTime(dt.year, dt.month, dt.day), e.value));
+      }
+      pts.sort((a, b) => a.t.compareTo(b.t));
+
+      if (!mounted) return;
+      setState(() {
+        currentWeight = finalCurrentWeight;
+        targetWeight = loadedTargetWeight;
+        points = pts;
+      });
+    } finally {
+      _loadingWeights = false;
+    }
   }
 
   double _weeklyAvg() {
@@ -2789,18 +2906,425 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
     return last7.reduce((a, b) => a + b) / last7.length;
   }
 
+  Widget _metricCard({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required String value,
+    String? subtitle,
+    required Color color,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(.07),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(.20)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18, color: color),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: cs.onSurface.withOpacity(.78),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                color: cs.onSurface,
+              ),
+            ),
+            if (subtitle != null && subtitle.trim().isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: color.withOpacity(.95),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWeightChart(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (points.isEmpty) {
+      return Container(
+        height: 270,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: cs.outlineVariant.withOpacity(.22)),
+        ),
+        child: Text(
+          'لا توجد قراءات وزن بعد',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: cs.onSurface.withOpacity(.65),
+          ),
+        ),
+      );
+    }
+
+    final n = points.length;
+    final spots = <FlSpot>[
+      for (int i = 0; i < n; i++) FlSpot(i.toDouble(), points[i].kg),
+    ];
+    final ys = points.map((e) => e.kg).toList();
+    final minY = ys.reduce(math.min);
+    final maxY = ys.reduce(math.max);
+    final pad = (maxY - minY).abs() < 0.5 ? 1.0 : (maxY - minY) * 0.18;
+    final avgY = ys.reduce((a, b) => a + b) / ys.length;
+    final chartWidth = math.max(
+      MediaQuery.of(context).size.width - 32,
+      n * 74.0,
+    ).toDouble();
+    final yInterval = (((maxY - minY).abs() / 4).clamp(0.5, 5.0)).toDouble();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.22)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(.04),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.show_chart_rounded, color: cs.primary),
+              const SizedBox(width: 8),
+              Text(
+                'رسم تغيّر الوزن',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: cs.onSurface,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${points.length} قراءة',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurface.withOpacity(.55),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 300,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: SizedBox(
+                width: chartWidth,
+                child: LineChart(
+                  LineChartData(
+                    minX: n == 1 ? -0.5 : 0,
+                    maxX: n == 1 ? 0.5 : (n - 1).toDouble(),
+                    minY: minY - pad,
+                    maxY: maxY + pad,
+                    clipData: const FlClipData.all(),
+                    lineTouchData: LineTouchData(
+                      enabled: true,
+                      handleBuiltInTouches: true,
+                      touchTooltipData: LineTouchTooltipData(
+                        getTooltipItems: (touched) => touched.map((s) {
+                          final i = s.x.round().clamp(0, n - 1);
+                          final dt = points[i].t;
+                          return LineTooltipItem(
+                            '${points[i].kg.toStringAsFixed(1)} كجم\n${DateFormat('yyyy/MM/dd').format(dt)}',
+                            TextStyle(
+                              color: cs.onSurface,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    titlesData: FlTitlesData(
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 44,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            final i = value.round();
+                            if (i < 0 || i >= n || (value - i).abs() > .05) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    points[i].kg.toStringAsFixed(1),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      color: cs.primary,
+                                    ),
+                                  ),
+                                  Text(
+                                    DateFormat('MM/dd').format(points[i].t),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: cs.onSurface.withOpacity(.58),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 38,
+                          interval: yInterval,
+                          getTitlesWidget: (v, _) => Text(
+                            v.toStringAsFixed(0),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: cs.onSurface.withOpacity(.58),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: true,
+                      verticalInterval: 1,
+                      horizontalInterval: yInterval,
+                      getDrawingVerticalLine: (value) => FlLine(
+                        color: cs.outlineVariant.withOpacity(.18),
+                        strokeWidth: 1,
+                      ),
+                      getDrawingHorizontalLine: (value) => FlLine(
+                        color: cs.outlineVariant.withOpacity(.28),
+                        strokeWidth: 1,
+                        dashArray: [4, 4],
+                      ),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    extraLinesData: ExtraLinesData(
+                      horizontalLines: [
+                        HorizontalLine(
+                          y: avgY,
+                          color: cs.primary.withOpacity(.34),
+                          strokeWidth: 1.4,
+                          dashArray: [6, 4],
+                          label: HorizontalLineLabel(
+                            show: true,
+                            alignment: Alignment.topRight,
+                            padding: const EdgeInsets.only(right: 4, bottom: 2),
+                            style: TextStyle(fontSize: 10, color: cs.primary),
+                            labelResolver: (_) => 'متوسط',
+                          ),
+                        ),
+                        if (targetWeight != null && targetWeight! > 0)
+                          HorizontalLine(
+                            y: targetWeight!,
+                            color: cs.secondary.withOpacity(.45),
+                            strokeWidth: 1.5,
+                            dashArray: [2, 4],
+                            label: HorizontalLineLabel(
+                              show: true,
+                              alignment: Alignment.topRight,
+                              padding: const EdgeInsets.only(right: 4, bottom: 2),
+                              style: TextStyle(fontSize: 10, color: cs.secondary),
+                              labelResolver: (_) => 'هدف',
+                            ),
+                          ),
+                      ],
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: spots,
+                        isCurved: n > 2,
+                        curveSmoothness: .28,
+                        barWidth: 3.2,
+                        gradient: LinearGradient(colors: [
+                          cs.primary,
+                          cs.secondary,
+                        ]),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          gradient: LinearGradient(
+                            colors: [
+                              cs.primary.withOpacity(.18),
+                              cs.secondary.withOpacity(.04),
+                            ],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                        ),
+                        dotData: FlDotData(
+                          show: true,
+                          getDotPainter: (spot, percent, barData, index) =>
+                              FlDotCirclePainter(
+                            radius: 4.7,
+                            color: cs.primary,
+                            strokeWidth: 2.2,
+                            strokeColor: cs.surface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (n == 1) ...[
+            const SizedBox(height: 8),
+            Text(
+              'أضف قراءة وزن أخرى في يوم مختلف حتى يظهر خط التغيّر بوضوح.',
+              style: TextStyle(
+                fontSize: 12,
+                color: cs.onSurface.withOpacity(.60),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadingsList(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (points.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'قراءات الوزن حسب التاريخ',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...points.reversed.map((p) {
+            final isLatest = p == points.last;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isLatest
+                      ? cs.primary.withOpacity(.08)
+                      : cs.surfaceVariant.withOpacity(.28),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isLatest
+                        ? cs.primary.withOpacity(.20)
+                        : cs.outlineVariant.withOpacity(.18),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.monitor_weight_outlined,
+                      size: 19,
+                      color: isLatest ? cs.primary : cs.onSurface.withOpacity(.55),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        DateFormat('yyyy/MM/dd').format(p.t),
+                        style: TextStyle(
+                          color: cs.onSurface.withOpacity(.70),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${p.kg.toStringAsFixed(1)} كجم',
+                      style: TextStyle(
+                        color: cs.onSurface,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final avg = _weeklyAvg();
     final cs = Theme.of(context).colorScheme;
 
-
     final double? delta = points.length >= 2
         ? (points.last.kg - points[points.length - 2].kg)
         : null;
+    final deltaText = delta == null
+        ? null
+        : 'التغيّر: ${(delta >= 0 ? '+' : '')}${delta.toStringAsFixed(1)} كجم';
+
     return RefreshIndicator(
       onRefresh: _loadWeights,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
           Container(
@@ -2808,29 +3332,37 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
               gradient: LinearGradient(
                 begin: Alignment.centerRight,
                 end: Alignment.centerLeft,
-                colors: [cs.primary.withOpacity(.10), cs.secondary.withOpacity(.10)],
+                colors: [
+                  cs.primary.withOpacity(.10),
+                  cs.secondary.withOpacity(.08),
+                ],
               ),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: cs.primary.withOpacity(.10)),
             ),
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(13),
             child: Row(
               children: [
-                Icon(Icons.info_outline, color: cs.primary),
-                const SizedBox(width: 8),
+                Icon(Icons.info_outline_rounded, color: cs.primary),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('نصيحة سريعة',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: cs.onSurface)),
-                      const SizedBox(height: 2),
                       Text(
-                        'سجّل وزنك بانتظام لملاحظة التغيّر. اضغط + لإضافة قراءة جديدة، ويمكنك تحديد هدفك من ملفك الشخصي.',
+                        'مصدر بيانات الوزن',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'يعتمد تغيّر الوزن بالكامل على صفحة بياناتي، ويمكنك تعديل وزنك من هناك. عند التعديل يتم تحديث الرسم البياني وإضافة قراءة بتاريخ اليوم تلقائيًا.',
                         style: TextStyle(
                           color: cs.onSurface.withOpacity(.75),
-                          height: 1.25,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -2839,300 +3371,46 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
               ],
             ),
           ),
-          if (currentWeight != null || avg > 0 || (targetWeight != null && targetWeight! > 0))
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: cs.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: cs.outlineVariant.withOpacity(.22)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(.04),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(children: [
-                            Icon(Icons.monitor_weight_outlined,
-                                size: 18, color: cs.primary),
-                            const SizedBox(width: 6),
-                            Text('الحالي',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    color: cs.onSurface.withOpacity(.8))),
-                          ]),
-                          const SizedBox(height: 6),
-                          Text(
-                            currentWeight == null
-                                ? '--'
-                                : '${currentWeight!.toStringAsFixed(1)} كجم',
-                            style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                                color: cs.onSurface),
-                          ),
-                          if (delta != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: Text(
-                                'التغيّر: ${(delta! >= 0 ? '+' : '')}${delta!.toStringAsFixed(1)} كجم',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: (delta! >= 0
-                                          ? Colors.redAccent
-                                          : Colors.green)
-                                      .withOpacity(.9),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(children: [
-                            Icon(Icons.insights_outlined,
-                                size: 18, color: cs.secondary),
-                            const SizedBox(width: 6),
-                            Text('متوسط 7 أيام',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    color: cs.onSurface.withOpacity(.8))),
-                          ]),
-                          const SizedBox(height: 6),
-                          Text(
-                            avg <= 0 ? '--' : '${avg.toStringAsFixed(1)} كجم',
-                            style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                                color: cs.onSurface),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (targetWeight != null && targetWeight! > 0) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(children: [
-                              Icon(Icons.flag_outlined,
-                                  size: 18, color: cs.tertiary),
-                              const SizedBox(width: 6),
-                              Text('الهدف',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      color: cs.onSurface.withOpacity(.8))),
-                            ]),
-                            const SizedBox(height: 6),
-                            Text(
-                              '${targetWeight!.toStringAsFixed(1)} كجم',
-                              style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                  color: cs.onSurface),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 270,
-            child: points.isEmpty
-                ? const Center(child: Text('لا توجد قراءات بعد'))
-                : Builder(
-                    builder: (context) {
-                      final n = points.length;
-                      final spots = <FlSpot>[
-                        for (int i = 0; i < n; i++)
-                          FlSpot(i.toDouble(), points[i].kg),
-                      ];
-                      final ys = points.map((e) => e.kg).toList();
-                      final minY = ys.reduce(math.min);
-                      final maxY = ys.reduce(math.max);
-                      final pad = (maxY - minY).abs() < 0.5
-                          ? 1.0
-                          : (maxY - minY) * 0.15;
-                      final avgY = ys.reduce((a, b) => a + b) / ys.length;
-                      final interval = math.max(1, (n / 5).floor());
-
-                      return LineChart(
-                        LineChartData(
-                          minY: minY - pad,
-                          maxY: maxY + pad,
-                          lineTouchData: LineTouchData(
-                            enabled: true,
-                            handleBuiltInTouches: true,
-                            touchTooltipData: LineTouchTooltipData(
-                              getTooltipItems: (touched) => touched.map((s) {
-                                final i = s.x.round().clamp(0, n - 1);
-                                final dt = points[i].t;
-                                return LineTooltipItem(
-                                  '${DateFormat('yyyy/MM/dd').format(dt)}\n${s.y.toStringAsFixed(1)} كجم',
-                                  TextStyle(color: cs.onSurface),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                          titlesData: FlTitlesData(
-                            rightTitles: const AxisTitles(
-                                sideTitles: SideTitles(showTitles: false)),
-                            topTitles: const AxisTitles(
-                                sideTitles: SideTitles(showTitles: false)),
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 28,
-                                interval: 1,
-                                getTitlesWidget: (value, meta) {
-                                  final i = value.round();
-                                  if (i < 0 || i >= n) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  final show = (i % interval == 0) ||
-                                      i == 0 ||
-                                      i == n - 1;
-                                  if (!show) return const SizedBox.shrink();
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Text(
-                                        DateFormat('MM/dd').format(points[i].t)),
-                                  );
-                                },
-                              ),
-                            ),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 34,
-                                interval: (((maxY - minY) / 4)
-                                        .clamp(0.5, 5.0))
-                                    .toDouble(),
-                                getTitlesWidget: (v, _) =>
-                                    Text(v.toStringAsFixed(0)),
-                              ),
-                            ),
-                          ),
-                          gridData: FlGridData(
-                            show: true,
-                            drawVerticalLine: false,
-                            horizontalInterval: (((maxY - minY) / 4)
-                                    .clamp(0.5, 5.0))
-                                .toDouble(),
-                            getDrawingHorizontalLine: (value) => FlLine(
-                              color: Colors.grey.withOpacity(.18),
-                              strokeWidth: 1,
-                              dashArray: [4, 4],
-                            ),
-                          ),
-                          borderData: FlBorderData(show: false),
-                          extraLinesData: ExtraLinesData(
-                            horizontalLines: [
-                              HorizontalLine(
-                                y: avgY,
-                                color: cs.primary.withOpacity(.35),
-                                strokeWidth: 1.5,
-                                dashArray: [6, 4],
-                                label: HorizontalLineLabel(
-                                  show: true,
-                                  alignment: Alignment.topRight,
-                                  padding: const EdgeInsets.only(
-                                      right: 4, bottom: 2),
-                                  style:
-                                      TextStyle(fontSize: 10, color: cs.primary),
-                                  labelResolver: (_) => 'متوسط',
-                                ),
-                              ),
-                              if (targetWeight != null && targetWeight! > 0)
-                                HorizontalLine(
-                                  y: targetWeight!,
-                                  color: cs.secondary.withOpacity(.45),
-                                  strokeWidth: 1.5,
-                                  dashArray: [2, 4],
-                                  label: HorizontalLineLabel(
-                                    show: true,
-                                    alignment: Alignment.topRight,
-                                    padding: const EdgeInsets.only(
-                                        right: 4, bottom: 2),
-                                    style: TextStyle(
-                                        fontSize: 10, color: cs.secondary),
-                                    labelResolver: (_) => 'هدف',
-                                  ),
-                                ),
-                            ],
-                          ),
-                          lineBarsData: [
-                            LineChartBarData(
-                              spots: spots,
-                              isCurved: true,
-                              curveSmoothness: .35,
-                              barWidth: 3,
-                              gradient: LinearGradient(colors: [
-                                cs.primary,
-                                cs.secondary,
-                              ]),
-                              belowBarData: BarAreaData(
-                                show: true,
-                                gradient: LinearGradient(
-                                  colors: [
-                                    cs.primary.withOpacity(.18),
-                                    cs.secondary.withOpacity(.05),
-                                  ],
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                ),
-                              ),
-                              dotData: FlDotData(
-                                show: true,
-                                checkToShowDot: (spot, barData) =>
-                                    spot.x == (n - 1).toDouble(),
-                                getDotPainter:
-                                    (spot, percent, barData, index) =>
-                                        FlDotCirclePainter(
-                                  radius: 4.5,
-                                  color: cs.primary,
-                                  strokeWidth: 2,
-                                  strokeColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          if (points.isNotEmpty) ...[
+          if (currentWeight != null || avg > 0 || (targetWeight != null && targetWeight! > 0)) ...[
             const SizedBox(height: 12),
-            const Text('قراءات الوزن (الأحدث في الأسفل):',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            ...points.map((p) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.monitor_weight_outlined),
-                  title: Text('${p.kg.toStringAsFixed(1)} كجم'),
-                  subtitle: Text(DateFormat('yyyy/MM/dd').format(p.t)),
-                )),
+            Row(
+              children: [
+                _metricCard(
+                  context: context,
+                  icon: Icons.monitor_weight_outlined,
+                  title: 'الحالي',
+                  value: currentWeight == null
+                      ? '--'
+                      : '${currentWeight!.toStringAsFixed(1)} كجم',
+                  subtitle: deltaText,
+                  color: cs.primary,
+                ),
+                const SizedBox(width: 10),
+                _metricCard(
+                  context: context,
+                  icon: Icons.insights_outlined,
+                  title: 'متوسط 7 أيام',
+                  value: avg <= 0 ? '--' : '${avg.toStringAsFixed(1)} كجم',
+                  color: cs.secondary,
+                ),
+                if (targetWeight != null && targetWeight! > 0) ...[
+                  const SizedBox(width: 10),
+                  _metricCard(
+                    context: context,
+                    icon: Icons.flag_outlined,
+                    title: 'الهدف',
+                    value: '${targetWeight!.toStringAsFixed(1)} كجم',
+                    color: cs.tertiary,
+                  ),
+                ],
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+          _buildWeightChart(context),
+          if (points.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _buildReadingsList(context),
           ],
         ],
       ),

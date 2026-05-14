@@ -44,8 +44,11 @@ class GuidePage extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snap) {
-        final user = snap.data;
+        final user = snap.data ?? FirebaseAuth.instance.currentUser;
         if (user == null) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const _GuideSilentShell();
+          }
           return const _NotAllowed(reason: "الرجاء تسجيل الدخول للوصول إلى هذه الصفحة");
         }
         return PremiumGate(
@@ -54,6 +57,17 @@ class GuidePage extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+
+class _GuideSilentShell extends StatelessWidget {
+  const _GuideSilentShell();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(backgroundColor: cs.surface, body: const SizedBox.expand());
   }
 }
 
@@ -120,6 +134,7 @@ class _GuidePageState extends State<GuidePageInner> {
   BadgeType? _myBadge;
 
   bool _isOwner = false;
+  bool _isAdmin = false;
   bool _isSupport = false;
   bool _loading = true;
 
@@ -170,8 +185,9 @@ class _GuidePageState extends State<GuidePageInner> {
         if (!mounted) return;
         setState(() {
           _isOwner = (role == AppRole.owner);
+          _isAdmin = (role == AppRole.admin);
           // ✅ الأدمن لازم يشوف لوحة الدعم/الإدارة مثل الدعم
-          _isSupport = (role == AppRole.support || role == AppRole.admin || _isOwner);
+          _isSupport = (role == AppRole.support || _isAdmin || _isOwner);
           _loading = false;
         });
       });
@@ -179,6 +195,7 @@ class _GuidePageState extends State<GuidePageInner> {
       if (!mounted) return;
       setState(() {
         _isOwner = false;
+        _isAdmin = false;
         _isSupport = false;
         _myBadge = null;
         _loading = false;
@@ -249,6 +266,7 @@ class _GuidePageState extends State<GuidePageInner> {
           description: 'مراقبة التطبيق، إدارة المستخدمين والبلاغات.',
           onTap: () => _safePush(SupportPage()),
         ),
+
 
       if (showOwnerPanel)
         _GuideCard(

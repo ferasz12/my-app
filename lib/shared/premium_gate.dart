@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -191,7 +192,9 @@ class PremiumGate extends StatefulWidget {
 
 class _PremiumGateState extends State<PremiumGate> {
   bool _loadedLocal = false;
+  bool _mayShowLockedUi = false;
   DateTime? _localExpiry;
+  Timer? _lockedUiDelay;
 
   @override
   void initState() {
@@ -202,7 +205,19 @@ class _PremiumGateState extends State<PremiumGate> {
     _localExpiry = PremiumAccess.localExpirySyncForCurrentUser();
     _loadedLocal = PremiumAccess.localExpiryMemoryReadyForCurrentUser();
 
+    // لا نظهر كرت الاشتراك فورًا من Snapshot قديم/كاش؛ ننتظر لحظة قصيرة حتى يلحق
+    // الاشتراك المحلي أو رد Firestore. هذا يلغي وميض "يتطلب الاشتراك" للمشتركين.
+    _lockedUiDelay = Timer(const Duration(milliseconds: 750), () {
+      if (mounted) setState(() => _mayShowLockedUi = true);
+    });
+
     _loadLocal();
+  }
+
+  @override
+  void dispose() {
+    _lockedUiDelay?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadLocal() async {
@@ -263,12 +278,12 @@ class _PremiumGateState extends State<PremiumGate> {
             final remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(snap.data?.data());
             final effective = PremiumAccess._maxDate(remoteExpiry, _localExpiry);
             final active = effective != null && effective.isAfter(now);
+            final remoteConfirmed = snap.hasData && !snap.data!.metadata.isFromCache;
 
-            // لا نعرض الصفحة أثناء التأكد، ولا نعرض تحميل مزعج.
-            // لو المستخدم مشترك ومحفوظ محليًا تفتح الصفحة فورًا.
-            // لو ما عندنا حكم مؤكد، نعرض واجهة محايدة ثابتة بدون Spinner حتى لا يرى غير المشترك الصفحة لجزء من الثانية.
-            final checking = (!_loadedLocal && !snap.hasData) ||
-                (snap.connectionState == ConnectionState.waiting && !snap.hasData);
+            // لا نعرض كرت الاشتراك أثناء الحكم الأولي؛ بعض الأجهزة تستقبل Snapshot قديم من الكاش
+            // ثم يصل اشتراك المستخدم من السيرفر بعدها بلحظة، وهذا كان يسبب الوميض.
+            final checking = !active &&
+                (!_loadedLocal || !snap.hasData || (!remoteConfirmed && !_mayShowLockedUi));
             if (active) return widget.child;
             if (checking) return _PremiumDecisionShell(feature: widget.feature);
 
@@ -309,33 +324,10 @@ class _PremiumDecisionShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = Theme.of(context).colorScheme;
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: s.surface,
-        body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(feature.icon, size: 42, color: s.primary.withOpacity(.45)),
-                  const SizedBox(height: 10),
-                  Text(
-                    feature.titleAr,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: s.onSurface.withOpacity(.72),
-                        ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    // واجهة صامتة جدًا أثناء التحقق حتى لا يظهر للمستخدم وميض اشتراك أو قفل.
+    return Scaffold(
+      backgroundColor: s.surface,
+      body: const SizedBox.expand(),
     );
   }
 }

@@ -14,8 +14,6 @@ import 'regimen_screen.dart';
 import 'guide_page.dart';
 
 import 'package:my_app/achievements/achievements_with_leaderboard.dart';
-import '../shared/premium_gate.dart';
-import '../shared/premium_feature.dart';
 //import '../achievements/achievements_with_leaderboard.dart'; // يحتوي AchievementsPage
 import 'settings_page.dart';
 import '../settings/edit_username_page.dart';
@@ -181,15 +179,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       case 2:
         return const WeightTrackingPage(key: PageStorageKey('weight'));
       case 3:
-        return const PremiumGate(
-          feature: PremiumFeature.regimen,
-          child: RegimenScreen(key: PageStorageKey('regimen')),
-        );
+        return const RegimenScreen(key: PageStorageKey('regimen'));
       case 4:
-        return const PremiumGate(
-          feature: PremiumFeature.virtualClubGuide,
-          child: GuidePage(key: PageStorageKey('guide')),
-        );
+        return const GuidePage(key: PageStorageKey('guide'));
       case 5:
         return AchievementsPage(key: const PageStorageKey('achievements'));
       case 6:

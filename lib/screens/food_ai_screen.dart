@@ -1144,9 +1144,15 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       }
 
       String? warning;
-      if (kcal <= 0 && !_isAllowedZeroCase(map)) {
+      if (kcal <= 0 && mp <= 0 && mc <= 0 && mf <= 0 && !_isAllowedZeroCase(map)) {
         warning =
             'تم التعرف على الوجبة لكن تعذّر تقدير السعرات/الماكروز تلقائيًا. جرّب صورة أوضح أو أضف توضيح ثم أعد التحليل.';
+      } else {
+        final conf = _toD(map['confidence']);
+        if (conf > 0 && conf < 0.58) {
+          warning =
+              'الصورة غير واضحة بالكامل، لذلك هذا تقدير تقريبي. تقدر تضيف توضيح مثل الكمية أو اسم الوجبة ثم تعيد التحليل لدقة أعلى.';
+        }
       }
 
 // نثبت وجود note كسلسلة
@@ -1271,9 +1277,19 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
         throw Exception(
             'تعذر الوصول إلى خدمة تحليل الصور. تأكد من الشبكة وأن Cloud Function analyzeFood منشورة وتعمل.');
       String? warning;
-      if (_toD(map['calories']) <= 0) {
+      final rk = _toD(map['calories'] ?? map['kcal']);
+      final rp = _toD(map['protein'] ?? map['p']);
+      final rc = _toD(map['carbs'] ?? map['c']);
+      final rf = _toD(map['fat'] ?? map['f']);
+      if (rk <= 0 && rp <= 0 && rc <= 0 && rf <= 0 && !_isAllowedZeroCase(map)) {
         warning =
             'تم التعرف على الوجبة لكن تعذّر تقدير السعرات/الماكروز تلقائيًا. جرّب صورة أوضح أو اكتب كمية تقريبية في الملاحظة ثم أعد التحليل.';
+      } else {
+        final conf = _toD(map['confidence']);
+        if (conf > 0 && conf < 0.58) {
+          warning =
+              'الصورة غير واضحة بالكامل، لذلك هذا تقدير تقريبي. تقدر تضيف توضيح مثل الكمية أو اسم الوجبة ثم تعيد التحليل لدقة أعلى.';
+        }
       }
 
       if (clarifier.isNotEmpty) map['note'] = clarifier;
@@ -1746,12 +1762,22 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
         all.contains('قهوة') ||
         all.contains('coffee') ||
         all.contains('espresso') ||
-        all.contains('americano');
+        all.contains('americano') ||
+        all.contains('اسبريسو') ||
+        all.contains('امريكانو');
+    final bool blackCoffeeSignal = all.contains('قهوة سوداء') ||
+        all.contains('قهوه سوداء') ||
+        all.contains('black coffee') ||
+        all.contains('americano') ||
+        all.contains('espresso') ||
+        all.contains('اسبريسو') ||
+        all.contains('امريكانو');
     final bool noSugar = all.contains('بدون سكر') ||
         all.contains('no sugar') ||
         all.contains('unsweetened') ||
         all.contains('sugar free') ||
-        all.contains('sugar-free');
+        all.contains('sugar-free') ||
+        blackCoffeeSignal;
 
     return isDietSoda || (isTeaOrCoffee && noSugar);
   }
@@ -1813,8 +1839,10 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
 
       final int confPct = _smartPhotoConfidencePct(food);
 
-      final bool needClarification = (food['need_clarification'] == true) ||
-          (food['needClarification'] == true);
+      final bool hasAnyMacro = kcal > 0 || p > 0 || c > 0 || f > 0 || _isAllowedZeroCase(food);
+      final bool needClarification = ((food['need_clarification'] == true) ||
+              (food['needClarification'] == true)) &&
+          !hasAnyMacro;
       final List<String> clarificationQuestions =
           (food['clarification_questions'] is List)
               ? List<String>.from((food['clarification_questions'] as List)
@@ -2046,8 +2074,13 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
     final bool canSave = !_loading &&
         _error == null &&
         _food != null &&
-        !((_food?['need_clarification'] == true) ||
-            (_food?['needClarification'] == true));
+        !(((_food?['need_clarification'] == true) ||
+                (_food?['needClarification'] == true)) &&
+            _toD(_food?['calories'] ?? _food?['kcal']) <= 0 &&
+            _toD(_food?['protein'] ?? _food?['p']) <= 0 &&
+            _toD(_food?['carbs'] ?? _food?['c']) <= 0 &&
+            _toD(_food?['fat'] ?? _food?['f']) <= 0 &&
+            !_isAllowedZeroCase(Map<String, dynamic>.from(_food!)));
 
     return PremiumGate(
       feature: PremiumFeature.aiPhoto,
@@ -2360,7 +2393,7 @@ class _MacroGrid extends StatelessWidget {
               child: _MacroTile(
                 emoji: '🔥',
                 label: 'السعرات',
-                value: kcal > 0 ? '${kcal.toStringAsFixed(0)}' : '--',
+                value: kcal >= 0 ? '${kcal.toStringAsFixed(0)}' : '--',
                 unit: 'kcal',
               ),
             ),
@@ -2369,7 +2402,7 @@ class _MacroGrid extends StatelessWidget {
               child: _MacroTile(
                 emoji: '🥩',
                 label: 'البروتين',
-                value: protein > 0 ? protein.toStringAsFixed(1) : '--',
+                value: protein >= 0 ? protein.toStringAsFixed(1) : '--',
                 unit: 'جم',
               ),
             ),
@@ -2378,7 +2411,7 @@ class _MacroGrid extends StatelessWidget {
               child: _MacroTile(
                 emoji: '🍞',
                 label: 'الكارب',
-                value: carbs > 0 ? carbs.toStringAsFixed(1) : '--',
+                value: carbs >= 0 ? carbs.toStringAsFixed(1) : '--',
                 unit: 'جم',
               ),
             ),
@@ -2387,7 +2420,7 @@ class _MacroGrid extends StatelessWidget {
               child: _MacroTile(
                 emoji: '🥑',
                 label: 'الدهون',
-                value: fat > 0 ? fat.toStringAsFixed(1) : '--',
+                value: fat >= 0 ? fat.toStringAsFixed(1) : '--',
                 unit: 'جم',
               ),
             ),

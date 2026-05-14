@@ -1781,27 +1781,63 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
   }
 
   // ====== إضافة العناصر + حفظ + TrackerStore + مرآة فايرستور ======
-  Future<void> _addItemsToMealAndPersist(
+  Future<bool> _tryAddItemsToMealAndPersist(
     int mealIndex,
     List<Map<String, dynamic>> items,
   ) async {
-    // حفظ حالة ما قبل الإضافة للنقاط
-    final int _preTotalItems = meals.fold<int>(0, (acc, m) => acc + ((m['items'] as List).length));
-    final int _preSlotCount  = (meals[mealIndex]['items'] as List).length;
+    if (items.isEmpty) return false;
 
     await _rollToNewDayIfNeeded();
+    if (!mounted) return false;
+
+    if (mealIndex < 0 || mealIndex >= meals.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّرت إضافة الوجبة: خانة الوجبة غير موجودة. جرّب مرة ثانية.')),
+      );
+      return false;
+    }
+
+    final normalizedItems = items.map<Map<String, dynamic>>((it) {
+      final proteinVal = _toD(it['protein'] ?? it['protein_g'] ?? it['p']);
+      final carbsVal = _toD(it['carb'] ?? it['carbs'] ?? it['carbs_g'] ?? it['c']);
+      final fatVal = _toD(it['fat'] ?? it['fat_g'] ?? it['f']);
+      var calVal = _toD(it['cal'] ?? it['calories'] ?? it['calories_kcal'] ?? it['kcal']);
+
+      // حماية: إذا وصلت الماكروز بدون سعرات نحسبها بدل ما تفشل الإضافة أو تنحفظ بصفر خاطئ.
+      if (calVal <= 0 && (proteinVal > 0 || carbsVal > 0 || fatVal > 0)) {
+        calVal = (proteinVal * 4 + carbsVal * 4 + fatVal * 9).roundToDouble();
+      }
+
+      return <String, dynamic>{
+        ...it,
+        'name': (it['name'] ?? it['label'] ?? 'وجبة').toString().trim().isEmpty
+            ? 'وجبة'
+            : (it['name'] ?? it['label']).toString().trim(),
+        'cal': calVal,
+        'protein': proteinVal,
+        'carb': carbsVal,
+        'fat': fatVal,
+      };
+    }).toList();
+
+    // حفظ حالة ما قبل الإضافة للنقاط بعد التأكد أن مؤشر الوجبة صالح.
+    final int preTotalItems = meals.fold<int>(
+      0,
+      (acc, m) => acc + (((m['items'] as List?) ?? const []).length),
+    );
+    final int preSlotCount = ((meals[mealIndex]['items'] as List?) ?? const []).length;
 
     double cal = 0, p = 0, c = 0, f = 0;
-    for (final it in items) {
+    for (final it in normalizedItems) {
       cal += (it['cal'] as num).toDouble();
       p += (it['protein'] as num).toDouble();
       c += (it['carb'] as num).toDouble();
       f += (it['fat'] as num).toDouble();
     }
 
-    // 👇 (جديد) اطلب التأكيد قبل تجاوز السعرات
+    // اطلب التأكيد قبل تجاوز السعرات. إذا المستخدم ألغى لا نقفل شاشة الإدخال اليدوي فجأة.
     final ok = await _confirmExceedCalories(cal);
-    if (!ok) return;
+    if (!ok) return false;
 
     bool allow = true;
     try {
@@ -1814,42 +1850,92 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
         context: context,
       );
       allow = (res is bool) ? res : true;
-    } catch (_) {
-      // إذا فشل DietBus لأي سبب، لا تمنع الإضافة (كان يسبب: ما يضيف الوجبات)
+    } catch (e) {
+      // إذا فشل DietBus لأي سبب، لا تمنع الإضافة؛ هذا كان يظهر للمستخدم كأن زر الإضافة لا يعمل.
+      debugPrint('[MealsPersist] DietBus guard failed; allowing add: $e');
       allow = true;
     }
 
     if (!allow) {
-      if (!mounted) return;
-      
-      return;
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لم تتم إضافة الوجبة بسبب إعدادات الرجيم أو الصيام الحالية.')),
+      );
+      return false;
     }
 
     setState(() {
-      (meals[mealIndex]['items'] as List).addAll(items);
+      (meals[mealIndex]['items'] as List).addAll(normalizedItems);
       calculateTotals();
       _animSeed++; // 🔔 يحفّز الأنيميشن
     });
 
-    // نبضة اهتزاز خفيفة بعد الإضافة
     HapticFeedback.selectionClick();
 
-    
-    // 🔄 حفظ محلي مؤجل فقط؛ بدون Firestore ولا فهرسة ثقيلة وقت الإضافة.
-    Future.microtask(() async {
-      try {
-        await saveMeals();
-        _persistHomeSnapshotDebounced();
-      } catch (e) {
-        debugPrint('[MealsPersist] background persist failed: $e');
+    try {
+      await saveMeals();
+      _persistHomeSnapshotDebounced();
+    } catch (e) {
+      debugPrint('[MealsPersist] persist failed after add: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تمت الإضافة محليًا، لكن تعذّر حفظها مؤقتًا. جرّب فتح الصفحة من جديد.')),
+        );
       }
-    });
+    }
 
     // نقاط الوجبة بالخلفية، لا نوقف الواجهة.
-    unawaited(_awardMealPoints(mealIndex, _preTotalItems, _preSlotCount));
-}
+    unawaited(_awardMealPoints(mealIndex, preTotalItems, preSlotCount));
+    return true;
+  }
+
+  Future<void> _addItemsToMealAndPersist(
+    int mealIndex,
+    List<Map<String, dynamic>> items,
+  ) async {
+    await _tryAddItemsToMealAndPersist(mealIndex, items);
+  }
 
   // ====== نتيجة Food AI ======
+  bool _isAllowedZeroFoodAiResult(Map<dynamic, dynamic> map) {
+    final all = [
+      map['label'],
+      map['name'],
+      map['name_ar'],
+      map['name_en'],
+      map['serving'],
+      map['note'],
+      map['description_ar'],
+      map['wazin_analysis'],
+    ].where((e) => e != null).join(' ').toLowerCase();
+
+    final dietSoda = (all.contains('دايت') ||
+            all.contains('زيرو') ||
+            all.contains('zero') ||
+            all.contains('diet') ||
+            all.contains('بدون سكر') ||
+            all.contains('sugar free')) &&
+        (all.contains('كولا') ||
+            all.contains('بيبسي') ||
+            all.contains('cola') ||
+            all.contains('pepsi') ||
+            all.contains('صودا'));
+
+    final plainCoffeeOrTea = all.contains('قهوة سوداء') ||
+        all.contains('قهوه سوداء') ||
+        all.contains('black coffee') ||
+        all.contains('americano') ||
+        all.contains('espresso') ||
+        all.contains('امريكانو') ||
+        all.contains('اسبريسو') ||
+        all.contains('شاي بدون سكر') ||
+        all.contains('tea without sugar') ||
+        all.contains('unsweetened tea');
+
+    final water = all.contains('ماء') || all.contains('موية') || all.contains('water');
+    return dietSoda || plainCoffeeOrTea || water;
+  }
+
   Future<void> _handleFoodAiResult(int mealIndex, dynamic result) async {
     try {
       if (result == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
@@ -1868,10 +1954,11 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
       final c = _toD(map['carbs'] ?? map['carb']);
       final f = _toD(map['fat']);
 
-      if (cal <= 0) {
+      final bool zeroAllowed = cal <= 0 && p <= 0 && c <= 0 && f <= 0 && _isAllowedZeroFoodAiResult(map);
+      if (cal <= 0 && !zeroAllowed) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ما وصلت بيانات صالحة من تحليل الصورة')),
+          const SnackBar(content: Text('ما وصلت بيانات سعرات صالحة من تحليل الصورة. أعد التحليل أو أضف توضيح للوجبة.')),
         );
         return;
       }
@@ -2256,6 +2343,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
   }
   // ====== إدخال يدوي ======
   void showManualEntryForm(int mealIndex, {String? barcode}) {
+    final rootContext = this.context;
     final nameController = TextEditingController();
     final calController = TextEditingController();
     final proteinController = TextEditingController();
@@ -2425,7 +2513,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                             return;
                           }
 
-                          await _addItemsToMealAndPersist(mealIndex, [
+                          final added = await _tryAddItemsToMealAndPersist(mealIndex, [
                             {
                               'name': mealName,
                               'cal': cal,
@@ -2435,7 +2523,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                             }
                           ]);
 
-                          
+                          if (!added) return;
 
                           // ✅ حفظ المنتج في كاش الباركود (Firestore) إذا كان هذا الإدخال جاء من مسح باركود ولم يُوجد المنتج
                           final String bc = (barcode ?? '').trim();
@@ -2455,7 +2543,11 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                               debugPrint('[BARCODE] custom cache write failed: $e');
                             }
                           }
-if (mounted) Navigator.pop(context);
+                          if (!mounted) return;
+                          Navigator.of(ctx).pop();
+                          ScaffoldMessenger.of(rootContext).showSnackBar(
+                            SnackBar(content: Text('تمت إضافة "$mealName" إلى ${meals[mealIndex]['name']}')),
+                          );
                         },
                         icon: const Icon(Icons.save),
                         label: const Text("حفظ"),

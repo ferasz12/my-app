@@ -1370,6 +1370,17 @@ final List<Map<String, dynamic>>? items =
         wazinAnalysis: _s(compat['wazin_analysis']).trim().isNotEmpty ? _s(compat['wazin_analysis']) : (_s(core['wazin_analysis']).trim().isNotEmpty ? _s(core['wazin_analysis']) : null),
 );
     } catch (e) {
+      // لا نخفي أخطاء مهمة مثل الضغط/الحد اليومي/المصادقة؛ لازم توصل للواجهة برسالة واضحة.
+      if (e is DailyLimitExceeded || e is ServiceBusy) rethrow;
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('تسجيل الدخول') ||
+          msg.contains('app check') ||
+          msg.contains('appcheck') ||
+          msg.contains('401') ||
+          msg.contains('403') ||
+          msg.contains('unauth')) {
+        rethrow;
+      }
       debugPrint('[Proxy] error: $e');
       return null;
     }

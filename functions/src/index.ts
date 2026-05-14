@@ -600,9 +600,10 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
   return [
     'You are Wazin Vision V2, a restaurant-aware nutrition analysis engine for the Arabic health app Wazin (وازن).',
     'Return ONLY valid compact JSON matching the schema. No markdown. No prose. No extra keys.',
-    'Main goal: identify the exact visible meal, identify restaurant/brand evidence, estimate portions only when clear, and calculate realistic macros.',
-    'Strict safety goal: do NOT show macros when the exact meal, restaurant item, size, drink sugar status, or main portion is materially uncertain. In that case return need_clarification=true, questions, items=[], and total_macros all zeros.',
-    'The meal title must be specific. Never use generic titles like وجبة مختلطة, برجر, ساندويتش, طبق, or وجبة unless the image is truly unclear.',
+    'Main goal: identify the most likely visible meal, identify restaurant/brand evidence, estimate realistic portions, and calculate realistic macros even if the photo is not perfect.',
+    'Do NOT stop analysis just because the photo is blurry, dark, cropped, low-confidence, or the size is uncertain. In those cases produce a conservative best-effort estimate, lower confidence, and mention uncertainty in wazin_analysis.',
+    'Use need_clarification=true only when there is no edible/drinkable item at all or the image is impossible to interpret even as a broad category. Never use it for ordinary blurry food if you can identify a likely category.',
+    'The meal title should be as specific as the evidence allows. If exact item is unclear, use a natural title like برجر غير محدد, رز مع شعيرية تقديري, قهوة سوداء بدون سكر, or وجبة مطعم تقديرية instead of blocking analysis.',
     '',
     'EVIDENCE PRIORITY:',
     '1) User note / clarifier is the strongest evidence.',
@@ -616,16 +617,17 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
     '- If McDonald’s, KFC, AlBaik, Burger King, Starbucks, Subway, Herfy, Maestro Pizza, Dominos, Pizza Hut, Shawarma House, or any other restaurant/brand is visible, include the restaurant name naturally in meal.name_ar and item name_ar.',
     '- Example: if McDonald’s branding is visible, do NOT say برجر مشوي. Say ماكدونالدز - برجر غير محدد and ask for the exact sandwich if the exact item is not clear.',
     '- If the exact menu item is readable or clearly identifiable, name it specifically, e.g. ماكدونالدز - بيج ماك, ماكدونالدز - بطاطس وسط, ستاربكس - لاتيه مثلج.',
-    '- If restaurant is detected but exact menu item is not clear, return need_clarification=true, items=[], total_macros=0, and ask for exact order name and size.',
-    '- If fries/drinks/sides are visible but size is unclear, ask about size: صغير، وسط، كبير.',
-    '- If drink sugar status is unclear, ask whether it is عادي or دايت/زيرو.',
-    '- Do NOT invent official restaurant macros when the exact menu item and size are not identified.',
+    '- If restaurant is detected but the exact menu item is not clear, estimate the most likely broad item and use a conservative medium/common portion. Put the uncertainty in wazin_analysis and keep confidence lower.',
+    '- If fries/drinks/sides are visible but size is unclear, assume medium/common size and lower confidence instead of returning zero.',
+    '- If drink sugar status is unclear, assume regular/sugared by default, lower confidence, and mention that the user can edit or reanalyze if it was diet/zero.',
+    '- Do NOT invent official restaurant macros as facts; mark them as estimates through lower confidence and wording.',
     '',
     'ANTI-HALLUCINATION RULES:',
     '- Do not claim a specific restaurant item unless there is visible evidence or the user note states it.',
     '- Do not claim grilled/fried/light/zero/diet unless visible or stated.',
     '- Do not guess sauces, cheese, or oil as facts unless visible or stated.',
     '- Do not output high confidence for branded restaurant food unless the restaurant, exact item, and size are clear.',
+    '- Low confidence is acceptable. Low confidence must still include estimated macros when a likely food category is visible.',
     '- Confidence 0.85-0.95 only when item + quantity/size are clear.',
     '- Confidence 0.70-0.84 when item is likely but quantity/size is reasonably estimated.',
     '- Confidence 0.50-0.69 when restaurant or item is uncertain and clarification should usually be requested.',
@@ -642,8 +644,8 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
     '- Merge tiny garnish only when nutritionally negligible.',
     '',
     'CLARIFICATION RULES:',
-    '- Ask short Arabic clarification questions only when the answer materially changes calories/macros.',
-    '- For restaurant food, ask when exact item, size, or drink type is unclear.',
+    '- Prefer calculating a best-effort estimate over asking questions.',
+    '- Ask short Arabic clarification questions only when there is no edible/drinkable item or the image cannot be interpreted even broadly.',
     '- Good question examples:',
     '  هل الطلب من ماكدونالدز؟ وما اسم الساندويتش بالضبط؟',
     '  حجم البطاطس والمشروب صغير ولا وسط ولا كبير؟',
@@ -653,7 +655,7 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
     'OUTPUT STYLE:',
     '- primary_query must be a short English nutrition search phrase. For restaurant food, include restaurant name and menu item when known, e.g. McDonald’s Big Mac, McDonald’s medium fries.',
     '- wazin_analysis must be a short friendly Saudi-dialect tip.',
-    '- If need_clarification=true, wazin_analysis must say that Wazin will not calculate macros until the missing details are confirmed.',
+    '- If the estimate is uncertain, wazin_analysis must clearly say it is تقديري and the user can add details for better accuracy.',
     `User Note: ${note || "(none)"}`,
   ].join("\n");
 }
@@ -860,43 +862,55 @@ function enforceWazenVisionV2StrictGate(base: WazenVisionAnalysis, userNote = ''
   const hasDrinkOrFries = isDrinkOrFriesText(allSignals);
   const maybeDrink = /(drink|cola|coke|pepsi|sprite|fanta|مشروب|كولا|بيبسي|سبرايت|فانتا)/i.test(allSignals);
 
-  if (base.need_clarification === true && Array.isArray(base.questions) && base.questions.length > 0) {
+  const hasAnyMacro =
+    num(base?.total_macros?.calories_kcal) > 0 ||
+    num(base?.total_macros?.protein_g) > 0 ||
+    num(base?.total_macros?.carbs_g) > 0 ||
+    num(base?.total_macros?.fat_g) > 0 ||
+    items.some((item) =>
+      num(item?.est?.kcal) > 0 ||
+      num(item?.est?.protein_g) > 0 ||
+      num(item?.est?.carbs_g) > 0 ||
+      num(item?.est?.fat_g) > 0
+    );
+
+  if (base.need_clarification === true && (items.length > 0 || hasAnyMacro)) {
+    return {
+      ...base,
+      need_clarification: false,
+      questions: [],
+      wazin_analysis: normStr(base.wazin_analysis) || 'الصورة غير واضحة بالكامل، لذلك هذا تقدير تقريبي. أضف تفاصيل أكثر إذا تبي دقة أعلى.',
+    };
+  }
+
+  if (base.need_clarification === true && Array.isArray(base.questions) && base.questions.length > 0 && !items.length && !hasAnyMacro) {
     return makeStrictVisionClarification(
       mealName,
       base.questions,
-      'نحتاج توضيح بسيط قبل الحساب عشان ما نعطيك ماكروز غلط.'
+      'نحتاج توضيح بسيط قبل الحساب لأن الصورة ما أوضحت لنا أي طعام بشكل كافي.'
     );
   }
 
-  if (restaurantSignal && (unclearWords || genericMeal || !items.length)) {
-    questions.push(restaurant ? `واضح أنها من ${restaurant}. وش اسم الطلب بالضبط؟` : 'وش اسم المطعم واسم الطلب بالضبط؟');
+  if (!items.length && !hasAnyMacro && !hasUserNote) {
+    if (restaurantSignal) {
+      questions.push(restaurant ? `واضح أنها من ${restaurant}، لكن الصورة ما أوضحت الطعام نفسه. وش اسم الطلب تقريبًا؟` : 'الصورة تبين مطعم/عبوة لكن الطعام غير واضح. وش اسم الطلب تقريبًا؟');
+    } else if (genericMeal || unclearWords) {
+      questions.push('الصورة غير واضحة جدًا. اكتب اسم الوجبة أو مكوناتها الأساسية ثم أعد التحليل.');
+    }
   }
 
-  if (restaurantSignal && hasDrinkOrFries && !hasRestaurantSizeWord(allSignals)) {
-    questions.push('حجم البطاطس أو المشروب صغير ولا وسط ولا كبير؟');
-  }
-
-  if (restaurantSignal && maybeDrink && !hasDrinkSugarStatus(allSignals)) {
-    questions.push('المشروب عادي أو دايت/زيرو؟');
-  }
-
-  if (!restaurantSignal && genericMeal && !hasUserNote) {
-    questions.push('وش اسم الوجبة أو مكوناتها الأساسية؟ وهل هي من مطعم أو منزلية؟');
-  }
-
-  if (majorMissingPortion && !hasUserNote) {
-    questions.push('كم تقريبًا كمية أو حجم الحصة لكل عنصر واضح بالصورة؟');
-  }
-
-  if (items.length > 0 && avgConf > 0 && avgConf < 0.62 && !hasUserNote) {
-    questions.push('الصورة غير واضحة كفاية. اكتب اسم الوجبة والكمية تقريبًا ثم أعد التحليل.');
-  }
+  // لا نوقف التحليل بسبب حجم/مشروب/ثقة منخفضة. نترك التقدير يظهر للمستخدم مع ثقة أقل.
+  void restaurantSignal;
+  void hasDrinkOrFries;
+  void maybeDrink;
+  void majorMissingPortion;
+  void avgConf;
 
   if (questions.length > 0) {
     return makeStrictVisionClarification(
       mealName,
       questions,
-      'وازن ما راح يحسب الماكروز الآن لأن الوجبة تحتاج تأكيد بسيط. اكتب التفاصيل ثم أعد التحليل.'
+      'الصورة غير واضحة جدًا لدرجة تمنع التقدير. اكتب اسم الوجبة أو صوّرها من زاوية أوضح.'
     );
   }
 
@@ -1389,8 +1403,8 @@ function isLikelyZeroCalorieVisionItem(item: Partial<WazenVisionItem>) {
 
 function isLikelyCarbFoodName(sRaw: string) {
   const s = normalizeEnText(sRaw);
-  return /(rice|bread|toast|bun|pita|tortilla|wrap|pasta|noodle|potato|fries|wedge|chips|date|banana|apple|orange|mango|fruit|juice|cake|cookie|biscuit|dessert|oat|oats|cereal|corn|granola|cracker|croissant|pastry|donut|doughnut|pizza|burger|sandwich|shawarma)/i.test(s)
-    || /(رز|أرز|خبز|توست|صامولي|بطاطس|بطاطا|مكرونة|معكرونة|نودلز|تمر|فواكه|فاكهة|تفاح|موز|برتقال|مانجو|عصير|كيك|بسكويت|حلى|شوفان|كرواسون|دونات|بيتزا|برغر|ساندويتش|شاورما)/.test(sRaw);
+  return /(rice|bread|toast|bun|pita|tortilla|wrap|pasta|noodle|vermicelli|potato|fries|wedge|chips|date|banana|apple|orange|mango|fruit|juice|cake|cookie|biscuit|dessert|oat|oats|cereal|corn|granola|cracker|croissant|pastry|donut|doughnut|pizza|burger|sandwich|shawarma)/i.test(s)
+    || /(رز|أرز|خبز|توست|صامولي|بطاطس|بطاطا|مكرونة|معكرونة|نودلز|شعيرية|شعيريه|تمر|فواكه|فاكهة|تفاح|موز|برتقال|مانجو|عصير|كيك|بسكويت|حلى|شوفان|كرواسون|دونات|بيتزا|برغر|ساندويتش|شاورما)/.test(sRaw);
 }
 
 function isLikelyProteinFoodName(sRaw: string) {
@@ -1419,6 +1433,7 @@ function estimateZeroSafeVisionMacros(item: WazenVisionItem) {
   });
 
   if (/(rice)/i.test(s) || /(رز|أرز)/.test(sRaw)) return per100(130, 2.7, 28.2, 0.3);
+  if (/(vermicelli|thin noodles|noodle)/i.test(s) || /(شعيرية|شعيريه|نودلز)/.test(sRaw)) return per100(157, 5.8, 30.9, 0.9);
   if (/(chicken breast|grilled chicken|chicken)/i.test(s) || /(صدر دجاج|دجاج مشوي|دجاج)/.test(sRaw)) return per100(165, 31, 0, 3.6);
   if (/(potato wedge|wedges|fries|french fries)/i.test(s) || /(بطاطا ويدجز|بطاطس ويدجز|ويدجز|بطاطس مقلية|بطاطا مقلية|فرنش فرايز)/.test(sRaw)) return per100(150, 2.5, 23, 5);
   if (/(potato)/i.test(s) || /(بطاطا|بطاطس)/.test(sRaw)) return per100(87, 2, 20.1, 0.1);
@@ -1542,6 +1557,64 @@ function finalizeWazenVisionAnalysis(base: WazenVisionAnalysis): WazenVisionAnal
       fat_g: round1(total.fat_g),
     }),
   };
+}
+
+
+async function forceEstimateUnclearWazenVisionWithGemini({
+  base,
+  img,
+  userClarifier,
+  model,
+  apiKey,
+}: {
+  base: WazenVisionAnalysis;
+  img: {mime: string; data: string};
+  userClarifier: string;
+  model: string;
+  apiKey: string;
+}): Promise<WazenVisionAnalysis> {
+  const prompt = [
+    'Analyze this food/drink image for Wazin and produce a best-effort nutrition estimate.',
+    'The previous result was too unclear or asked for clarification. The app needs an estimated result instead of zeros whenever a likely edible/drinkable item is visible.',
+    'Rules:',
+    '- If any food or drink is visible, identify the most likely broad category and calculate realistic conservative macros.',
+    '- If the image is blurry/dark/cropped, still estimate with lower confidence; do not return all-zero macros for normal edible food.',
+    '- Use need_clarification=false when you provide any estimate.',
+    '- Use need_clarification=true only if there is truly no food/drink visible at all.',
+    '- For black coffee, unsweetened tea, water, and diet/zero soda, 0 calories is allowed.',
+    '- For rice, vermicelli/noodles, bread, pasta, potatoes, fruit, juice, desserts, carbs must usually be above 0 when portion is positive.',
+    '- For chicken, meat, fish, eggs, yogurt, cheese, legumes, protein must usually be above 0 when portion is positive.',
+    '- Estimate grams/ml if exact portion is unknown. Common single-serving assumptions are acceptable.',
+    '- wazin_analysis must be Arabic/Saudi and clearly say تقدير تقريبي when confidence is low.',
+    '',
+    `User note: ${normStr(userClarifier) || '(none)'}`,
+    `Previous JSON: ${JSON.stringify(stripUndefinedDeep(base)).slice(0, 2500)}`,
+    '',
+    'Return ONLY one compact JSON object that matches the same schema.'
+  ].join('\n');
+
+  try {
+    const estimatedText = await geminiGenerateStructuredJsonWithRetry({
+      parts: [
+        {text: prompt},
+        {inline_data: {mime_type: img.mime, data: img.data}},
+      ],
+      model,
+      apiKey,
+      systemInstruction: buildWazenVisionSystemInstructionV2(userClarifier),
+      responseSchema: WAZEN_VISION_RESPONSE_SCHEMA,
+      temperature: 0.18,
+      maxOutputTokens: 3200,
+      maxAttempts: 1,
+    });
+    const estimatedRaw = tryExtractJson(estimatedText);
+    if (!estimatedRaw) return base;
+    const normalized = normalizeWazenVisionResponse(estimatedRaw);
+    return enforceWazenVisionV2StrictGate(enhanceWazenVisionV2(normalized, userClarifier), userClarifier);
+  } catch (e) {
+    logger.warn('vision force-estimate failed', {error: String((e as any)?.message || e).slice(0, 180)});
+    return base;
+  }
 }
 
 async function repairWazenVisionSuspiciousZerosWithGemini({
@@ -4211,6 +4284,7 @@ export const analyzeMealText = onCall(
       };
 
       if (/(rice)/i.test(s) || /(رز|أرز)/.test(sRaw)) return per100(130, 2.7, 28.2, 0.3);
+  if (/(vermicelli|thin noodles|noodle)/i.test(s) || /(شعيرية|شعيريه|نودلز)/.test(sRaw)) return per100(157, 5.8, 30.9, 0.9);
       if (/(chicken breast|grilled chicken|chicken)/i.test(s) || /(صدر دجاج|دجاج مشوي|دجاج)/.test(sRaw)) return per100(165, 31, 0, 3.6);
       if (/(potato wedge|wedges|fries|french fries)/i.test(s) || /(بطاطا ويدجز|بطاطس ويدجز|ويدجز|بطاطس مقلية|بطاطا مقلية|فرنش فرايز)/.test(sRaw)) return per100(150, 2.5, 23, 5);
       if (/(potato)/i.test(s) || /(بطاطا|بطاطس)/.test(sRaw)) return per100(87, 2, 20.1, 0.1);
@@ -4798,6 +4872,18 @@ export const analyzeFood = onRequest(
       let normalized = normalizeWazenVisionResponse(raw);
       if (useVisionV2) {
         normalized = enforceWazenVisionV2StrictGate(enhanceWazenVisionV2(normalized, userClarifier), userClarifier);
+        const needsForceEstimate =
+          !hasUsableWazenVisionAnalysis(normalized) ||
+          (normalized.need_clarification === true && (!Array.isArray(normalized.items) || normalized.items.length === 0));
+        if (needsForceEstimate) {
+          normalized = await forceEstimateUnclearWazenVisionWithGemini({
+            base: normalized,
+            img,
+            userClarifier,
+            model,
+            apiKey: geminiKey,
+          });
+        }
       }
 
       if (!hasUsableWazenVisionAnalysis(normalized)) {
@@ -4834,6 +4920,18 @@ export const analyzeFood = onRequest(
             normalized = normalizeWazenVisionResponse(repairedRaw);
             if (useVisionV2) {
               normalized = enforceWazenVisionV2StrictGate(enhanceWazenVisionV2(normalized, userClarifier), userClarifier);
+              const needsForceEstimate =
+                !hasUsableWazenVisionAnalysis(normalized) ||
+                (normalized.need_clarification === true && (!Array.isArray(normalized.items) || normalized.items.length === 0));
+              if (needsForceEstimate) {
+                normalized = await forceEstimateUnclearWazenVisionWithGemini({
+                  base: normalized,
+                  img,
+                  userClarifier,
+                  model,
+                  apiKey: geminiKey,
+                });
+              }
             }
           }
         } catch (e: any) {
@@ -4862,6 +4960,13 @@ export const analyzeFood = onRequest(
       let finalVisionOut = useVisionV2 ? enhanceWazenVisionV2(repaired, userClarifier) : repaired;
       if (useVisionV2) {
         finalVisionOut = enforceWazenVisionV2StrictGate(finalVisionOut, userClarifier);
+        if (hasUsableWazenVisionAnalysis(finalVisionOut) && Array.isArray(finalVisionOut.items) && finalVisionOut.items.length > 0) {
+          finalVisionOut = {
+            ...finalVisionOut,
+            need_clarification: false,
+            questions: [],
+          };
+        }
       }
       res.status(200).json(stripUndefinedDeep(finalVisionOut));
     } catch (err: any) {
@@ -7395,3 +7500,13 @@ export const getPublicSupportTicket = onRequest(
     }
   }
 );
+
+// Apple Affiliate / Influencer Offer Codes dashboard
+export {
+  appleAffiliateDashboard,
+  createAppleAffiliateInfluencer,
+  createAppleAffiliateOfferCode,
+  updateAppleAffiliateOfferCode,
+  addAppleAffiliateTransaction,
+  appleAffiliateRedeem,
+} from "./apple_affiliates.js";
