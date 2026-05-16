@@ -1433,7 +1433,29 @@ final List<Map<String, dynamic>>? items =
 
   static bool _containsAny(String text, List<String> needles) {
     final t = _normFoodText(text);
-    return needles.any((n) => t.contains(_normFoodText(n)));
+
+    return needles.any((n) {
+      final needle = _normFoodText(n);
+      if (needle.isEmpty) return false;
+
+      // English words/phrases must match as real words.
+      // This prevents false positives like: rice -> ice, spice -> ice.
+      if (RegExp(r'[a-z]').hasMatch(needle)) {
+        final phrase = needle
+            .split(RegExp(r'\s+'))
+            .where((p) => p.isNotEmpty)
+            .map(RegExp.escape)
+            .join(r'\s+');
+
+        return RegExp(
+          '(^|[^a-z0-9])$phrase([^a-z0-9]|\$)',
+          caseSensitive: false,
+        ).hasMatch(t);
+      }
+
+      // Arabic matching can stay as contains because Arabic food words here are clear.
+      return t.contains(needle);
+    });
   }
 
   static bool _hasSweetenerOrMilk(String text) {
