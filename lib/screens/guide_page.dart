@@ -15,6 +15,7 @@ import 'restaurants_page.dart';
 import 'virtual_gym_page.dart';
 import 'training_schedule_page.dart';
 import '../features/recipes/ui/recipes_explore_page.dart';
+import 'community_page.dart';
 import '../trainers/my_trainer_screen.dart';
 import '../trainers/trainer_dashboard_screen.dart';
 import '../trainers/trainer_contact_gate.dart';
@@ -224,6 +225,12 @@ class _GuidePageState extends State<GuidePageInner> {
         title: 'استكشف الوصفات',
         description: 'تصفّح وصفات المجتمع مع الماكروز والسعرات.',
         onTap: () => _safePush(RecipesExplorePage()),
+      ),
+      _GuideCard(
+        icon: Icons.forum_rounded,
+        title: 'مجتمع وازن',
+        description: 'بوستات نصية، أسئلة، معلومات، وصفات وتعليقات من المستخدمين.',
+        onTap: () => _safePush(const CommunityPage()),
       ),
       _GuideCard(
         icon: Icons.fastfood_rounded,

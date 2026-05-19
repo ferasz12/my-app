@@ -23,6 +23,8 @@ import 'package:provider/provider.dart';
 import '../data/recipe_repository.dart';
 import '../models/recipe.dart';
 import 'widgets/recipe_card.dart';
+import '../../../models/community_models.dart';
+import '../../../screens/community_page.dart';
 
 enum RecipeSort { newest, mostSaved, highestProtein }
 
@@ -181,6 +183,45 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
   }
 
   bool get _canModerate => _myRole == 'owner' || _myRole == 'admin' || _myRole == 'support';
+
+  String _recipeShareText(Recipe r) {
+    final title = r.title.trim().isEmpty ? 'وصفة من وازن' : r.title.trim();
+    final kcal = r.calories.isFinite ? r.calories.round().toString() : '-';
+    final p = r.protein.isFinite ? r.protein.round().toString() : '-';
+    final c = r.carbs.isFinite ? r.carbs.round().toString() : '-';
+    final f = r.fat.isFinite ? r.fat.round().toString() : '-';
+    final caption = (r.caption ?? '').trim();
+
+    final buffer = StringBuffer()
+      ..writeln('**$title**')
+      ..writeln()
+      ..writeln('السعرات: $kcal سعرة')
+      ..writeln('البروتين: $p جم')
+      ..writeln('الكارب: $c جم')
+      ..writeln('الدهون: $f جم');
+
+    if (caption.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln(caption);
+    }
+
+    return buffer.toString().trim();
+  }
+
+  void _shareRecipeToCommunity(Recipe r) {
+    final title = r.title.trim().isEmpty ? 'وصفة من وازن' : r.title.trim();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CommunityPage(
+          initialCategory: CommunityCategory.recipe,
+          initialText: _recipeShareText(r),
+          linkedRecipeId: r.id,
+          linkedRecipeTitle: title,
+        ),
+      ),
+    );
+  }
 
   void _subscribeRecipes() {
     _recipesSub?.cancel();
@@ -369,10 +410,18 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
     return PremiumGate(
       feature: PremiumFeature.recipes,
       child: Directionality(
-      textDirection: TextDirection.ltr,
+      textDirection: TextDirection.rtl,
       child: Scaffold(
+        backgroundColor: const Color(0xFFF6FAF8),
         appBar: AppBar(
-          title: const Text('الوصفات'),
+          centerTitle: true,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          backgroundColor: const Color(0xFFF6FAF8),
+          title: const Text(
+            'استكشاف الوصفات',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
           actions: [
             IconButton(
               tooltip: 'إعادة التصفح',
@@ -382,6 +431,9 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
           ],
           bottom: TabBar(
             controller: _tabs,
+            indicatorSize: TabBarIndicatorSize.tab,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w900),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
             tabs: const [
               Tab(text: 'استكشاف'),
               Tab(text: 'المفضلات'),
@@ -391,9 +443,13 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
         floatingActionButton: (_loadingGuard || _loadingRole)
             ? null
             : (_guard.allowed
-                ? FloatingActionButton(
+                ? FloatingActionButton.extended(
                     onPressed: _onTapAdd,
-                    child: const Icon(Icons.add),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text(
+                      'وصفة جديدة',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   )
                 : null),
         body: (_loadingGuard || _loadingRole)
@@ -408,6 +464,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                         padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
                         child: Column(
                           children: [
+                            const _ExploreHero(),
+                            const SizedBox(height: 12),
                             banner,
                             _ExploreFilters(
                               goal: _filterGoal,
@@ -435,9 +493,10 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(Icons.restaurant_menu, size: 44),
-                                            const SizedBox(height: 8),
-                                            const Text('لا توجد وصفات جديدة في هذا التصفح'),
+                                            const Text(
+                                              'لا توجد وصفات جديدة في هذا التصفح',
+                                              style: TextStyle(fontWeight: FontWeight.w900),
+                                            ),
                                             const SizedBox(height: 10),
                                             OutlinedButton.icon(
                                               onPressed: _resetSession,
@@ -504,7 +563,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                                             );
                                           }
                                         },
-                                        topRight: _canModerate
+                                        onShareToCommunity: () => _shareRecipeToCommunity(r),
+                                      topRight: _canModerate
                                             ? AdminRecipeActions(recipe: r, myRole: _myRole, repo: repo)
                                             : null,
                                       );
@@ -563,6 +623,7 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                                           );
                                         }
                                       },
+                                      onShareToCommunity: () => _shareRecipeToCommunity(r),
                                       topRight: _canModerate
                                           ? AdminRecipeActions(recipe: r, myRole: _myRole, repo: repo)
                                           : null,
@@ -577,6 +638,61 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
               ),
       ),
     ),
+    );
+  }
+}
+
+class _ExploreHero extends StatelessWidget {
+  const _ExploreHero();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final primary = t.colorScheme.primary;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            primary.withOpacity(0.16),
+            const Color(0xFFFFFFFF),
+          ],
+        ),
+        border: Border.all(color: primary.withOpacity(0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'وصفات مجتمع وازن',
+            style: t.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'استكشف أفكار صحية مرتبة حسب هدفك واحفظ الوصفات المناسبة لك.',
+            style: t.textTheme.bodySmall?.copyWith(
+              height: 1.35,
+              color: t.textTheme.bodySmall?.color?.withOpacity(0.72),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -597,53 +713,168 @@ class _ExploreFilters extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final cs = t.colorScheme;
 
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<RecipeGoal?>(
-                value: goal,
-                items: <DropdownMenuItem<RecipeGoal?>>[
-                  const DropdownMenuItem(value: null, child: Text('كل الأهداف')),
-                  ...RecipeGoal.values.map(
-                    (g) => DropdownMenuItem(value: g, child: Text(g.labelAr)),
-                  ),
-                ],
-                onChanged: onGoalChanged,
-                decoration: InputDecoration(
-                  labelText: 'فلترة الهدف',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  isDense: true,
-                ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.primary.withOpacity(0.10)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.035),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'تصفية الوصفات',
+            style: t.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<RecipeGoal?>(
+            value: goal,
+            items: <DropdownMenuItem<RecipeGoal?>>[
+              const DropdownMenuItem(value: null, child: Text('كل الأهداف')),
+              ...RecipeGoal.values.map(
+                (g) => DropdownMenuItem(value: g, child: Text(g.labelAr)),
+              ),
+            ],
+            onChanged: onGoalChanged,
+            decoration: InputDecoration(
+              labelText: 'الهدف',
+              filled: true,
+              fillColor: const Color(0xFFF6FAF8),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: cs.primary.withOpacity(0.12)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: cs.primary.withOpacity(0.45), width: 1.2),
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(4),
+            style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          _SortSelector(sort: sort, onChanged: onSortChanged),
+        ],
+      ),
+    );
+  }
+}
+
+class _SortSelector extends StatelessWidget {
+  final RecipeSort sort;
+  final ValueChanged<RecipeSort> onChanged;
+
+  const _SortSelector({required this.sort, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 380;
+        final children = [
+          _SortPill(
+            label: 'الأحدث',
+            selected: sort == RecipeSort.newest,
+            onTap: () => onChanged(RecipeSort.newest),
+          ),
+          _SortPill(
+            label: 'الأكثر حفظًا',
+            selected: sort == RecipeSort.mostSaved,
+            onTap: () => onChanged(RecipeSort.mostSaved),
+          ),
+          _SortPill(
+            label: 'الأعلى بروتين',
+            selected: sort == RecipeSort.highestProtein,
+            onTap: () => onChanged(RecipeSort.highestProtein),
+          ),
+        ];
+
+        if (compact) {
+          return Column(
+            children: children
+                .map((w) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: SizedBox(width: double.infinity, child: w),
+                    ))
+                .toList(growable: false),
+          );
+        }
+
+        return Row(
+          children: children
+              .map((w) => Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: w,
+                    ),
+                  ))
+              .toList(growable: false),
+        );
+      },
+    );
+  }
+}
+
+class _SortPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SortPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final primary = t.colorScheme.primary;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          height: 42,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
+            color: selected ? primary.withOpacity(0.12) : const Color(0xFFF7FAF8),
             borderRadius: BorderRadius.circular(16),
-            color: t.colorScheme.surfaceContainerHighest.withOpacity(0.55),
-            border: Border.all(color: t.dividerColor.withOpacity(0.22)),
+            border: Border.all(
+              color: selected ? primary.withOpacity(0.40) : Colors.black.withOpacity(0.07),
+            ),
           ),
-          child: SegmentedButton<RecipeSort>(
-            segments: const [
-              ButtonSegment(value: RecipeSort.highestProtein, label: Text('الأعلى بروتين'), icon: Icon(Icons.fitness_center, size: 18)),
-              ButtonSegment(value: RecipeSort.mostSaved, label: Text('الأكثر حفظًا'), icon: Icon(Icons.favorite, size: 18)),
-              ButtonSegment(value: RecipeSort.newest, label: Text('الأحدث'), icon: Icon(Icons.schedule, size: 18)),
-            ],
-            selected: <RecipeSort>{sort},
-            showSelectedIcon: false,
-            onSelectionChanged: (s) {
-              final v = s.isEmpty ? RecipeSort.newest : s.first;
-              onSortChanged(v);
-            },
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w900,
+              color: selected ? primary : t.textTheme.bodyMedium?.color?.withOpacity(0.76),
+            ),
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -717,7 +948,7 @@ class AdminRecipeActions extends StatelessWidget {
               context: context,
               builder: (_) {
                 return Directionality(
-                  textDirection: TextDirection.ltr,
+                  textDirection: TextDirection.rtl,
                   child: AlertDialog(
                     title: const Text('تعديل الوصفة'),
                     content: SingleChildScrollView(

@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#016C66" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>وازن | إدارة المؤثرين</title>
+  <link rel="icon" type="image/png" href="/wazen_logo.png?v=20260515" />
+  <link rel="apple-touch-icon" href="/wazen_logo.png?v=20260515" />
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root{--brand:#016C66;--bg:#041210;--panel:rgba(255,255,255,.085);--text:#F7FFFE;--muted:rgba(247,255,254,.72);--line:rgba(255,255,255,.13);--danger:#FFB4B4;--success:#91F6CB;--warn:#FFD990;--shadow:0 28px 90px rgba(0,0,0,.40);--radius:26px}*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:"Tajawal",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:var(--text);background:radial-gradient(900px 640px at 0% -10%,rgba(25,221,208,.24),transparent 58%),radial-gradient(760px 620px at 100% 10%,rgba(1,108,102,.30),transparent 60%),linear-gradient(180deg,#041210,#06201c 56%,#03100e)}button,input,textarea,select{font-family:inherit}button{cursor:pointer}a{color:inherit;text-decoration:none}.ltr{direction:ltr;text-align:left}.hidden{display:none!important}.wrap{width:min(1240px,100%);margin:auto;padding:16px;display:grid;gap:14px}.top{border:1px solid var(--line);border-radius:28px;background:var(--panel);box-shadow:var(--shadow);padding:16px;display:flex;align-items:center;gap:12px;backdrop-filter:blur(16px)}.logo{width:54px;height:54px;border-radius:18px;overflow:hidden;border:1px solid var(--line);background:rgba(255,255,255,.08);flex:0 0 auto}.logo img{width:100%;height:100%;object-fit:cover}.title{flex:1}.title h1{margin:0;font-size:23px;font-weight:900}.title p{margin:5px 0 0;color:var(--muted);font-size:13px}.btn{border:1px solid rgba(255,255,255,.16);border-radius:16px;background:linear-gradient(135deg,var(--brand),#009D92);color:white;padding:12px 15px;font-size:14px;font-weight:900;display:inline-flex;align-items:center;justify-content:center;gap:8px}.btn.ghost{background:rgba(255,255,255,.08)}.btn.soft{background:rgba(25,221,208,.10);color:var(--text)}.btn.danger{background:rgba(255,83,83,.20);color:#FFE4E4}.btn.small{padding:8px 10px;border-radius:13px;font-size:12px}.btn:disabled{opacity:.55;cursor:not-allowed}.grid{display:grid;gap:14px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}.cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.card,.panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);box-shadow:var(--shadow);overflow:hidden;backdrop-filter:blur(16px)}.card{padding:16px}.card small{color:var(--muted);font-weight:800}.card b{display:block;margin-top:5px;font-size:26px}.panelHead{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px;border-bottom:1px solid var(--line)}.panelHead h3{margin:0;font-size:18px;font-weight:900}.panelHead p{margin:5px 0 0;color:var(--muted);font-size:12px}.panelBody{padding:16px}.actions{display:flex;gap:9px;flex-wrap:wrap}input,textarea,select{width:100%;border:1px solid var(--line);border-radius:16px;background:rgba(0,0,0,.16);color:var(--text);outline:none;padding:12px 13px;font-size:14px}textarea{min-height:96px;resize:vertical;line-height:1.75}option{color:#061613}.field{display:grid;gap:7px}.field label{font-size:12px;color:var(--muted);font-weight:800}.msg{display:none;border:1px solid var(--line);border-radius:16px;padding:11px 12px;color:var(--muted);font-size:13px;line-height:1.65;background:rgba(0,0,0,.16)}.msg.show{display:block}.msg.ok{border-color:rgba(145,246,203,.35);color:var(--success)}.msg.err{border-color:rgba(255,180,180,.35);color:var(--danger)}.msg.warn{border-color:rgba(255,217,144,.35);color:var(--warn)}.tableWrap{overflow:auto}.empty{border:1px dashed var(--line);background:rgba(0,0,0,.12);border-radius:18px;padding:16px;color:var(--muted);text-align:center}table{width:100%;border-collapse:separate;border-spacing:0 10px}th{font-size:12px;color:var(--muted);text-align:right;padding:0 10px;white-space:nowrap}td{background:rgba(0,0,0,.16);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 10px;font-size:13px;vertical-align:middle;white-space:nowrap}td:first-child{border-right:1px solid var(--line);border-radius:0 16px 16px 0}td:last-child{border-left:1px solid var(--line);border-radius:16px 0 0 16px}.mini{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.5}.userBox{display:flex;gap:10px;align-items:center}.avatar{width:38px;height:38px;border-radius:14px;background:rgba(25,221,208,.12);border:1px solid var(--line);display:grid;place-items:center;font-weight:900;overflow:hidden;flex:0 0 auto}.avatar img{width:100%;height:100%;object-fit:cover}.status{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:7px 9px;font-size:12px;font-weight:900;color:var(--warn)}.status.active,.status.approved{color:var(--success)}.status.paused,.status.rejected,.status.deleted{color:var(--danger)}.modalBack{position:fixed;inset:0;background:rgba(0,0,0,.58);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}.modalBack.show{display:flex}.modal{width:min(1040px,100%);max-height:92vh;overflow:auto;border:1px solid var(--line);border-radius:28px;background:#06201d;box-shadow:var(--shadow)}.modalHead{position:sticky;top:0;background:rgba(6,32,29,.94);backdrop-filter:blur(12px);z-index:1;border-bottom:1px solid var(--line);padding:14px 16px;display:flex;justify-content:space-between;align-items:center}.modalHead h3{margin:0}.modalBody{padding:16px;display:grid;gap:12px}.close{border:1px solid var(--line);background:rgba(255,255,255,.08);color:var(--text);border-radius:14px;padding:8px 11px}.filters{display:grid;grid-template-columns:1fr 180px 180px 160px;gap:10px}.sectionTitle{font-weight:900;color:#91F6CB;font-size:16px;margin:8px 0 0}.monthBox{border:1px solid var(--line);border-radius:18px;padding:12px;background:rgba(0,0,0,.12);display:grid;gap:10px}.monthHead{display:flex;justify-content:space-between;gap:10px;align-items:center}.pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:6px 9px;font-size:12px;color:var(--muted)}.checkLine{display:flex;gap:9px;align-items:center;border:1px solid var(--line);border-radius:16px;padding:12px;background:rgba(0,0,0,.13);color:var(--muted);font-size:13px}.checkLine input{width:auto}.copyBox{background:rgba(0,0,0,.22);border:1px solid var(--line);border-radius:16px;padding:12px;white-space:pre-wrap;line-height:1.9;color:var(--text);font-size:13px}@media(max-width:900px){.row,.row3,.cards,.filters{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}.actions .btn{flex:1}td{white-space:normal}}
+  </style>
+</head>
+<body>
+  <main class="wrap"><header class="top"><div class="logo"><img src="/wazen_logo.png" alt="وازن"></div><div class="title"><h1>إدارة مؤثري وازن</h1><p>مراجعة الطلبات، بيانات الحساب البنكي، حالة الصرف لكل شهر، وتصدير تقرير PDF للمؤثر.</p></div><div class="actions"><a href="/support/" class="btn ghost">لوحة الدعم</a><a href="/influencers/" class="btn ghost">صفحة المؤثر</a><button id="loginBtn" class="btn">تسجيل دخول</button><button id="logoutBtn" class="btn ghost hidden">خروج</button></div></header><div id="loginMsg" class="msg"></div>
+    <section id="adminApp" class="grid hidden"><div class="cards"><div class="card"><small>إجمالي الطلبات</small><b id="totalCount">0</b></div><div class="card"><small>بانتظار المراجعة</small><b id="pendingCount">0</b></div><div class="card"><small>نشطة</small><b id="activeCount">0</b></div><div class="card"><small>إجمالي الاشتراكات</small><b id="subsTotal">0</b></div><div class="card"><small>عمولات المؤثرين</small><b id="commissionTotal">0</b></div></div>
+      
+      <section class="panel" id="influencerGlobalSettingsPanel">
+        <div class="panelHead"><div><h3>إعدادات ظهور الأرباح والصرف</h3><p>تظهر هذه البيانات للمؤثرين في صفحة المتابعة، وتستخدم كقيمة افتراضية لكل الحسابات.</p></div><button id="saveInfluencerSettingsBtn" class="btn small">حفظ الإعدادات</button></div>
+        <div class="panelBody grid">
+          <div class="row3">
+            <div class="field"><label>عدد الاشتراكات المطلوب لتفعيل الأرباح</label><input id="globalActivationGoal" type="number" min="1" value="12"></div>
+            <div class="field"><label>آخر تاريخ صرف فعلي</label><input id="globalLastPayoutDate" type="date"></div>
+            <div class="field"><label>موعد الصرف المتوقع القادم</label><input id="globalNextPayoutDate" type="date"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>حالة الصرف العامة الظاهرة للجميع</label><input id="globalPayoutStatus" placeholder="مثال: بانتظار تقرير Apple النهائي"></div>
+            <div class="field"><label>سبب/ملاحظة الصرف الظاهرة للجميع</label><input id="globalPayoutReason" placeholder="مثال: يتم الصرف بعد اعتماد Apple وتحويل الأرباح"></div>
+          </div>
+          <div id="globalSettingsMsg" class="msg"></div>
+        </div>
+      </section>
+
+      <section class="panel"><div class="panelHead"><div><h3>المؤثرين والطلبات</h3><p>تستطيع تعديل كل بيانات الحملة وما يظهر للمؤثر في صفحته.</p></div><div class="actions"><button id="refreshBtn" class="btn small ghost">↻ تحديث</button><button id="exportBtn" class="btn small soft">تصدير CSV</button></div></div><div class="panelBody grid"><div class="filters"><input id="search" placeholder="بحث بالاسم / الكود / البريد"><select id="statusFilter"><option value="all">كل الحالات</option><option value="pending">بانتظار المراجعة</option><option value="approved">معتمد</option><option value="active">نشطة</option><option value="paused">متوقفة</option><option value="ended">منتهية</option><option value="rejected">مرفوض</option><option value="deleted">محذوف</option></select><select id="sortBy"><option value="updatedAt">آخر تحديث</option><option value="subscriberCount">عدد الاشتراكات</option><option value="appleNetProfit">صافي Apple</option><option value="commissionAmount">عمولة المؤثر</option></select><button id="newBtn" class="btn ghost">+ إضافة يدوي</button></div><div id="table" class="tableWrap"></div></div></section>
+
+      <section class="panel" id="appleImportPanel">
+        <div class="panelHead">
+          <div>
+            <h3>تحليل تقارير Apple وحفظ أشهر المؤثرين</h3>
+            <p>ارفع ملف Apple TXT وسيتم فصل الأرباح تلقائيًا حسب الكود المعتمد + شهر التقرير + فترة حملة كل مؤثر. كل رفع يحدث نفس شهر المؤثر بدل تكراره.</p>
+          </div>
+          <div class="actions">
+            <button id="analyzeAppleBtn" class="btn small soft">تحليل الملفات</button>
+            <button id="saveAppleImportBtn" class="btn small">حفظ النتائج للمؤثرين</button>
+            <button id="downloadAppleBackupBtn" class="btn small ghost" type="button">نسخة احتياطية JSON</button>
+          </div>
+        </div>
+        <div class="panelBody grid">
+          <div class="row3">
+            <div class="field"><label>من تاريخ</label><input id="appleFromDate" type="date"></div>
+            <div class="field"><label>إلى تاريخ</label><input id="appleToDate" type="date"></div>
+            <div class="field"><label>حالة الصرف الافتراضية</label><select id="appleDefaultPayStatus"><option value="بانتظار Apple">بانتظار Apple</option><option value="جاهز للصرف">جاهز للصرف</option><option value="تم الصرف">تم الصرف</option><option value="تقديري">تقديري</option></select></div>
+          </div>
+          <div class="field"><label>ملفات Apple</label><input id="appleReportFiles" type="file" multiple accept=".txt,.tsv,.csv,.gz"><div class="mini">الفصل الرسمي يكون بالكود المعتمد لكل مؤثر. إذا كانوا كلهم في May، النظام يفصلهم مثلًا: FERAS100 لشهر 2026-05 لوحده، وKHALID100 لشهر 2026-05 لوحده. ملاحظة مهمة: ملف Subscription من Apple لا يعطي أسماء المشترين، فقط إجمالي لكل كود؛ لذلك لازم كل مؤثر يكون له كود مستقل وغير مكرر. عند رفع ملف جديد لنفس الكود ونفس الشهر يتم تحديث الشهر واستبدال الرقم القديم لمنع التكرار.</div></div>
+          <div class="cards">
+            <div class="card"><small>الأكواد الموجودة</small><b id="appleCodeCount">0</b></div>
+            <div class="card"><small>إجمالي الاستخدامات</small><b id="appleUsageTotal">0</b></div>
+            <div class="card"><small>صافي Apple</small><b id="appleNetTotal">0</b></div>
+            <div class="card"><small>عمولات المؤثرين</small><b id="appleCommissionTotal">0</b></div>
+            <div class="card"><small>غير مربوطة</small><b id="appleUnmatchedCount">0</b></div>
+          </div>
+          <div id="appleImportMsg" class="msg"></div>
+          <div id="appleImportResults" class="tableWrap"></div>
+        </div>
+      </section>
+    </section></main>
+  <div id="modalBack" class="modalBack"><div class="modal"><div class="modalHead"><h3 id="modalTitle">تعديل مؤثر</h3><button id="modalClose" class="close">✕</button></div><div id="modalBody" class="modalBody"></div></div></div>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script>
+    const firebaseConfig={apiKey:'AIzaSyD9y9FED7L-s0unONweN-5LhmwEdipXYUo',authDomain:'wazenfapp.firebaseapp.com',projectId:'wazenfapp',storageBucket:'wazenfapp.appspot.com',messagingSenderId:'209409669834',appId:'1:209409669834:web:9e33eba07509ee28a29233'};
+    const PROJECT_ID='wazenfapp'; const REGION='europe-west1'; const API_BASE=`https://${REGION}-${PROJECT_ID}.cloudfunctions.net`; const assertAdminUrl=`${API_BASE}/assertCouponAdminAccess`;
+    firebase.initializeApp(firebaseConfig); const auth=firebase.auth(); const db=firebase.firestore(); const FieldValue=firebase.firestore.FieldValue; const Timestamp=firebase.firestore.Timestamp; const $=id=>document.getElementById(id); let currentUser=null,currentRole='user',items=[];
+    function msg(text,type='warn'){const el=$('loginMsg');el.textContent=text||'';el.className='msg '+(text?'show ':'')+type} function clean(v){return String(v||'').trim()} function money(v){const n=Number(v||0);return n.toLocaleString('ar-SA',{maximumFractionDigits:2})} function fmt(v){try{if(!v)return'—'; if(v.toDate)v=v.toDate(); const d=new Date(v); if(isNaN(d))return'—'; return d.toLocaleDateString('ar-SA')}catch(_){return'—'}} function inputDate(v){try{if(!v)return''; if(v.toDate)v=v.toDate(); const d=new Date(v); if(isNaN(d))return''; return d.toISOString().slice(0,10)}catch(_){return''}} function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))} function statusAr(s){return ({draft:'مسودة',pending:'بانتظار المراجعة',approved:'معتمد',active:'نشطة',paused:'متوقفة',ended:'منتهية',rejected:'مرفوض',deleted:'محذوف'})[String(s||'pending')]||String(s||'بانتظار المراجعة')} function toTs(v){return v?Timestamp.fromDate(new Date(v+'T00:00:00')):null}
+    async function authedFetch(url,opts={}){const user=auth.currentUser;if(!user)throw new Error('غير مسجل الدخول');const token=await user.getIdToken();const res=await fetch(url,{...opts,headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,...(opts.headers||{})}});const txt=await res.text();let data={};try{data=txt?JSON.parse(txt):{}}catch(_){data={raw:txt}}if(!res.ok)throw new Error(data.error||data.message||txt||'HTTP '+res.status);return data}
+    $('loginBtn').onclick=async()=>{const p=new firebase.auth.GoogleAuthProvider();p.setCustomParameters({prompt:'select_account'});try{await auth.signInWithPopup(p)}catch(e){await auth.signInWithRedirect(p).catch(()=>msg('تعذر تسجيل الدخول.','err'))}}; $('logoutBtn').onclick=()=>auth.signOut(); $('refreshBtn').onclick=loadData; $('search').oninput=render; $('statusFilter').onchange=render; $('sortBy').onchange=render; $('modalClose').onclick=closeModal; $('modalBack').addEventListener('click',e=>{if(e.target.id==='modalBack')closeModal()}); $('newBtn').onclick=()=>openEditor({id:''});
+    auth.onAuthStateChanged(async user=>{currentUser=user;if(!user){$('loginBtn').classList.remove('hidden');$('logoutBtn').classList.add('hidden');$('adminApp').classList.add('hidden');return}try{msg('جاري التحقق من الصلاحية...','warn');const data=await authedFetch(assertAdminUrl,{method:'POST',body:'{}'});currentRole=String(data.role||'user');$('loginBtn').classList.add('hidden');$('logoutBtn').classList.remove('hidden');$('adminApp').classList.remove('hidden');msg(`تم الدخول بصلاحية ${currentRole}.`,'ok');await loadData()}catch(e){msg('غير مصرح لهذا الحساب أو تعذر التحقق: '+e.message,'err');await auth.signOut().catch(()=>{})}});
+    
+    let influencerGlobalSettings={activationGoal:12};
+    function inputDateFromAny(v){try{if(!v)return''; if(v.toDate)v=v.toDate(); const d=new Date(v); if(isNaN(d))return''; return d.toISOString().slice(0,10)}catch(_){return''}}
+    async function loadInfluencerAdminSettings(){
+      try{
+        const snap=await db.collection('influencerSettings').doc('global').get();
+        influencerGlobalSettings=snap.exists?{activationGoal:12,...snap.data()}:{activationGoal:12};
+        if($('globalActivationGoal'))$('globalActivationGoal').value=Number(influencerGlobalSettings.activationGoal||12);
+        if($('globalLastPayoutDate'))$('globalLastPayoutDate').value=inputDateFromAny(influencerGlobalSettings.lastPayoutDate);
+        if($('globalNextPayoutDate'))$('globalNextPayoutDate').value=inputDateFromAny(influencerGlobalSettings.nextPayoutDate);
+        if($('globalPayoutStatus'))$('globalPayoutStatus').value=influencerGlobalSettings.payoutStatus||'';
+        if($('globalPayoutReason'))$('globalPayoutReason').value=influencerGlobalSettings.payoutReason||'';
+      }catch(e){influencerGlobalSettings={activationGoal:12}}
+    }
+    async function saveInfluencerAdminSettings(){
+      const payload={activationGoal:Math.max(1,Number($('globalActivationGoal')?.value||12)),lastPayoutDate:toTs($('globalLastPayoutDate')?.value),nextPayoutDate:toTs($('globalNextPayoutDate')?.value),payoutStatus:clean($('globalPayoutStatus')?.value),payoutReason:clean($('globalPayoutReason')?.value),updatedAt:FieldValue.serverTimestamp(),updatedBy:currentUser?.email||''};
+      try{await db.collection('influencerSettings').doc('global').set(payload,{merge:true}); const el=$('globalSettingsMsg'); if(el){el.textContent='تم حفظ إعدادات الصرف والتفعيل.';el.className='msg show ok'} await loadInfluencerAdminSettings(); render();}catch(e){const el=$('globalSettingsMsg'); if(el){el.textContent='تعذر حفظ الإعدادات: '+e.message;el.className='msg show err'}}
+    }
+    function activationGoalForAdmin(x){return Math.max(1,Number(x?.activationGoal||x?.earningsActivationGoal||influencerGlobalSettings.activationGoal||12)||12)}
+    function codeOkAdmin(v){return /^[A-Z0-9]{4,}$/.test(String(v||''))}
+    function nameArabicOk(v){return /^[\u0600-\u06FF\s]{2,80}$/.test(String(v||'').trim())}
+    async function codeAvailableAdmin(code,id){const col=db.collection('influencerApplications'); const qs=[await col.where('desiredCode','==',code).limit(5).get(),await col.where('approvedCode','==',code).limit(5).get()]; for(const q of qs){for(const d of q.docs){if(d.id!==id)return false}} return true}
+
+    async function loadData(){try{await loadInfluencerAdminSettings(); const s=await db.collection('influencerApplications').orderBy('updatedAt','desc').limit(300).get();items=s.docs.map(d=>({id:d.id,...d.data()}));render()}catch(e){$('table').innerHTML='<div class="empty">تعذر تحميل البيانات. تأكد من قواعد Firestore لمجموعة influencerApplications.</div>'}}
+    function render(){let arr=[...items];const q=clean($('search').value).toLowerCase();const st=$('statusFilter').value;if(q)arr=arr.filter(x=>[x.name,x.email,x.appEmail,x.desiredCode,x.approvedCode,x.tiktok,x.phone,x.iban,x.bankName,x.requestedCommissionRate].some(v=>String(v||'').toLowerCase().includes(q)));if(st!=='all')arr=arr.filter(x=>String(x.status||'pending')===st||String(x.campaignStatus||'')===st);const sort=$('sortBy').value;arr.sort((a,b)=>Number(b[sort]||0)-Number(a[sort]||0));if(sort==='updatedAt')arr.sort((a,b)=>{const av=a.updatedAt?.toMillis?a.updatedAt.toMillis():0;const bv=b.updatedAt?.toMillis?b.updatedAt.toMillis():0;return bv-av});$('totalCount').textContent=items.length;$('pendingCount').textContent=items.filter(x=>String(x.status||'pending')==='pending').length;$('activeCount').textContent=items.filter(x=>['active','approved'].includes(String(x.campaignStatus||x.status))).length;$('subsTotal').textContent=items.reduce((s,x)=>s+Number(x.subscriberCount||0),0);$('commissionTotal').textContent=money(items.reduce((s,x)=>s+Number(x.commissionAmount||0),0));if(!arr.length){$('table').innerHTML='<div class="empty">لا توجد نتائج.</div>';return}$('table').innerHTML=`<table><thead><tr><th>المؤثر</th><th>الكود</th><th>الحالة</th><th>الأرباح</th><th>الفترة</th><th>الاستخدامات</th><th>طلب العمولة</th><th>صافي Apple</th><th>عمولة المؤثر</th><th>الصرف</th><th>إجراء</th></tr></thead><tbody>${arr.map(x=>`<tr><td><div class="userBox"><span class="avatar">${x.photoURL?`<img src="${x.photoURL}">`:(x.name||x.email||'و')[0]}</span><div><b>${escapeHtml(x.name||x.displayName||'بدون اسم')}</b><div class="mini ltr">${escapeHtml(x.appEmail||x.email||'')}</div><div class="mini">${escapeHtml(x.tiktok||'')}</div></div></div></td><td class="ltr">${escapeHtml(x.approvedCode||x.desiredCode||'—')}</td><td><span class="status ${escapeHtml(x.campaignStatus||x.status||'pending')}">${escapeHtml(statusAr(x.campaignStatus||x.status))}</span></td><td>${earningsEnabledFor(x)?'<span class="status active">مفعلة</span>':`<span class="status paused">غير مفعلة (${codeUsesForActivation(x)}/${activationGoalForAdmin(x)})</span>`}</td><td>${fmt(x.campaignStart)} إلى ${fmt(x.campaignEnd)}</td><td>${Number(x.subscriberCount||0)}</td><td>${Number(x.requestedCommissionRate||10)}%</td><td>${money(x.appleNetProfit||0)}</td><td>${money(x.commissionAmount||0)}</td><td>${escapeHtml(x.paymentStatus||'—')}</td><td><div class="actions"><button class="btn small soft" onclick="openEditorById('${x.id}')">تعديل</button><button class="btn small ghost" onclick="exportInfluencerPdfById('${x.id}')">PDF</button><button class="btn small soft" onclick="copyAcceptanceEmail('${x.id}')">رسالة القبول</button><button class="btn small danger" onclick="deleteApplication('${x.id}')">حذف نهائي</button></div></td></tr>`).join('')}</tbody></table>`}
+    window.openEditorById=id=>openEditor(items.find(x=>x.id===id)||{id});
+    function commissionTypeAr(v){return ({percent:'نسبة',fixed:'مبلغ ثابت لكل اشتراك',hybrid:'نسبة + مبلغ ثابت'})[String(v||'percent')]||'نسبة'}
+    function calcCommission(apple,subs,type,rate,fixed){apple=Number(apple||0);subs=Number(subs||0);rate=Number(rate||0);fixed=Number(fixed||0);if(type==='fixed')return subs*fixed;if(type==='hybrid')return (apple*rate/100)+(subs*fixed);return apple*rate/100}
+    function isoDateAny(v){try{if(!v)return''; if(v.toDate)v=v.toDate(); const d=new Date(v); if(isNaN(d))return''; return d.toISOString().slice(0,10)}catch(_){return''}}
+    function monthDateKey(m){const raw=String(m?.month||m?.from||m?.firstDate||'').trim(); if(/^\d{4}-\d{2}$/.test(raw))return raw+'-01'; if(/^\d{4}-\d{2}-\d{2}/.test(raw))return raw.slice(0,10); return ''}
+    function filterMonthsForReport(x,months){const from=isoDateAny(x.reportFrom||x.reportStart),to=isoDateAny(x.reportTo||x.reportEnd);if(!from&&!to)return months;return months.filter(m=>{const d=monthDateKey(m);if(!d)return true;if(from&&d<from)return false;if(to&&d>to)return false;return true})}
+    function codeUsesForActivation(x){return Number(x.preActivationCodeUses??x.codeUses??x.subscriberCount??0)}
+    function earningsEnabledFor(x){return x.earningsEnabled===true||x.profitEnabled===true||x.showStats===true||codeUsesForActivation(x)>=activationGoalForAdmin(x)}
+    function acceptanceEmailText(x){const name=x.name||x.displayName||'اسم الشخص';const code=x.approvedCode||x.desiredCode||'كود الشخص';return `مرحبًا ${name}
+
+يسعدنا إبلاغك بأنه تم قبولك في حملة المؤثرين الخاصة بتطبيق وازن
+
+تم اعتماد كود الخصم الخاص بك:
+
+${code}
+
+يمكنك متابعة بيانات حملتك، الإحصائيات، حالة الصرف، والتقارير من خلال صفحة المؤثرين الخاصة بوازن
+
+https://wazenfapp.web.app/influencers/
+
+كما تم منحك تجربة اشتراك في تطبيق وازن لمدة 6 أشهر
+
+نتمنى لك تجربة موفقة معنا، ونرحب بك ضمن شركاء وازن
+
+مع خالص تحيات
+فريق وازن`}
+    window.copyAcceptanceEmail=async id=>{const x=items.find(a=>a.id===id)||{};const text=acceptanceEmailText(x);try{await navigator.clipboard.writeText(text);alert('تم نسخ رسالة القبول للبريد.')}catch(_){prompt('انسخ رسالة القبول:',text)}}
+    function monthTemplate(m={},i=0){const type=m.commissionType||$('e_commissionType')?.value||'percent';return `<div class="monthBox" data-month-index="${i}"><div class="monthHead"><span class="pill">شهر ${i+1}</span><button class="btn small danger" type="button" onclick="removeMonth(${i})">حذف الشهر</button></div><div class="row3"><div class="field"><label>الشهر</label><input id="m_month_${i}" value="${escapeHtml(m.month||'')}" placeholder="2026-05"></div><div class="field"><label>عدد الاشتراكات</label><input id="m_subs_${i}" type="number" value="${Number(m.subscribers||0)}"></div><div class="field"><label>صافي Apple</label><input id="m_apple_${i}" type="number" step="0.01" value="${Number(m.appleNetProfit||0)}"></div></div><div class="row3"><div class="field"><label>نوع العمولة</label><select id="m_type_${i}"><option value="percent">نسبة من صافي Apple</option><option value="fixed">مبلغ ثابت لكل اشتراك</option><option value="hybrid">نسبة + مبلغ ثابت</option></select></div><div class="field"><label>نسبة العمولة %</label><input id="m_rate_${i}" type="number" step="0.01" value="${Number(m.commissionRate??10)}"></div><div class="field"><label>مبلغ ثابت لكل اشتراك</label><input id="m_fixed_${i}" type="number" step="0.01" value="${Number(m.fixedCommission||0)}"></div></div><div class="row3"><div class="field"><label>عمولة المؤثر</label><input id="m_commission_${i}" type="number" step="0.01" value="${Number(m.commissionAmount||0)}"></div><div class="field"><label>صافي وازن</label><input id="m_wazen_${i}" type="number" step="0.01" value="${Number(m.wazenNetProfit||0)}"></div><div class="field"><label>حالة الصرف</label><select id="m_status_${i}"><option value="بانتظار Apple">بانتظار Apple</option><option value="جاهز للصرف">جاهز للصرف</option><option value="تم الصرف">تم الصرف</option><option value="غير مؤهل">غير مؤهل</option></select></div></div><div class="row"><div class="field"><label>تاريخ الصرف</label><input id="m_paid_${i}" value="${escapeHtml(m.paidAt||'')}" placeholder="مثال: 2026-06-20"></div><div class="field"><label>ملاحظات الشهر تظهر للمؤثر</label><input id="m_notes_${i}" value="${escapeHtml(m.notes||'')}"></div></div></div>`}
+    let editingMonths=[]; window.addMonth=()=>{editingMonths.push({month:'',subscribers:0,appleNetProfit:0,commissionType:$('e_commissionType')?.value||'percent',commissionRate:Number($('e_rate')?.value||10),fixedCommission:Number($('e_fixedAmount')?.value||0),commissionAmount:0,wazenNetProfit:0,paymentStatus:'بانتظار Apple',paidAt:'',notes:''});renderMonths()}; window.removeMonth=i=>{editingMonths.splice(i,1);renderMonths()};
+    function calcMonthRow(i){const apple=Number($('m_apple_'+i)?.value||0),subs=Number($('m_subs_'+i)?.value||0),type=$('m_type_'+i)?.value||'percent',rate=Number($('m_rate_'+i)?.value||0),fixed=Number($('m_fixed_'+i)?.value||0);const com=calcCommission(apple,subs,type,rate,fixed);if($('m_commission_'+i))$('m_commission_'+i).value=com.toFixed(2);if($('m_wazen_'+i))$('m_wazen_'+i).value=(apple-com).toFixed(2);recalcTotalsFromMonths()}
+    function renderMonths(){const box=$('monthsBox'); if(!box)return; box.innerHTML=editingMonths.map(monthTemplate).join('')||'<div class="empty">لا توجد أشهر. اضغط إضافة شهر.</div>'; editingMonths.forEach((m,i)=>{const st=$('m_status_'+i); if(st)st.value=m.paymentStatus||'بانتظار Apple'; const tp=$('m_type_'+i); if(tp)tp.value=m.commissionType||$('e_commissionType')?.value||'percent'; ['m_apple_','m_rate_','m_fixed_','m_subs_','m_type_'].forEach(prefix=>{const el=$(prefix+i); if(el)el.oninput=el.onchange=()=>calcMonthRow(i)}); if(Number($('m_commission_'+i)?.value||0)===0 && Number($('m_apple_'+i)?.value||0)>0)calcMonthRow(i)})}
+    function readMonths(){return editingMonths.map((_,i)=>({month:clean($('m_month_'+i)?.value),subscribers:Number($('m_subs_'+i)?.value||0),appleNetProfit:Number($('m_apple_'+i)?.value||0),commissionType:$('m_type_'+i)?.value||'percent',commissionRate:Number($('m_rate_'+i)?.value||0),fixedCommission:Number($('m_fixed_'+i)?.value||0),commissionAmount:Number($('m_commission_'+i)?.value||0),wazenNetProfit:Number($('m_wazen_'+i)?.value||0),paymentStatus:$('m_status_'+i)?.value||'بانتظار Apple',paidAt:clean($('m_paid_'+i)?.value),notes:clean($('m_notes_'+i)?.value)})).filter(m=>m.month||m.subscribers||m.appleNetProfit||m.commissionAmount)}
+    function recalcTotalsFromMonths(){const months=readMonths();const subs=months.reduce((s,m)=>s+Number(m.subscribers||0),0),apple=months.reduce((s,m)=>s+Number(m.appleNetProfit||0),0),com=months.reduce((s,m)=>s+Number(m.commissionAmount||0),0),wazen=months.reduce((s,m)=>s+Number(m.wazenNetProfit||0),0); if($('e_subs'))$('e_subs').value=subs; if($('e_appleNet'))$('e_appleNet').value=apple.toFixed(2); if($('e_commission'))$('e_commission').value=com.toFixed(2); if($('e_wazenNet'))$('e_wazenNet').value=wazen.toFixed(2)}
+    function openEditor(x){editingMonths=Array.isArray(x.monthlyPayments)?JSON.parse(JSON.stringify(x.monthlyPayments)):[];const isNew=!x.id;$('modalTitle').textContent=isNew?'إضافة مؤثر يدويًا':'تعديل بيانات المؤثر';$('modalBody').innerHTML=`<div class="sectionTitle">بيانات المؤثر</div><div class="row"><div class="field"><label>اسم المؤثر</label><input id="e_name" value="${escapeHtml(x.name||'')}"></div><div class="field"><label>البريد في التطبيق</label><input id="e_appEmail" value="${escapeHtml(x.appEmail||x.email||'')}"></div></div><div class="row"><div class="field"><label>رقم التواصل</label><input id="e_phone" class="ltr" value="${escapeHtml(x.phone||'')}"></div><div class="field"><label>حساب TikTok</label><input id="e_tiktok" class="ltr" value="${escapeHtml(x.tiktok||'')}"></div></div><div class="row"><div class="field"><label>الكود المطلوب</label><input id="e_desiredCode" class="ltr" value="${escapeHtml(x.desiredCode||'')}"></div><div class="field"><label>الكود المعتمد</label><input id="e_approvedCode" class="ltr" value="${escapeHtml(x.approvedCode||x.desiredCode||'')}"></div></div><div class="row"><div class="field"><label>نسبة الخصم للمتابعين</label><input id="e_discountRequest" value="${escapeHtml(x.discountRequest||'10%')}"></div><div class="field"><label>نسبة العمولة التي طلبها المؤثر</label><select id="e_requestedCommissionRate"><option value="10">10%</option><option value="15">15%</option><option value="20">20%</option></select></div></div><div class="mini">النسبة المطلوبة من المؤثر للعرض فقط، أما النسبة المعتمدة فعليًا فتحددها الإدارة في خانة نسبة العمولة.</div><div class="sectionTitle">بيانات الحساب البنكي</div><div class="row"><div class="field"><label>اسم البنك</label><input id="e_bankName" value="${escapeHtml(x.bankName||'')}"></div><div class="field"><label>اسم صاحب الحساب</label><input id="e_bankAccountName" value="${escapeHtml(x.bankAccountName||'')}"></div></div><div class="row"><div class="field"><label>الآيبان</label><input id="e_iban" class="ltr" value="${escapeHtml(x.iban||'')}"></div><div class="field"><label>ملاحظات بنكية</label><input id="e_bankNotes" value="${escapeHtml(x.bankNotes||'')}"></div></div><div class="sectionTitle">حالة الحملة والصرف</div><div class="row3"><div class="field"><label>حالة الطلب</label><select id="e_status"><option value="pending">بانتظار المراجعة</option><option value="approved">معتمد</option><option value="rejected">مرفوض</option><option value="deleted">محذوف</option></select></div><div class="field"><label>حالة الحملة</label><select id="e_campaignStatus"><option value="pending">بانتظار</option><option value="active">نشطة</option><option value="paused">متوقفة</option><option value="ended">منتهية</option><option value="deleted">محذوفة</option></select></div><div class="field"><label>حالة الصرف العامة</label><select id="e_paymentStatus"><option value="بانتظار Apple">بانتظار Apple</option><option value="جاهز للصرف">جاهز للصرف</option><option value="تم الصرف">تم الصرف</option><option value="غير مؤهل">غير مؤهل</option></select></div></div><div class="row"><div class="field"><label>تاريخ البداية</label><input id="e_start" type="date" value="${inputDate(x.campaignStart)}"></div><div class="field"><label>تاريخ الانتهاء</label><input id="e_end" type="date" value="${inputDate(x.campaignEnd)}"></div></div><div class="row"><label class="checkLine"><input id="e_earningsEnabled" type="checkbox"> <span>تفعيل عرض الأرباح والإحصائيات للمؤثر الآن</span></label><div class="field"><label>استخدامات الكود قبل التفعيل</label><input id="e_preActivationUses" type="number" value="${Number(x.preActivationCodeUses??x.subscriberCount??0)}"></div></div><div class="mini">إذا لم تفعل هذا الخيار، سيرى المؤثر رسالة: حسابك غير مفعل للأرباح حسب العدد المحدد أدناه أو إعدادات الإدارة العامة.</div><div class="row3"><div class="field"><label>عدد الاشتراكات المطلوب لتفعيل أرباح هذا المؤثر</label><input id="e_activationGoal" type="number" min="1" value="${Number(x.activationGoal||activationGoalForAdmin(x))}"></div><div class="field"><label>آخر صرف للمؤثر</label><input id="e_lastPayoutDate" type="date" value="${inputDate(x.lastPayoutDate)}"></div><div class="field"><label>موعد الصرف المتوقع للمؤثر</label><input id="e_nextPayoutDate" type="date" value="${inputDate(x.nextPayoutDate)}"></div></div><div class="field"><label>سبب/ملاحظة الصرف الظاهرة للمؤثر</label><input id="e_payoutReason" value="${escapeHtml(x.payoutReason||influencerGlobalSettings.payoutReason||'')}" placeholder="مثال: بانتظار تقرير Apple النهائي"></div><div class="row"><div class="field"><label>بداية فترة التقرير/PDF الظاهرة</label><input id="e_reportFrom" type="date" value="${inputDate(x.reportFrom||x.reportStart)}"></div><div class="field"><label>نهاية فترة التقرير/PDF الظاهرة</label><input id="e_reportTo" type="date" value="${inputDate(x.reportTo||x.reportEnd)}"></div></div><div class="row3"><div class="field"><label>عدد الاشتراكات الإجمالي</label><input id="e_subs" type="number" value="${Number(x.subscriberCount||0)}"></div><div class="field"><label>صافي Apple الإجمالي</label><input id="e_appleNet" type="number" step="0.01" value="${Number(x.appleNetProfit||0)}"></div><div class="field"><label>نوع العمولة</label><select id="e_commissionType"><option value="percent">نسبة من صافي Apple</option><option value="fixed">مبلغ ثابت لكل اشتراك</option><option value="hybrid">نسبة + مبلغ ثابت</option></select></div></div><div class="row"><div class="field"><label>نسبة العمولة %</label><input id="e_rate" type="number" step="0.01" value="${Number(x.commissionRate||10)}"></div><div class="field"><label>مبلغ ثابت لكل اشتراك</label><input id="e_fixedAmount" type="number" step="0.01" value="${Number(x.fixedCommission||0)}"></div></div><div class="row"><div class="field"><label>عمولة المؤثر الإجمالية</label><input id="e_commission" type="number" step="0.01" value="${Number(x.commissionAmount||0)}"></div><div class="field"><label>صافي وازن بعد العمولة</label><input id="e_wazenNet" type="number" step="0.01" value="${Number(x.wazenNetProfit||0)}"></div></div><div class="sectionTitle">سجل الصرف الشهري</div><div class="actions"><button class="btn small ghost" type="button" onclick="addMonth()">+ إضافة شهر</button><button class="btn small soft" type="button" onclick="recalcTotalsFromMonths()">حساب الإجماليات من الأشهر</button></div><div id="monthsBox" class="grid"></div><div class="field"><label>ملاحظات المؤثر</label><textarea id="e_notes">${escapeHtml(x.notes||'')}</textarea></div><div class="field"><label>ملاحظات وازن التي تظهر للمؤثر</label><textarea id="e_adminNotes">${escapeHtml(x.adminNotes||'')}</textarea></div><div class="field"><label>ملاحظات الدعم الداخلية — لا تظهر للمؤثر</label><textarea id="e_supportNotes">${escapeHtml(x.supportNotes||'')}</textarea></div><div class="field"><label>سبب الحذف / الإيقاف الظاهر للمؤثر عند حذف الحساب</label><textarea id="e_deletionReason">${escapeHtml(x.deletionReason||'')}</textarea></div><div id="editMsg" class="msg"></div><div class="actions"><button class="btn" onclick="saveEditor('${x.id||''}')">حفظ التعديلات</button>${x.id?`<button class="btn soft" onclick="exportInfluencerPdfById('${x.id}')">تصدير معلومات PDF</button><button class="btn ghost" onclick="copyAcceptanceEmail('${x.id}')">نسخ رسالة القبول</button><button class="btn danger" onclick="deleteApplication('${x.id}')">حذف نهائي</button>`:''}<button class="btn ghost" onclick="closeModal()">إغلاق</button></div>`;$('e_status').value=x.status||'pending';$('e_campaignStatus').value=x.campaignStatus||x.status||'pending';$('e_paymentStatus').value=x.paymentStatus||'بانتظار Apple';$('e_commissionType').value=x.commissionType||'percent';if($('e_earningsEnabled'))$('e_earningsEnabled').checked=earningsEnabledFor(x);$('e_requestedCommissionRate').value=String(x.requestedCommissionRate||10);function recalc(){const apple=Number($('e_appleNet').value||0),subs=Number($('e_subs').value||0),type=$('e_commissionType').value,rate=Number($('e_rate').value||0),fixed=Number($('e_fixedAmount').value||0);const com=calcCommission(apple,subs,type,rate,fixed);$('e_commission').value=com.toFixed(2);$('e_wazenNet').value=(apple-com).toFixed(2)};['e_appleNet','e_rate','e_fixedAmount','e_subs','e_commissionType'].forEach(id=>{const el=$(id); if(el)el.oninput=el.onchange=recalc});renderMonths();$('modalBack').classList.add('show')}
+    window.saveEditor=async(id)=>{const months=readMonths();const nm=clean($('e_name').value); const desired=clean($('e_desiredCode').value).toUpperCase().replace(/[^A-Z0-9]/g,''); const approved=clean($('e_approvedCode').value).toUpperCase().replace(/[^A-Z0-9]/g,''); if(!nameArabicOk(nm)){ $('editMsg').textContent='اسم المؤثر يجب أن يكون بالعربي فقط.'; $('editMsg').className='msg show err'; return;} if(desired&&!codeOkAdmin(desired)){ $('editMsg').textContent='الكود المطلوب يجب أن يكون 4 خانات أو أكثر، ويسمح بالأرقام، والحروف يجب أن تكون إنجليزية كبيرة فقط.'; $('editMsg').className='msg show err'; return;} if(approved&&!codeOkAdmin(approved)){ $('editMsg').textContent='الكود المعتمد يجب أن يكون 4 خانات أو أكثر، ويسمح بالأرقام، والحروف يجب أن تكون إنجليزية كبيرة فقط.'; $('editMsg').className='msg show err'; return;} if(desired&&!(await codeAvailableAdmin(desired,id))){ $('editMsg').textContent='الكود المطلوب مستخدم من مؤثر آخر.'; $('editMsg').className='msg show err'; return;} if(approved&&!(await codeAvailableAdmin(approved,id))){ $('editMsg').textContent='الكود المعتمد مستخدم من مؤثر آخر.'; $('editMsg').className='msg show err'; return;} const payload={name:nm,appEmail:clean($('e_appEmail').value).toLowerCase(),phone:clean($('e_phone').value),tiktok:clean($('e_tiktok').value),desiredCode:desired,approvedCode:approved,discountRequest:clean($('e_discountRequest').value)||'10%',requestedCommissionRate:Number($('e_requestedCommissionRate').value||10),bankName:clean($('e_bankName').value),bankAccountName:clean($('e_bankAccountName').value),iban:clean($('e_iban').value).toUpperCase().replace(/\s+/g,''),bankNotes:clean($('e_bankNotes').value),status:$('e_status').value,campaignStatus:$('e_campaignStatus').value,paymentStatus:$('e_paymentStatus').value,campaignStart:toTs($('e_start').value),campaignEnd:toTs($('e_end').value),reportFrom:toTs($('e_reportFrom')?.value),reportTo:toTs($('e_reportTo')?.value),earningsEnabled:$('e_earningsEnabled')?.checked===true,preActivationCodeUses:Number($('e_preActivationUses')?.value||0),activationGoal:Number($('e_activationGoal')?.value||activationGoalForAdmin({})),lastPayoutDate:toTs($('e_lastPayoutDate')?.value),nextPayoutDate:toTs($('e_nextPayoutDate')?.value),payoutReason:clean($('e_payoutReason')?.value),subscriberCount:Number($('e_subs').value||0),appleNetProfit:Number($('e_appleNet').value||0),commissionType:$('e_commissionType').value,fixedCommission:Number($('e_fixedAmount').value||0),commissionRate:Number($('e_rate').value||0),commissionAmount:Number($('e_commission').value||0),wazenNetProfit:Number($('e_wazenNet').value||0),monthlyPayments:months,notes:clean($('e_notes').value),adminNotes:clean($('e_adminNotes').value),supportNotes:clean($('e_supportNotes')?.value),deletionReason:clean($('e_deletionReason')?.value),updatedAt:FieldValue.serverTimestamp(),updatedBy:currentUser.uid,updatedByEmail:currentUser.email||''};try{if(id){await db.collection('influencerApplications').doc(id).set(payload,{merge:true})}else{payload.createdAt=FieldValue.serverTimestamp();payload.createdBy=currentUser.uid;await db.collection('influencerApplications').add(payload)}$('editMsg').textContent='تم الحفظ بنجاح.';$('editMsg').className='msg show ok';await loadData()}catch(e){$('editMsg').textContent='تعذر الحفظ: '+e.message;$('editMsg').className='msg show err'}};
+    window.deleteApplication=async(id)=>{
+      const x=items.find(a=>a.id===id)||{};
+      const label=x.name||x.displayName||x.approvedCode||x.desiredCode||id;
+      if(!confirm(`حذف المؤثر "${label}" نهائيًا من Firestore؟ لن يظهر للمؤثر ولن يرجع إلا إذا أعدت إضافته.`)) return;
+      const typed=prompt('للتأكيد اكتب: حذف نهائي');
+      if(String(typed||'').trim()!=='حذف نهائي') return;
+      const reason=prompt('سبب الحذف الداخلي اختياري، سيحفظ في سجل الإدارة فقط:', '')||'';
+      try{
+        await db.collection('influencerApplications').doc(id).delete();
+        await db.collection('admin_audit_logs').add({action:'hard_delete_influencer',targetId:id,targetName:label,targetCode:x.approvedCode||x.desiredCode||'',reason:clean(reason),byUid:currentUser?.uid||'',byEmail:currentUser?.email||'',role:currentRole,createdAt:FieldValue.serverTimestamp()}).catch(()=>{});
+        closeModal(); await loadData(); alert('تم حذف المؤثر نهائيًا.');
+      }catch(e){alert('تعذر حذف المؤثر نهائيًا: '+e.message)}
+    }; function closeModal(){$('modalBack').classList.remove('show');$('modalBody').innerHTML=''}
+    $('exportBtn').onclick=()=>{const rows=[['name','email','phone','tiktok','code','discountRequest','requestedCommissionRate','bankName','iban','status','campaignStatus','start','end','subscribers','appleNetProfit','commissionType','fixedCommission','commissionRate','commissionAmount','wazenNetProfit','paymentStatus','supportNotes']].concat(items.map(x=>[x.name||'',x.appEmail||x.email||'',x.phone||'',x.tiktok||'',x.approvedCode||x.desiredCode||'',x.discountRequest||'10%',x.requestedCommissionRate||10,x.bankName||'',x.iban||'',x.status||'',x.campaignStatus||'',fmt(x.campaignStart),fmt(x.campaignEnd),x.subscriberCount||0,x.appleNetProfit||0,x.commissionType||'percent',x.fixedCommission||0,x.commissionRate||0,x.commissionAmount||0,x.wazenNetProfit||0,x.paymentStatus||'',x.supportNotes||'']));const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='wazen-influencers.csv';a.click();URL.revokeObjectURL(a.href)};
+
+    // ===== Wazen Apple weekly report importer =====
+    let appleAnalysisRows = [];
+    const appleMsg=(text,type='warn')=>{const el=$('appleImportMsg'); if(!el)return; el.textContent=text||''; el.className='msg '+(text?'show ':'')+type};
+    function parseAppleDate(v, fallback){
+      v=String(v||'').trim();
+      if(!v && fallback) return fallback;
+      const m=v.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+      const d=new Date(v); if(!isNaN(d)) return d.toISOString().slice(0,10);
+      return fallback||'';
+    }
+    function fileDateFromName(name){
+      // Apple report names contain the provider id first, then the real report date.
+      // Example: Subscription_93914851_20260513_V1_3.txt
+      // The old regex could accidentally read 93914851 as a date. This picks only plausible 20xx dates.
+      const matches=[...String(name||'').matchAll(/(20\d{2})(0[1-9]|1[0-2])([0-2]\d|3[01])/g)];
+      if(!matches.length) return '';
+      const m=matches[matches.length-1];
+      return `${m[1]}-${m[2]}-${m[3]}`;
+    }
+    function displayDate(v){
+      v=String(v||'').trim();
+      if(!v) return '—';
+      const m=v.match(/^(20\d{2})-(\d{2})-(\d{2})$/);
+      if(m) return `${m[3]}/${m[2]}/${m[1]}`;
+      return escapeHtml(v);
+    }
+    function displayDateRange(a,b){
+      const x=displayDate(a), y=displayDate(b);
+      if(x==='—' && y==='—') return '—';
+      if(x===y) return x;
+      return `${x} إلى ${y}`;
+    }
+
+    function monthKey(date){return String(date||'').slice(0,7)||'غير محدد'}
+    function parseDelimitedLine(line, delimiter){
+      if(delimiter==='\t') return line.split('\t');
+      const out=[]; let cur='', q=false;
+      for(let i=0;i<line.length;i++){const ch=line[i]; if(ch==='"'){if(q&&line[i+1]==='"'){cur+='"';i++}else q=!q}else if(ch===delimiter&&!q){out.push(cur);cur=''}else cur+=ch} out.push(cur); return out;
+    }
+    function parseAppleTable(text){
+      text=String(text||'').replace(/^\uFEFF/,'');
+      const lines=text.split(/\r?\n/).filter(l=>l.trim().length);
+      if(lines.length<2) return [];
+      const delimiter=(lines[0].match(/\t/g)||[]).length >= (lines[0].match(/,/g)||[]).length ? '\t' : ',';
+      const headers=parseDelimitedLine(lines[0],delimiter).map(h=>h.trim());
+      return lines.slice(1).map(line=>{const vals=parseDelimitedLine(line,delimiter); const obj={}; headers.forEach((h,i)=>obj[h]=String(vals[i]??'').trim()); return obj;});
+    }
+    function toNum(v){const n=Number(String(v??'').replace(/,/g,'').trim()); return isFinite(n)?n:0}
+    function normalizeCampaignCode(v){return String(v||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'')}
+    function appleCodeFromRow(r){return normalizeCampaignCode(r['Offer Code']||r['Promotional Offer ID']||r['Subscription Offer Name']||'')}
+    function appleCurrencyToSarFactor(currency){
+      const c=String(currency||'SAR').trim().toUpperCase();
+      const rates={SAR:1,USD:3.75,AED:1.021,QAR:1.03,KWD:12.2,BHD:9.95,OMR:9.74};
+      return Number(rates[c]||1);
+    }
+    function appleProceedsInSar(row){return toNum(row['Developer Proceeds'])*appleCurrencyToSarFactor(row['Proceeds Currency']||row['Customer Currency']||'SAR')}
+    function campaignDateValue(v){return isoDateAny(v)}
+    function dateWithinCampaign(date, inf){
+      if(!date || !inf) return true;
+      const start=campaignDateValue(inf.campaignStart);
+      const end=campaignDateValue(inf.campaignEnd);
+      if(start && date<start) return false;
+      if(end && date>end) return false;
+      return true;
+    }
+    function campaignMonthIndex(inf, date){
+      const start=campaignDateValue(inf?.campaignStart);
+      if(!start || !date) return '';
+      const a=new Date(start+'T00:00:00'), b=new Date(date+'T00:00:00');
+      if(isNaN(a)||isNaN(b)) return '';
+      return Math.max(1, (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth()) + 1);
+    }
+    function findInfluencerByCode(code){code=normalizeCampaignCode(code); return items.find(x=>normalizeCampaignCode(x.approvedCode||x.desiredCode)===code)}
+    function findInfluencerByCodeForDate(code,date){
+      code=normalizeCampaignCode(code);
+      const matches=items.filter(x=>normalizeCampaignCode(x.approvedCode||x.desiredCode)===code);
+      if(!matches.length) return {inf:null,reason:'غير مربوط'};
+      const activeMatches=matches.filter(x=>String(x.status||x.campaignStatus||'')!=='deleted' && String(x.campaignStatus||x.status||'')!=='deleted');
+      const pool=activeMatches.length?activeMatches:matches;
+      const inDate=pool.find(x=>dateWithinCampaign(date,x));
+      if(inDate) return {inf:inDate,reason:'مرتبط'};
+      return {inf:null,reason:'خارج فترة الحملة',matchedAny:pool[0]};
+    }
+    function plainForBackup(v){
+      if(v && typeof v.toDate==='function') return v.toDate().toISOString();
+      if(Array.isArray(v)) return v.map(plainForBackup);
+      if(v && typeof v==='object'){const out={}; Object.keys(v).forEach(k=>out[k]=plainForBackup(v[k])); return out;}
+      return v;
+    }
+    function downloadJsonFile(name,data){
+      const blob=new Blob([JSON.stringify(plainForBackup(data),null,2)],{type:'application/json;charset=utf-8'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1200);
+    }
+    function backupFileStamp(){return new Date().toISOString().replace(/[:.]/g,'-')}
+    function currentInfluencerBackup(extra={}){return {type:'wazen_influencers_backup',version:2,generatedAt:new Date().toISOString(),project:'wazenfapp',count:items.length,items:items,...extra}}
+    function downloadAllInfluencerBackup(){downloadJsonFile('wazen-influencers-backup-'+backupFileStamp()+'.json', currentInfluencerBackup({note:'نسخة محلية من بيانات المؤثرين الظاهرة في لوحة الإدارة.'}))}
+    function reportKind(source, row){
+      const src=String(source||'').toLowerCase();
+      const headers=Object.keys(row||{}).join('|').toLowerCase();
+      if(src.includes('subscription_offer_code_redemption')||src.includes('offer_code_redemption')||(headers.includes('offer code')&&headers.includes('redemptions'))) return 'offerCodeRedemption';
+      if(src.includes('subscription_event')||src.includes('subscription-event')||src.includes('event_')) return 'event';
+      if(src.includes('subscriber_')) return 'subscriber';
+      if(src.includes('subscription_')) return 'subscription';
+      if(headers.includes('active standard price subscriptions')||headers.includes('free trial offer code subscriptions')||headers.includes('pay up front offer code subscriptions')) return 'subscription';
+      if(headers.includes('event date')&&headers.includes('event')&&headers.includes('quantity')) return 'event';
+      if(headers.includes('subscriber id')) return 'subscriber';
+      return 'unknown';
+    }
+    function paidQuantity(r){
+      const paidCols=['Active Standard Price Subscriptions','Active Pay Up Front Introductory Offer Subscriptions','Active Pay As You Go Introductory Offer Subscriptions','Pay Up Front Promotional Offer Subscriptions','Pay As You Go Promotional Offer Subscriptions','Pay Up Front Offer Code Subscriptions','Pay As You Go Offer Code Subscriptions'];
+      const p=paidCols.reduce((s,c)=>s+toNum(r[c]),0);
+      if(p>0) return p;
+      const price=toNum(r['Customer Price']), proceeds=toNum(r['Developer Proceeds']);
+      const direct=toNum(r['Redemptions']||r['Quantity']||r['Units']);
+      const subs=toNum(r['Subscribers']);
+      if((price>0||proceeds>0)&&direct>0) return direct;
+      if((price>0||proceeds>0)&&subs>0) return subs;
+      return 0;
+    }
+    function trialQuantity(r){
+      const cols=['Active Free Trial Introductory Offer Subscriptions','Free Trial Promotional Offer Subscriptions','Free Trial Offer Code Subscriptions','Free Trial Win-back Offers'];
+      const t=cols.reduce((s,c)=>s+toNum(r[c]),0);
+      if(t>0) return t;
+      const offerType=String(r['Subscription Offer Type']||r['Subscription Offer Name']||'').toLowerCase();
+      const direct=toNum(r['Redemptions']||r['Quantity']||r['Units']||r['Subscribers']);
+      return offerType.includes('free trial') ? direct : 0;
+    }
+    function billingRetryQuantity(r){return toNum(r['Billing Retry'])}
+    function rowQuantity(r){return paidQuantity(r)+trialQuantity(r)+billingRetryQuantity(r)}
+    function buildAppleAnalysis(rawRows){
+      const from=$('appleFromDate')?.value||'';
+      const to=$('appleToDate')?.value||'';
+      const by={}; let skippedNonFinancial=0, skippedOutsideCampaign=0, redemptionOnlyRows=0;
+      rawRows.forEach(({row,fileDate,source})=>{
+        const kind=reportKind(source,row);
+        // الحساب المالي يعتمد على Subscription فقط. ملف Offer Code Redemption يدخل كاستخدام للكود فقط بدون أرباح، ولا يكرر العد إذا وجد نفس الكود/الشهر في Subscription.
+        if(kind!=='subscription'&&kind!=='offerCodeRedemption'){skippedNonFinancial++; return;}
+        const code=appleCodeFromRow(row); if(!code) return;
+        const date=parseAppleDate(row['Event Date']||row['Purchase Date']||row['Date'], fileDate);
+        const dateForCampaign=date||fileDate||from||to;
+        if(from && dateForCampaign && dateForCampaign<from) return;
+        if(to && dateForCampaign && dateForCampaign>to) return;
+        let paid=0,trials=0,billingRetry=0,usage=0,qualifyingUses=0,appleNet=0,redemptions=0;
+        if(kind==='offerCodeRedemption'){
+          redemptions=toNum(row['Redemptions']||row['Quantity']||row['Units']);
+          usage=redemptions; trials=redemptions; qualifyingUses=redemptions; appleNet=0; redemptionOnlyRows++;
+        }else{
+          paid=paidQuantity(row); trials=trialQuantity(row); billingRetry=billingRetryQuantity(row);
+          usage=paid+trials+billingRetry; qualifyingUses=usage;
+          appleNet=appleProceedsInSar(row)*paid;
+        }
+        if(usage<=0) return;
+        const link=findInfluencerByCodeForDate(code,dateForCampaign);
+        const inf=link.inf;
+        if(!inf && link.reason==='خارج فترة الحملة') skippedOutsideCampaign++;
+        const month=monthKey(dateForCampaign||fileDate||from||to);
+        const periodStart=from||dateForCampaign||fileDate||month;
+        const periodEnd=to||dateForCampaign||fileDate||month;
+        const key=(inf?.id||'UNMATCHED')+'|'+code+'|'+month;
+        if(!by[key]) by[key]={
+          code,month,firstDate:dateForCampaign||fileDate||'',lastDate:dateForCampaign||fileDate||'',periodFrom:periodStart,periodTo:periodEnd,
+          visibleToInfluencer:true,usage:0,subscriptionUsage:0,redemptionsOnly:0,paid:0,trials:0,billingRetry:0,qualifyingUses:0,appleNetProfit:0,sources:new Set(),redemptionSources:new Set(),
+          influencerId:inf?.id||'',influencerName:inf?(inf.name||inf.displayName||''):'',linkStatus:inf?'مرتبط':(link.reason||'غير مربوط'),
+          campaignMonth:inf?campaignMonthIndex(inf,dateForCampaign):'',campaignStart:inf?campaignDateValue(inf.campaignStart):'',campaignEnd:inf?campaignDateValue(inf.campaignEnd):''
+        };
+        const g=by[key];
+        if(kind==='offerCodeRedemption'){
+          g.redemptionsOnly+=redemptions; g.redemptionSources.add(source||'Apple Offer Code Redemption');
+        }else{
+          g.subscriptionUsage+=usage; g.paid+=paid; g.trials+=trials; g.billingRetry+=billingRetry; g.qualifyingUses+=qualifyingUses; g.appleNetProfit+=appleNet; g.sources.add(source||'Apple Subscription');
+        }
+        if(dateForCampaign){if(!g.firstDate||dateForCampaign<g.firstDate)g.firstDate=dateForCampaign;if(!g.lastDate||dateForCampaign>g.lastDate)g.lastDate=dateForCampaign;}
+        if(periodStart && (!g.periodFrom || periodStart<g.periodFrom)) g.periodFrom=periodStart;
+        if(periodEnd && (!g.periodTo || periodEnd>g.periodTo)) g.periodTo=periodEnd;
+      });
+      window.__wazenSkippedAppleNonFinancialRows=skippedNonFinancial;
+      window.__wazenSkippedOutsideCampaignRows=skippedOutsideCampaign;
+      window.__wazenAppleRedemptionOnlyRows=redemptionOnlyRows;
+      return Object.values(by).map(g=>{
+        if(g.subscriptionUsage>0){
+          g.usage=g.subscriptionUsage;
+          if(g.redemptionsOnly>0) g.sources.add(`Offer Code Redemption (${g.redemptionsOnly} للتدقيق فقط)`);
+        }else{
+          g.usage=g.redemptionsOnly; g.trials=g.redemptionsOnly; g.qualifyingUses=g.redemptionsOnly;
+          g.redemptionSources.forEach(src=>g.sources.add(src));
+        }
+        const inf=g.influencerId?items.find(x=>x.id===g.influencerId):null;
+        const type=inf?.commissionType||'percent', rate=Number(inf?.commissionRate||inf?.requestedCommissionRate||10), fixed=Number(inf?.fixedCommission||0);
+        const commission=inf?calcCommission(g.appleNetProfit,g.paid,type,rate,fixed):0;
+        return {...g,sources:[...g.sources].join(' + '),commissionType:type,commissionRate:rate,fixedCommission:fixed,commissionAmount:Number(commission.toFixed(2)),wazenNetProfit:Number((g.appleNetProfit-commission).toFixed(2)),periodFrom:g.periodFrom||from||g.firstDate,periodTo:g.periodTo||to||g.lastDate,visibleToInfluencer:g.visibleToInfluencer!==false,periodKey:`APP_SUBSCRIPTION_${g.influencerId||'UNMATCHED'}_${g.code}_${g.month}`};
+      }).filter(g=>Number(g.usage||0)>0).sort((a,b)=>a.code.localeCompare(b.code)||a.month.localeCompare(b.month));
+    }
+    function renderAppleAnalysis(rows){
+      appleAnalysisRows=rows||[];
+      const codeCount=new Set(rows.map(r=>r.code)).size;
+      $('appleCodeCount').textContent=codeCount;
+      $('appleUsageTotal').textContent=rows.reduce((s,r)=>s+r.usage,0);
+      $('appleNetTotal').textContent=money(rows.reduce((s,r)=>s+r.appleNetProfit,0));
+      $('appleCommissionTotal').textContent=money(rows.reduce((s,r)=>s+r.commissionAmount,0));
+      $('appleUnmatchedCount').textContent=rows.filter(r=>!r.influencerId).length;
+      if(!rows.length){$('appleImportResults').innerHTML='<div class="empty">لا توجد أكواد ضمن الفترة المحددة في الملفات المرفوعة.</div>';return}
+      $('appleImportResults').innerHTML=`<table><thead><tr><th>الكود</th><th>الحالة</th><th>المؤثر</th><th>شهر Apple</th><th>شهر الحملة</th><th>فترة Apple</th><th>فترة حملة المؤثر</th><th>الاستخدامات</th><th>مدفوع</th><th>تجارب/مجاني</th><th>Billing Retry</th><th>صافي Apple</th><th>عمولة المؤثر</th><th>صافي وازن</th><th>الظهور</th><th>إجراء</th><th>المصدر</th></tr></thead><tbody>${rows.map((r,i)=>`<tr><td class="ltr">${escapeHtml(r.code)}</td><td>${r.influencerId?'<span class="status active">مرتبط</span>':`<span class="status paused">${escapeHtml(r.linkStatus||'غير مربوط')}</span>`}</td><td>${r.influencerId?escapeHtml(r.influencerName):'<span style="color:#FFD990">لا يحفظ حتى يطابق كود مؤثر وداخل فترة حملته</span>'}</td><td>${escapeHtml(r.month)}</td><td>${r.campaignMonth?('الشهر '+Number(r.campaignMonth)):'—'}</td><td>${displayDateRange(r.periodFrom||r.firstDate,r.periodTo||r.lastDate)}</td><td>${displayDateRange(r.campaignStart,r.campaignEnd)}</td><td>${Number(r.usage||0)}</td><td>${Number(r.paid||0)}</td><td>${Number(r.trials||0)}</td><td>${Number(r.billingRetry||0)}</td><td>${money(r.appleNetProfit)}</td><td>${money(r.commissionAmount)}</td><td>${money(r.wazenNetProfit)}</td><td>${r.visibleToInfluencer===false?'مخفي':'ظاهر للمؤثر'}</td><td><div class="actions"><button class="btn small ghost" onclick="exportAppleRowPdf(${i})">PDF</button><button class="btn small soft" onclick="toggleAppleRowVisibility(${i})">${r.visibleToInfluencer===false?'إظهار':'إخفاء'}</button></div></td><td>${escapeHtml(r.sources)}</td></tr>`).join('')}</tbody></table>`;
+    }
+
+    window.toggleAppleRowVisibility=function(i){
+      if(!appleAnalysisRows[i]) return;
+      appleAnalysisRows[i].visibleToInfluencer = appleAnalysisRows[i].visibleToInfluencer===false;
+      renderAppleAnalysis(appleAnalysisRows);
+    }
+    window.exportAppleRowPdf=async function(i){
+      const r=appleAnalysisRows[i]; if(!r){alert('لم يتم العثور على السجل');return}
+      const inf=items.find(x=>x.id===r.influencerId)||{};
+      const temp={...inf,id:inf.id||'',name:r.influencerName||inf.name||'غير مربوط',approvedCode:r.code,desiredCode:r.code,monthlyPayments:[{month:r.month,campaignMonth:r.campaignMonth,subscribers:r.usage,paid:r.paid,trials:r.trials,billingRetry:r.billingRetry,appleNetProfit:r.appleNetProfit,commissionType:r.commissionType,commissionRate:r.commissionRate,fixedCommission:r.fixedCommission,commissionAmount:r.commissionAmount,wazenNetProfit:r.wazenNetProfit,paymentStatus:$('appleDefaultPayStatus')?.value||'بانتظار Apple',paidAt:'',notes:`الفترة: ${displayDateRange(r.periodFrom||r.firstDate,r.periodTo||r.lastDate)} — المصدر: ${r.sources}`,visibleToInfluencer:r.visibleToInfluencer!==false}],subscriberCount:r.usage,appleNetProfit:r.appleNetProfit,commissionAmount:r.commissionAmount,wazenNetProfit:r.wazenNetProfit,campaignStart:r.periodFrom||r.firstDate,campaignEnd:r.periodTo||r.lastDate,paymentStatus:$('appleDefaultPayStatus')?.value||'بانتظار Apple'};
+      await exportInfluencerPdf(temp);
+    }
+    async function analyzeAppleFiles(){
+      const input=$('appleReportFiles'); if(!input?.files?.length){appleMsg('ارفع ملفات Apple أولاً.','err');return}
+      appleMsg('جاري قراءة الملفات وتحليل الأكواد...','warn');
+      const all=[];
+      for(const file of [...input.files]){
+        if(file.name.toLowerCase().endsWith('.gz')){appleMsg('ملفات .gz غير مدعومة داخل المتصفح. فك الضغط وارفع ملفات .txt.','err');return}
+        const text=await file.text(); const fileDate=fileDateFromName(file.name); const rows=parseAppleTable(text); rows.forEach(row=>all.push({row,fileDate,source:file.name}));
+      }
+      const result=buildAppleAnalysis(all); renderAppleAnalysis(result);
+      appleMsg(`تم تحليل ${all.length} صف وظهرت ${result.length} نتيجة. يتم حساب أرباح Apple من Subscription فقط، ويتم احتساب Offer Code Redemption كاستخدام للكود بدون مضاعفة إذا وجد نفس الكود في Subscription. راجع غير المربوطة أو الخارجة عن فترة الحملة قبل الحفظ.`,'ok');
+    }
+    async function saveAppleImportResults(){
+      const rows=appleAnalysisRows.filter(r=>r.influencerId);
+      if(!rows.length){appleMsg('لا توجد نتائج مربوطة بمؤثرين لحفظها. تأكد أن الكود في التقرير مطابق للكود المعتمد في بيانات المؤثر.','err');return}
+      if(!confirm('سيتم حفظ نتائج هذه الفترة داخل تقارير المؤثرين. إذا سبق حفظ نفس الفترة والكود سيتم استبدالها لتجنب التكرار. متابعة؟'))return;
+      appleMsg('جاري حفظ النتائج وتحديث تقارير المؤثرين بدقة...','warn');
+      const payDefault=$('appleDefaultPayStatus')?.value||'بانتظار Apple';
+      const grouped={}; rows.forEach(r=>{(grouped[r.influencerId] ||= []).push(r)});
+      let saved=0;
+      const savedDetails=[];
+      for(const [id,list] of Object.entries(grouped)){
+        const ref=db.collection('influencerApplications').doc(id);
+        const snap=await ref.get(); if(!snap.exists) continue;
+        const x={id,...snap.data()};
+        let imports=Array.isArray(x.appleImports)?x.appleImports:[];
+        const newKeys=new Set(list.map(r=>r.periodKey));
+        imports=imports.filter(im=>!newKeys.has(im.periodKey));
+        list.forEach(r=>imports.push({periodKey:r.periodKey,code:r.code,month:r.month,campaignMonth:r.campaignMonth||'',campaignStart:r.campaignStart||'',campaignEnd:r.campaignEnd||'',from:r.periodFrom,to:r.periodTo,firstDate:r.firstDate,lastDate:r.lastDate,usage:r.usage,paid:r.paid,trials:r.trials,billingRetry:r.billingRetry,qualifyingUses:r.qualifyingUses,appleNetProfit:Number(r.appleNetProfit.toFixed(2)),commissionType:r.commissionType,commissionRate:r.commissionRate,fixedCommission:r.fixedCommission,commissionAmount:Number(r.commissionAmount.toFixed(2)),wazenNetProfit:Number(r.wazenNetProfit.toFixed(2)),source:r.sources,visibleToInfluencer:r.visibleToInfluencer!==false,importedAt:new Date().toISOString(),importedBy:currentUser?.email||''}));
+        const oldMonths=Array.isArray(x.monthlyPayments)?x.monthlyPayments:[];
+        const oldByMonth={}; oldMonths.forEach(m=>{if(m.month)oldByMonth[m.month]=m});
+        const byMonth={};
+        imports.forEach(im=>{const m=im.month||monthKey(im.firstDate||im.from); if(!byMonth[m])byMonth[m]={month:m,campaignMonth:im.campaignMonth||'',campaignStart:im.campaignStart||'',campaignEnd:im.campaignEnd||'',subscribers:0,paid:0,trials:0,billingRetry:0,qualifyingUses:0,appleNetProfit:0,sources:[],visibleCount:0,hiddenCount:0}; const g=byMonth[m]; g.subscribers+=Number(im.usage||0); g.paid+=Number(im.paid||0); g.trials+=Number(im.trials||0); g.billingRetry+=Number(im.billingRetry||0); g.qualifyingUses+=Number(im.qualifyingUses||im.usage||0); g.appleNetProfit+=Number(im.appleNetProfit||0); if(im.visibleToInfluencer===false) g.hiddenCount++; else g.visibleCount++; if(im.source)g.sources.push(im.source)});
+        const months=Object.values(byMonth).sort((a,b)=>a.month.localeCompare(b.month)).map(g=>{const old=oldByMonth[g.month]||{}; const type=old.commissionType||x.commissionType||'percent'; const rate=Number(old.commissionRate??x.commissionRate??x.requestedCommissionRate??10); const fixed=Number(old.fixedCommission??x.fixedCommission??0); const commission=calcCommission(g.appleNetProfit,g.paid,type,rate,fixed); return {...old,month:g.month,campaignMonth:g.campaignMonth||old.campaignMonth||'',campaignStart:g.campaignStart||old.campaignStart||'',campaignEnd:g.campaignEnd||old.campaignEnd||'',subscribers:g.subscribers,paid:g.paid,trials:g.trials,billingRetry:g.billingRetry,qualifyingUses:g.qualifyingUses,appleNetProfit:Number(g.appleNetProfit.toFixed(2)),commissionType:type,commissionRate:rate,fixedCommission:fixed,commissionAmount:Number(commission.toFixed(2)),wazenNetProfit:Number((g.appleNetProfit-commission).toFixed(2)),visibleToInfluencer: old.visibleToInfluencer !== undefined ? old.visibleToInfluencer : (g.hiddenCount>0 && g.visibleCount===0 ? false : true),paymentStatus:old.paymentStatus||payDefault,paidAt:old.paidAt||'',notes:old.notes||`تم التحديث من تقارير Apple (${[...new Set(g.sources)].join('، ')})`};});
+        // Preserve manually-created months that are not part of imported data.
+        oldMonths.forEach(m=>{if(m.month && !months.some(mm=>mm.month===m.month)) months.push(m)});
+        months.sort((a,b)=>String(a.month).localeCompare(String(b.month)));
+        const totals={subscribers:months.reduce((s,m)=>s+Number(m.subscribers||0),0),paid:months.reduce((s,m)=>s+Number(m.paid||0),0),trials:months.reduce((s,m)=>s+Number(m.trials||0),0),qualifyingUses:months.reduce((s,m)=>s+Number(m.qualifyingUses??m.subscribers??0),0),apple:months.reduce((s,m)=>s+Number(m.appleNetProfit||0),0),commission:months.reduce((s,m)=>s+Number(m.commissionAmount||0),0),wazen:months.reduce((s,m)=>s+Number(m.wazenNetProfit||0),0)};
+        const goal=activationGoalForAdmin(x);
+        const eligible=(x.earningsEnabled===true)||totals.qualifyingUses>=goal;
+        await ref.set({appleImports:imports,monthlyPayments:months,subscriberCount:totals.subscribers,paidSubscriberCount:totals.paid,trialSubscriberCount:totals.trials,preActivationCodeUses:totals.qualifyingUses,qualifyingUses:totals.qualifyingUses,earningsEnabled:eligible,earningsStatus:eligible?'eligible':'not_eligible',earningsMessage:eligible?'مهيأ للأرباح: حسابك حقق شرط التفعيل وسيتم احتساب أرباحك حسب تقارير Apple الرسمية.':`غير مؤهل للأرباح بعد: يلزم ${goal} استخدام/مشترك مؤهل لتفعيل عرض الأرباح.`,appleNetProfit:Number(totals.apple.toFixed(2)),commissionAmount:Number(totals.commission.toFixed(2)),wazenNetProfit:Number(totals.wazen.toFixed(2)),lastAppleImportAt:FieldValue.serverTimestamp(),lastAppleImportBy:currentUser?.email||'',lastAppleImportFrom:list[0]?.periodFrom||'',lastAppleImportTo:list[0]?.periodTo||'',updatedAt:FieldValue.serverTimestamp()}, {merge:true});
+        savedDetails.push({id,name:x.name||x.displayName||'',code:x.approvedCode||x.desiredCode||'',months,totals,imports:list});
+        saved++;
+      }
+      const skipped=Number(window.__wazenSkippedAppleNonFinancialRows||0);
+      const outside=Number(window.__wazenSkippedOutsideCampaignRows||0);
+      const backup={type:'wazen_apple_import_backup',version:2,generatedAt:new Date().toISOString(),period:{from:$('appleFromDate')?.value||'',to:$('appleToDate')?.value||''},savedInfluencers:savedDetails,allAnalyzedRows:rows,unmatchedRows:appleAnalysisRows.filter(r=>!r.influencerId)};
+      try{localStorage.setItem('wazenLastAppleImportBackup',JSON.stringify(plainForBackup(backup)));}catch(_){}
+      downloadJsonFile('wazen-apple-import-backup-'+backupFileStamp()+'.json', backup);
+      appleMsg(`تم حفظ النتائج وتحديث ${saved} مؤثر بدقة. تم تنزيل نسخة JSON على جهازك. الحساب المالي يعتمد على Subscription فقط، واستخدامات Offer Code Redemption دخلت كاستخدام بدون أرباح وبدون تكرار${skipped?`، وتم تجاهل ${skipped} صف غير مالي لمنع التكرار`:''}${outside?`، ويوجد ${outside} صف خارج فترة حملة المؤثر ولم يتم حفظه`:''}.`,'ok');
+      await loadData();
+    }
+    setTimeout(()=>{if($('analyzeAppleBtn'))$('analyzeAppleBtn').onclick=analyzeAppleFiles; if($('saveAppleImportBtn'))$('saveAppleImportBtn').onclick=saveAppleImportResults; if($('downloadAppleBackupBtn'))$('downloadAppleBackupBtn').onclick=downloadAllInfluencerBackup;},0);
+
+    window.exportInfluencerPdfById=async id=>{
+      const x=items.find(a=>a.id===id);
+      if(!x){alert('لم يتم العثور على المؤثر');return}
+      return exportInfluencerPdf(x);
+    }
+    async function exportInfluencerPdf(x){
+      if(!window.jspdf || !window.html2canvas){alert('تعذر تحميل أدوات إنشاء PDF. أعد تحميل الصفحة وحاول مرة أخرى.');return}
+      const fileSafe=(x.approvedCode||x.desiredCode||x.name||'report').toString().replace(/[^A-Za-z0-9_-]/g,'_');
+      try{
+        const months=filterMonthsForReport(x,Array.isArray(x.monthlyPayments)?x.monthlyPayments:[]);
+        const totals={
+          subscribers:Number(x.subscriberCount||0),
+          apple:Number(x.appleNetProfit||0),
+          commission:Number(x.commissionAmount||0),
+          wazen:Number(x.wazenNetProfit||0)
+        };
+        function val(v){return escapeHtml(v||'—')}
+        function row(k,v){return `<tr><th>${val(k)}</th><td>${val(v)}</td></tr>`}
+        function moneyPlain(v){return money(Number(v||0))}
+        function monthRows(){
+          if(!months.length){return '<tr><td colspan="7" class="center muted2">لا توجد بيانات شهرية مسجلة.</td></tr>'}
+          return months.map((m,i)=>`<tr><td>${i+1}</td><td>${val(m.month)}</td><td>${Number(m.subscribers||0)}</td><td>${moneyPlain(m.appleNetProfit)}</td><td>${val(commissionTypeAr(m.commissionType||x.commissionType))}</td><td>${(m.commissionType||x.commissionType)==='fixed'?moneyPlain(m.fixedCommission||x.fixedCommission)+' لكل اشتراك':((m.commissionType||x.commissionType)==='hybrid'?Number(m.commissionRate||x.commissionRate||0)+'% + '+moneyPlain(m.fixedCommission||x.fixedCommission)+' لكل اشتراك':Number(m.commissionRate||x.commissionRate||0)+'%')}</td><td>${moneyPlain(m.commissionAmount)}</td><td>${val(m.paymentStatus)}<br><span>${val(m.paidAt)}</span></td></tr>`).join('')
+        }
+        const wrap=document.createElement('div');
+        wrap.id='wazenPdfRenderRoot';
+        wrap.dir='rtl';
+        wrap.innerHTML=`
+          <style>
+            #wazenPdfRenderRoot{position:fixed;left:-10000px;top:0;width:794px;background:#fff;color:#111;font-family:Arial,"Tahoma","Tajawal",sans-serif;letter-spacing:0;z-index:-1}
+            #wazenPdfRenderRoot .page{width:794px;min-height:1123px;background:#fff;padding:42px 48px 38px 48px;box-sizing:border-box;direction:rtl;color:#111;overflow:hidden}
+            #wazenPdfRenderRoot .head{border:2px solid #111;padding:18px 22px;margin-bottom:22px;display:flex;align-items:center;justify-content:space-between;gap:18px}
+            #wazenPdfRenderRoot .brand{display:flex;align-items:center;gap:12px}
+            #wazenPdfRenderRoot .brand img{width:44px;height:44px;border-radius:10px;object-fit:contain}
+            #wazenPdfRenderRoot .brand h1{font-size:23px;margin:0;font-weight:900;letter-spacing:.1px}
+            #wazenPdfRenderRoot .brand p{font-size:12px;margin:4px 0 0;color:#444}
+            #wazenPdfRenderRoot .docNo{font-size:11px;color:#333;text-align:left;line-height:1.8;direction:ltr}
+            #wazenPdfRenderRoot h2{font-size:18px;margin:20px 0 12px;font-weight:900;border-bottom:1.5px solid #111;padding-bottom:8px}
+            #wazenPdfRenderRoot h3{font-size:15px;margin:14px 0 8px;font-weight:900}
+            #wazenPdfRenderRoot p{font-size:12.2px;line-height:1.9;margin:6px 0;color:#111}
+            #wazenPdfRenderRoot table{width:100%;border-collapse:collapse;margin:8px 0 16px;table-layout:fixed;direction:rtl}
+            #wazenPdfRenderRoot th,#wazenPdfRenderRoot td{border:1px solid #333;padding:8px 9px;font-size:11.4px;vertical-align:top;line-height:1.6;word-break:break-word}
+            #wazenPdfRenderRoot th{background:#f1f1f1;font-weight:900;width:34%}
+            #wazenPdfRenderRoot thead th{width:auto;text-align:center;background:#111;color:#fff;font-size:10.7px}
+            #wazenPdfRenderRoot td span{font-size:10px;color:#555}
+            #wazenPdfRenderRoot .center{text-align:center}.muted2{color:#555}
+            #wazenPdfRenderRoot .summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 18px}
+            #wazenPdfRenderRoot .box{border:1.5px solid #111;padding:13px 14px;min-height:74px}.box b{display:block;font-size:12px;margin-bottom:6px}.box strong{font-size:20px}
+            #wazenPdfRenderRoot .note{border:1px solid #333;background:#fafafa;padding:12px 14px;margin-top:10px;font-size:11.5px;line-height:1.9}
+            #wazenPdfRenderRoot .footer{position:absolute;bottom:24px;left:48px;right:48px;border-top:1px solid #999;padding-top:8px;font-size:10px;color:#555;display:flex;justify-content:space-between}
+            #wazenPdfRenderRoot .sign{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px}.sign div{border:1px solid #111;min-height:95px;padding:12px;font-size:12px;line-height:2.1}
+          </style>
+          <section class="page">
+            <div class="head"><div class="brand"><img src="/wazen_logo.png" onerror="this.style.display='none'"><div><h1>تقرير معلومات وأرباح مؤثر وازن</h1><p>تقرير رسمي صادر من لوحة إدارة وازن</p></div></div><div class="docNo">WAZEN INFLUENCER REPORT<br>${new Date().toLocaleDateString('ar-SA')}</div></div>
+            <h2>بيانات المؤثر والحملة</h2>
+            <table><tbody>
+              ${row('اسم المؤثر',x.name||x.displayName)}${row('البريد في التطبيق',x.appEmail||x.email)}${row('رقم التواصل',x.phone)}${row('حساب TikTok',x.tiktok)}${row('الكود المعتمد',x.approvedCode||x.desiredCode)}${row('نسبة الخصم للمتابعين',x.discountRequest||'10%')}${row('نسبة العمولة المطلوبة',Number(x.requestedCommissionRate||10)+'%')}${row('حالة الحملة',statusAr(x.campaignStatus||x.status))}${row('فترة الحملة',fmt(x.campaignStart)+' إلى '+fmt(x.campaignEnd))}${row('فترة التقرير/PDF',fmt(x.reportFrom||x.reportStart)+' إلى '+fmt(x.reportTo||x.reportEnd))}
+            </tbody></table>
+            <h2>بيانات الحساب البنكي</h2>
+            <table><tbody>
+              ${row('اسم البنك',x.bankName)}${row('اسم صاحب الحساب',x.bankAccountName)}${row('الآيبان',x.iban)}${row('ملاحظات بنكية',x.bankNotes)}
+            </tbody></table>
+            <h2>الملخص المالي</h2>
+            <div class="summary">
+              <div class="box"><b>إجمالي الاشتراكات</b><strong>${totals.subscribers}</strong></div>
+              <div class="box"><b>صافي Apple</b><strong>${moneyPlain(totals.apple)}</strong></div>
+              <div class="box"><b>عمولة المؤثر</b><strong>${moneyPlain(totals.commission)}</strong></div>
+              <div class="box"><b>صافي وازن بعد العمولة</b><strong>${moneyPlain(totals.wazen)}</strong></div>
+            </div>
+            <table><tbody>${row('نوع العمولة',commissionTypeAr(x.commissionType))}${row('نسبة العمولة',Number(x.commissionRate||0)+'%')}${row('مبلغ ثابت لكل اشتراك',moneyPlain(x.fixedCommission||0))}${row('حالة الصرف العامة',x.paymentStatus)}</tbody></table>
+            <div class="note">يتم احتساب الأرقام بناءً على البيانات المدخلة في لوحة إدارة وازن ومطابقتها مع تقارير Apple الرسمية عند الاعتماد النهائي.</div>
+            <div class="footer"><span>تطبيق وازن</span><span>صفحة 1</span></div>
+          </section>
+          <section class="page">
+            <div class="head"><div class="brand"><img src="/wazen_logo.png" onerror="this.style.display='none'"><div><h1>سجل الصرف الشهري</h1><p>${val(x.name||x.displayName)} — ${val(x.approvedCode||x.desiredCode)}</p></div></div><div class="docNo">MONTHLY PAYMENTS</div></div>
+            <h2>تفاصيل الأشهر</h2>
+            <table><thead><tr><th>#</th><th>الشهر</th><th>الاشتراكات</th><th>طلب العمولة</th><th>صافي Apple</th><th>نوع العمولة</th><th>النسبة/القيمة</th><th>عمولة المؤثر</th><th>حالة الصرف / التاريخ</th></tr></thead><tbody>${monthRows()}</tbody></table>
+            <h2>ملاحظات وازن</h2>
+            <p>${val(x.adminNotes).replace(/\n/g,'<br>')}</p>
+            <h2>إقرار التقرير</h2>
+            <p>هذا التقرير مخصص للمؤثر المذكور أعلاه، ويستخدم لغرض المتابعة الداخلية ومشاركة ملخص الأداء والحسابات الشهرية. لا يعد التقرير سند صرف نهائي إلا بعد اعتماد إدارة وازن ومطابقة البيانات مع تقارير Apple الرسمية.</p>
+            <div class="sign"><div><b>اعتماد وازن</b><br>الاسم:<br>التوقيع:<br>التاريخ:</div><div><b>استلام المؤثر</b><br>الاسم:<br>التوقيع:<br>التاريخ:</div></div>
+            <div class="footer"><span>تطبيق وازن</span><span>صفحة 2</span></div>
+          </section>`;
+        document.body.appendChild(wrap);
+        await new Promise(r=>setTimeout(r,350));
+        const {jsPDF}=window.jspdf;
+        const pdf=new jsPDF({orientation:'p',unit:'mm',format:'a4',compress:true});
+        const pages=[...wrap.querySelectorAll('.page')];
+        for(let i=0;i<pages.length;i++){
+          const canvas=await html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false});
+          const img=canvas.toDataURL('image/jpeg',0.96);
+          if(i>0)pdf.addPage();
+          pdf.addImage(img,'JPEG',0,0,210,297,undefined,'FAST');
+        }
+        wrap.remove();
+        pdf.save(`wazen-influencer-${fileSafe}.pdf`);
+      }catch(e){
+        const old=document.getElementById('wazenPdfRenderRoot'); if(old)old.remove();
+        alert('تعذر إنشاء PDF: '+e.message)
+      }
+    };
+  </script>
+
+<script>
+(function(){
+  function W$(id){return document.getElementById(id)}
+  function esc(v){return String(v??'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function num(v){const n=Number(v||0);return isFinite(n)?n:0}
+  function sar(v){return new Intl.NumberFormat('ar-SA',{style:'currency',currency:'SAR',maximumFractionDigits:2}).format(num(v))}
+  function plainDate(v){try{if(!v)return '—'; if(v.toDate)v=v.toDate(); const d=new Date(v); if(isNaN(d))return String(v||'—'); return d.toLocaleDateString('ar-SA')}catch(_){return String(v||'—')}}
+  function isoDate(v){try{if(!v)return ''; if(v.toDate)v=v.toDate(); const d=new Date(v); if(isNaN(d))return ''; return d.toISOString().slice(0,10)}catch(_){return ''}}
+  function monthDate(m){const raw=String(m?.month||m?.from||m?.firstDate||'').trim(); if(/^\d{4}-\d{2}$/.test(raw))return raw+'-01'; if(/^\d{4}-\d{2}-\d{2}/.test(raw))return raw.slice(0,10); return ''}
+  function commissionTypeText(t){return t==='fixed'?'مبلغ ثابت لكل اشتراك':(t==='hybrid'?'نسبة + مبلغ ثابت':'نسبة من صافي Apple')}
+  function statusText(s){const map={pending:'بانتظار المراجعة',approved:'معتمد',active:'نشطة',paused:'متوقفة',ended:'منتهية',rejected:'مرفوض',deleted:'محذوف'}; return map[String(s||'pending')]||String(s||'—')}
+  function filterByPeriod(x, arr){const from=isoDate(x.reportFrom||x.reportStart); const to=isoDate(x.reportTo||x.reportEnd); if(!from&&!to)return arr||[]; return (arr||[]).filter(r=>{const d=monthDate(r)||String(r.firstDate||r.from||'').slice(0,10); if(!d)return true; if(from&&d<from)return false; if(to&&d>to)return false; return true})}
+  function getMonths(x){return filterByPeriod(x, Array.isArray(x.monthlyPayments)?x.monthlyPayments:[])}
+  function getImports(x){return filterByPeriod(x, Array.isArray(x.appleImports)?x.appleImports:[])}
+  function totalsFrom(x){const months=getMonths(x); const imports=getImports(x); const base=months.length?months:[]; if(base.length){return {subs:base.reduce((s,m)=>s+num(m.subscribers),0),paid:base.reduce((s,m)=>s+num(m.paid),0),trials:base.reduce((s,m)=>s+num(m.trials),0),apple:base.reduce((s,m)=>s+num(m.appleNetProfit),0),commission:base.reduce((s,m)=>s+num(m.commissionAmount),0),wazen:base.reduce((s,m)=>s+num(m.wazenNetProfit),0),ops:imports.length};}
+    return {subs:num(x.subscriberCount),paid:0,trials:0,apple:num(x.appleNetProfit),commission:num(x.commissionAmount),wazen:num(x.wazenNetProfit),ops:imports.length};
+  }
+  function downloadCsv(name, rows){const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n'); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+  function reportHtml(x, opts={}){
+    const months=getMonths(x); const imports=getImports(x); const t=totalsFrom(x); const code=x.approvedCode||x.desiredCode||'—';
+    const monthRows=months.length?months.map((m,i)=>`<tr><td>${i+1}</td><td>${esc(m.month||'—')}</td><td>${m.campaignMonth?('الشهر '+num(m.campaignMonth)):'—'}</td><td>${num(m.subscribers)}</td><td>${num(m.paid)}</td><td>${num(m.trials)}</td><td>${sar(m.appleNetProfit)}</td><td>${commissionTypeText(m.commissionType||x.commissionType)}</td><td>${esc((m.commissionType||x.commissionType)==='fixed'?sar(m.fixedCommission||x.fixedCommission)+' لكل اشتراك':((m.commissionType||x.commissionType)==='hybrid'?num(m.commissionRate||x.commissionRate)+'% + '+sar(m.fixedCommission||x.fixedCommission)+' لكل اشتراك':num(m.commissionRate||x.commissionRate)+'%'))}</td><td>${sar(m.commissionAmount)}</td><td>${sar(m.wazenNetProfit)}</td><td>${esc(m.paymentStatus||'—')}</td><td>${esc(m.paidAt||'—')}</td></tr>`).join(''):`<tr><td colspan="12">لا توجد بيانات شهرية ضمن فترة التقرير المحددة.</td></tr>`;
+    const importRows=imports.length?imports.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.month||'—')}</td><td>${plainDate(r.from||r.firstDate)} إلى ${plainDate(r.to||r.lastDate)}</td><td>${esc(r.code||code)}</td><td>${num(r.usage)}</td><td>${num(r.paid)}</td><td>${num(r.trials)}</td><td>${num(r.billingRetry)}</td><td>${sar(r.appleNetProfit)}</td><td>${esc(r.source||'Apple')}</td><td>${r.visibleToInfluencer===false?'مخفي':'ظاهر'}</td></tr>`).join(''):`<tr><td colspan="11">لا توجد عمليات Apple محفوظة ضمن الفترة المحددة.</td></tr>`;
+    return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير مؤثر وازن</title><style>
+      @page{size:A4;margin:12mm}*{box-sizing:border-box}body{margin:0;background:#f3f6f5;color:#111;font-family:Arial,Tahoma,sans-serif;direction:rtl;-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{width:210mm;min-height:297mm;margin:0 auto 14px;background:white;padding:14mm;box-shadow:0 10px 30px rgba(0,0,0,.08)}.head{border:2px solid #111;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:16px}.head h1{font-size:22px;margin:0 0 4px;font-weight:900}.head p{font-size:12px;margin:0;color:#555}.logo{width:48px;height:48px;border-radius:12px;object-fit:contain}.doc{direction:ltr;text-align:left;font-size:11px;color:#555;line-height:1.7}h2{font-size:18px;margin:20px 0 10px;padding-bottom:7px;border-bottom:1.5px solid #111}h3{font-size:15px;margin:14px 0 8px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.box{border:1.5px solid #111;padding:13px;min-height:70px}.box b{display:block;font-size:12px;margin-bottom:6px}.box strong{font-size:21px}table{width:100%;border-collapse:collapse;margin:8px 0 14px;table-layout:fixed}th,td{border:1px solid #333;padding:8px 9px;font-size:11.2px;line-height:1.55;word-break:break-word;vertical-align:top}th{background:#f0f0f0;font-weight:900}thead th{background:#111;color:white;text-align:center}.note{background:#fafafa;border:1px solid #555;padding:12px;font-size:12px;line-height:1.8}.sign{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px}.sign div{border:1px solid #111;min-height:85px;padding:10px;font-size:12px;line-height:2}.noPrint{position:sticky;top:0;background:#016C66;color:white;padding:12px;display:flex;justify-content:center;gap:10px;z-index:9}.noPrint button{border:0;border-radius:10px;padding:10px 18px;font-weight:800;cursor:pointer}.ltr{direction:ltr;text-align:left}@media print{body{background:white}.page{box-shadow:none;margin:0}.noPrint{display:none}}
+      </style></head><body><div class="noPrint"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div>
+      <section class="page"><div class="head"><div style="display:flex;align-items:center;gap:12px"><img class="logo" src="/wazen_logo.png"><div><h1>تقرير معلومات وأرباح مؤثر وازن</h1><p>تقرير رسمي صادر من لوحة إدارة وازن</p></div></div><div class="doc">WAZEN INFLUENCER REPORT<br>${new Date().toLocaleDateString('ar-SA')}<br>${esc(code)}</div></div>
+      <h2>بيانات المؤثر والحملة</h2><table><tbody><tr><th>اسم المؤثر</th><td>${esc(x.name||x.displayName||'—')}</td><th>البريد في التطبيق</th><td>${esc(x.appEmail||x.email||'—')}</td></tr><tr><th>رقم التواصل</th><td>${esc(x.phone||'—')}</td><th>حساب TikTok</th><td>${esc(x.tiktok||'—')}</td></tr><tr><th>الكود المعتمد</th><td class="ltr">${esc(code)}</td><th>حالة الحملة</th><td>${statusText(x.campaignStatus||x.status)}</td></tr><tr><th>فترة الحملة</th><td>${plainDate(x.campaignStart)} إلى ${plainDate(x.campaignEnd)}</td><th>فترة التقرير</th><td>${plainDate(x.reportFrom||x.reportStart)} إلى ${plainDate(x.reportTo||x.reportEnd)}</td></tr><tr><th>نسبة الخصم</th><td>${esc(x.discountRequest||'10%')}</td><th>نسبة العمولة المعتمدة</th><td>${num(x.commissionRate||x.requestedCommissionRate||10)}%</td></tr></tbody></table>
+      <h2>بيانات الحساب البنكي</h2><table><tbody><tr><th>اسم البنك</th><td>${esc(x.bankName||'—')}</td><th>اسم صاحب الحساب</th><td>${esc(x.bankAccountName||'—')}</td></tr><tr><th>الآيبان</th><td colspan="3" class="ltr">${esc(x.iban||'—')}</td></tr><tr><th>ملاحظات بنكية</th><td colspan="3">${esc(x.bankNotes||'—')}</td></tr></tbody></table>
+      <h2>الملخص المالي</h2><div class="grid"><div class="box"><b>إجمالي الاشتراكات/الاستخدامات</b><strong>${t.subs}</strong></div><div class="box"><b>صافي Apple</b><strong>${sar(t.apple)}</strong></div><div class="box"><b>عمولة المؤثر</b><strong>${sar(t.commission)}</strong></div><div class="box"><b>صافي وازن بعد العمولة</b><strong>${sar(t.wazen)}</strong></div></div><table><tbody><tr><th>نوع العمولة</th><td>${commissionTypeText(x.commissionType)}</td><th>حالة الصرف العامة</th><td>${esc(x.paymentStatus||'—')}</td></tr><tr><th>عدد العمليات المحفوظة من Apple</th><td>${t.ops}</td><th>تاريخ آخر تحديث</th><td>${plainDate(x.updatedAt)}</td></tr></tbody></table><div class="note">يتم احتساب الأرقام بناءً على بيانات Apple الرسمية التي يرفعها فريق وازن، ولا يعد التقرير سند صرف نهائي إلا بعد اعتماد الإدارة ومطابقة بيانات App Store Connect.</div></section>
+      <section class="page"><div class="head"><div><h1>سجل الأشهر والعمليات</h1><p>${esc(x.name||x.displayName||'—')} — ${esc(code)}</p></div><div class="doc">MONTHLY & APPLE OPERATIONS</div></div><h2>تفاصيل الأشهر</h2><table><thead><tr><th>#</th><th>الشهر</th><th>شهر الحملة</th><th>الاستخدامات</th><th>مدفوع</th><th>تجارب</th><th>صافي Apple</th><th>نوع العمولة</th><th>النسبة/القيمة</th><th>عمولة المؤثر</th><th>صافي وازن</th><th>الصرف</th><th>تاريخ الصرف</th></tr></thead><tbody>${monthRows}</tbody></table><h2>عمليات Apple المحفوظة</h2><table><thead><tr><th>#</th><th>الشهر</th><th>الفترة</th><th>الكود</th><th>الاستخدامات</th><th>مدفوع</th><th>تجارب</th><th>Billing Retry</th><th>صافي Apple</th><th>المصدر</th><th>الظهور</th></tr></thead><tbody>${importRows}</tbody></table><h2>ملاحظات وازن</h2><div class="note">${esc(x.adminNotes||'—').replace(/\n/g,'<br>')}</div><div class="sign"><div><b>اعتماد وازن</b><br>الاسم:<br>التوقيع:<br>التاريخ:</div><div><b>استلام المؤثر</b><br>الاسم:<br>التوقيع:<br>التاريخ:</div></div></section></body></html>`;
+  }
+  function openPrintReport(x){const w=window.open('','_blank'); if(!w){alert('اسمح بالنوافذ المنبثقة لتصدير PDF.');return} w.document.open(); w.document.write(reportHtml(x)); w.document.close(); setTimeout(()=>{try{w.focus();w.print()}catch(_){}},900)}
+  window.exportInfluencerPdfById=function(id){const x=(typeof items!=='undefined'?items:[]).find(a=>a.id===id); if(!x){alert('لم يتم العثور على المؤثر');return} openPrintReport(x)};
+  window.exportInfluencerPdf=function(x){openPrintReport(x)};
+  window.exportAllInfluencersPdf=function(){const arr=(typeof items!=='undefined'?items:[]); const w=window.open('','_blank'); if(!w){alert('اسمح بالنوافذ المنبثقة.');return} const rows=arr.map((x,i)=>{const t=totalsFrom(x);return `<tr><td>${i+1}</td><td>${esc(x.name||x.displayName||'—')}</td><td>${esc(x.appEmail||x.email||'—')}</td><td>${esc(x.approvedCode||x.desiredCode||'—')}</td><td>${statusText(x.campaignStatus||x.status)}</td><td>${plainDate(x.campaignStart)}</td><td>${plainDate(x.campaignEnd)}</td><td>${t.subs}</td><td>${sar(t.apple)}</td><td>${sar(t.commission)}</td><td>${sar(t.wazen)}</td></tr>`}).join(''); w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>كشف مؤثري وازن</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,Tahoma,sans-serif;direction:rtl}.noPrint{padding:10px;background:#016C66;color:#fff;text-align:center}button{padding:9px 16px;border:0;border-radius:10px;font-weight:800}table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:7px;font-size:11px}th{background:#111;color:white}h1{font-size:22px}@media print{.noPrint{display:none}}</style></head><body><div class="noPrint"><button onclick="print()">طباعة / حفظ PDF</button></div><h1>كشف مؤثري وازن</h1><p>تاريخ التقرير: ${new Date().toLocaleDateString('ar-SA')}</p><table><thead><tr><th>#</th><th>المؤثر</th><th>البريد</th><th>الكود</th><th>الحالة</th><th>بداية الحملة</th><th>نهاية الحملة</th><th>الاستخدامات</th><th>صافي Apple</th><th>عمولة المؤثر</th><th>صافي وازن</th></tr></thead><tbody>${rows}</tbody></table></body></html>`); w.document.close(); setTimeout(()=>w.print(),700)};
+  window.exportInfluencersSummaryCsv=function(){const arr=(typeof items!=='undefined'?items:[]); const rows=[['name','email','code','status','campaignStart','campaignEnd','reportFrom','reportTo','commissionRate','subscribers','appleNetProfit','commissionAmount','wazenNetProfit','paymentStatus']]; arr.forEach(x=>{const t=totalsFrom(x);rows.push([x.name||x.displayName||'',x.appEmail||x.email||'',x.approvedCode||x.desiredCode||'',x.campaignStatus||x.status||'',isoDate(x.campaignStart),isoDate(x.campaignEnd),isoDate(x.reportFrom||x.reportStart),isoDate(x.reportTo||x.reportEnd),x.commissionRate||x.requestedCommissionRate||10,t.subs,t.apple,t.commission,t.wazen,x.paymentStatus||''])}); downloadCsv('wazen-influencers-summary.csv',rows)};
+  window.exportInfluencersEntitlementsCsv=function(){const arr=(typeof items!=='undefined'?items:[]); const rows=[['name','code','iban','bankName','bankAccountName','periodFrom','periodTo','subscribers','appleNetProfit','commissionAmount','paymentStatus','paidAt']]; arr.forEach(x=>getMonths(x).forEach(m=>rows.push([x.name||x.displayName||'',x.approvedCode||x.desiredCode||'',x.iban||'',x.bankName||'',x.bankAccountName||'',m.from||m.firstDate||m.month||'',m.to||m.lastDate||m.month||'',m.subscribers||0,m.appleNetProfit||0,m.commissionAmount||0,m.paymentStatus||'',m.paidAt||'']))); downloadCsv('wazen-influencer-entitlements.csv',rows)};
+  function addAdminButtons(){const head=document.querySelector('#adminApp .panelHead .actions'); if(head && !document.getElementById('exportSummaryBtn')){head.insertAdjacentHTML('beforeend','<button id="exportSummaryBtn" class="btn small soft" type="button">كشف المؤثرين CSV</button><button id="exportEntitlementsBtn" class="btn small soft" type="button">كشف الاستحقاقات CSV</button><button id="exportAllPdfBtn" class="btn small ghost" type="button">تقرير شامل PDF</button>'); W$('exportSummaryBtn').onclick=window.exportInfluencersSummaryCsv; W$('exportEntitlementsBtn').onclick=window.exportInfluencersEntitlementsCsv; W$('exportAllPdfBtn').onclick=window.exportAllInfluencersPdf;}
+  }
+  function patchEditor(){const sel=W$('e_requestedCommissionRate'); if(sel && ![...sel.options].some(o=>o.value==='15')){const o=document.createElement('option');o.value='15';o.textContent='15%'; sel.insertBefore(o, sel.querySelector('option[value="20"]'));}
+    const modal=W$('modalBody'); if(modal && !W$('appleOpsBox')){let id=''; try{const m=String(document.querySelector('.modalBody .actions button[onclick^="saveEditor"]')?.getAttribute('onclick')||'').match(/saveEditor\('([^']*)'\)/); id=m?m[1]:'';}catch(_){} const x=(typeof items!=='undefined'?items:[]).find(a=>a.id===id)||{}; const imports=getImports(x); const html=`<div id="appleOpsBox" class="grid"><div class="sectionTitle">عمليات Apple المحفوظة للمؤثر</div>${imports.length?`<div class="tableWrap"><table><thead><tr><th>الشهر</th><th>الفترة</th><th>الكود</th><th>الاستخدامات</th><th>مدفوع</th><th>تجارب</th><th>صافي Apple</th><th>الظهور</th><th>المصدر</th></tr></thead><tbody>${imports.map(r=>`<tr><td>${esc(r.month||'—')}</td><td>${plainDate(r.from||r.firstDate)} إلى ${plainDate(r.to||r.lastDate)}</td><td class="ltr">${esc(r.code||'')}</td><td>${num(r.usage)}</td><td>${num(r.paid)}</td><td>${num(r.trials)}</td><td>${sar(r.appleNetProfit)}</td><td>${r.visibleToInfluencer===false?'مخفي':'ظاهر'}</td><td>${esc(r.source||'Apple')}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">لا توجد عمليات Apple محفوظة لهذا المؤثر حتى الآن.</div>'}</div>`; const months=W$('monthsBox'); if(months) months.insertAdjacentHTML('beforebegin', html);}
+  }
+  const oldOpenById=window.openEditorById; if(oldOpenById){window.openEditorById=function(id){oldOpenById(id); setTimeout(patchEditor,120)}}
+  document.addEventListener('click',()=>setTimeout(()=>{addAdminButtons();patchEditor()},80));
+  window.addEventListener('load',()=>setTimeout(addAdminButtons,500));
+})();
+</script>
+</body>
+</html>

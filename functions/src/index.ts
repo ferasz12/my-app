@@ -9,7 +9,7 @@ import {onRequest, onCall, HttpsError} from "firebase-functions/v2/https";
 import * as functionsV1 from "firebase-functions/v1";
 import {defineSecret} from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
-import {randomUUID} from "crypto";
+import {createHash, randomUUID} from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import {fileURLToPath} from "url";
@@ -127,9 +127,36 @@ function stripUndefinedDeep<T>(value: T): T {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ================== Production scaling helpers ==================
+function intFromEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number.parseInt(String(process.env[name] || ''), 10);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(min, Math.min(max, raw));
+}
+
 // ================== Secrets ==================
 // Gemini
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
+
+// إعدادات إنتاج مناسبة للكوتا الحالية في europe-west1.
+// كوتا المشروع الحالية تسمح تقريبًا بـ 20 vCPU و40GiB لكل خدمة في المنطقة، لذلك نثبت maxInstances عند 20.
+// بعد موافقة Google على رفع الكوتا، يمكن رفع هذه القيم ثم إعادة النشر.
+const WAZEN_REGION = "europe-west1";
+const WAZEN_VISION_MIN_INSTANCES = intFromEnv("WAZEN_VISION_MIN_INSTANCES", 1, 0, 20);
+const WAZEN_VISION_MAX_INSTANCES = intFromEnv("WAZEN_VISION_MAX_INSTANCES", 20, 1, 20);
+const WAZEN_VISION_CONCURRENCY = intFromEnv("WAZEN_VISION_CONCURRENCY", 40, 1, 80);
+const WAZEN_VISION_TIMEOUT_SECONDS = intFromEnv("WAZEN_VISION_TIMEOUT_SECONDS", 120, 60, 300);
+const WAZEN_VISION_MAX_OUTPUT_TOKENS = intFromEnv("WAZEN_VISION_MAX_OUTPUT_TOKENS", 6500, 3000, 10000);
+const WAZEN_VISION_INSTANCE_HARD_INFLIGHT_LIMIT = intFromEnv(
+  "WAZEN_VISION_INSTANCE_HARD_INFLIGHT_LIMIT",
+  WAZEN_VISION_CONCURRENCY,
+  4,
+  80
+);
+const WAZEN_TEXT_MAX_INSTANCES = intFromEnv("WAZEN_TEXT_MAX_INSTANCES", 20, 1, 20);
+const WAZEN_TEXT_CONCURRENCY = intFromEnv("WAZEN_TEXT_CONCURRENCY", 40, 1, 80);
+const WAZEN_COACH_MAX_INSTANCES = intFromEnv("WAZEN_COACH_MAX_INSTANCES", 20, 1, 20);
+const WAZEN_COACH_CONCURRENCY = intFromEnv("WAZEN_COACH_CONCURRENCY", 30, 1, 80);
 
 
 // Web payments (Moyasar)
@@ -398,6 +425,21 @@ function setGeminiModelCooldown(model: string, retryAfterSeconds?: number): numb
   return Math.max(1, Math.ceil((until - Date.now()) / 1000));
 }
 
+let wazenVisionInFlight = 0;
+
+function acquireWazenVisionSlot(): (() => void) | null {
+  if (wazenVisionInFlight >= WAZEN_VISION_INSTANCE_HARD_INFLIGHT_LIMIT) {
+    return null;
+  }
+  wazenVisionInFlight += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    wazenVisionInFlight = Math.max(0, wazenVisionInFlight - 1);
+  };
+}
+
 function stripDataUrlPrefix(b64: string) {
   const s = String(b64 || "").trim();
   const m = s.match(/^data:([^;]+);base64,(.*)$/i);
@@ -582,6 +624,9 @@ function buildWazenVisionSystemInstruction(userNote: string) {
     'No markdown. No prose. No extra keys.',
     'Use evidence priority: user note first, visible label/OCR second, visual estimate third.',
     'Respect stated weight, volume, count, brand, sugar status, and cooking style.',
+    'If a package sticker/label shows an explicit net weight, serving weight, or total weight like 210g/210 جم, use that weight for the analyzed edible portion unless the user clearly says only part was eaten.',
+    'The meal.name_ar must be a short meal/product name only. Do NOT put the ingredient list, nutrition facts, OCR text, or all components as the meal name.',
+    'Leafy vegetables and simple fresh vegetables are very low calorie. Romaine/lettuce should be around 15-20 kcal per 100g, not dozens of calories for a few leaves.',
     'Prefer 1 to 6 meaningful items; merge tiny extras when needed.',
     'Each edible item must include kcal, protein_g, carbs_g, and fat_g.',
     'Do not return all-zero macros for normal edible food with positive grams or ml.',
@@ -600,14 +645,14 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
   return [
     'You are Wazin Vision V2, a restaurant-aware nutrition analysis engine for the Arabic health app Wazin (وازن).',
     'Return ONLY valid compact JSON matching the schema. No markdown. No prose. No extra keys.',
-    'Main goal: identify the most likely visible meal, identify restaurant/brand evidence, estimate realistic portions, and calculate realistic macros even if the photo is not perfect.',
-    'Do NOT stop analysis just because the photo is blurry, dark, cropped, low-confidence, or the size is uncertain. In those cases produce a conservative best-effort estimate, lower confidence, and mention uncertainty in wazin_analysis.',
-    'Use need_clarification=true only when there is no edible/drinkable item at all or the image is impossible to interpret even as a broad category. Never use it for ordinary blurry food if you can identify a likely category.',
-    'The meal title should be as specific as the evidence allows. If exact item is unclear, use a natural title like برجر غير محدد, رز مع شعيرية تقديري, قهوة سوداء بدون سكر, or وجبة مطعم تقديرية instead of blocking analysis.',
+    'Main goal: identify the most likely visible meal, identify restaurant/brand evidence, read visible labels/OCR/weights, estimate realistic portions, and calculate realistic macros without false confidence.',
+    'Do NOT present uncertain guesses as certain facts. If the food is likely but quantity/exact product is uncertain, return a conservative estimate, set lower confidence, and say clearly in wazin_analysis that it is تقديري.',
+    'Use need_clarification=true only when there is no edible/drinkable item at all, the image is impossible to interpret even broadly, or the visible label/product identity is too unclear to safely name. For ordinary visible food, estimate with lower confidence.',
+    'The meal title should be a short meal/product name, not the ingredient list and not raw OCR/nutrition text. If exact item is unclear, use a natural title like برجر غير محدد, رز مع شعيرية تقديري, قهوة سوداء بدون سكر, أو وجبة مطعم تقديرية.',
     '',
     'EVIDENCE PRIORITY:',
     '1) User note / clarifier is the strongest evidence.',
-    '2) Visible restaurant logos, branded packaging, cups, bags, tray liners, receipts, menu text, labels, barcodes, and OCR are very strong evidence.',
+    '2) Visible restaurant logos, branded packaging, cups, bags, tray liners, receipts, menu text, labels, barcodes, nutrition facts, sticker weight, net weight, and OCR are very strong evidence.',
     '3) Visible food shape and ingredients are secondary evidence.',
     '4) Generic visual estimate is the weakest evidence.',
     '',
@@ -616,7 +661,9 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
     '- If a restaurant logo or brand is visible, do NOT ignore it and do NOT convert it into homemade/generic food.',
     '- If McDonald’s, KFC, AlBaik, Burger King, Starbucks, Subway, Herfy, Maestro Pizza, Dominos, Pizza Hut, Shawarma House, or any other restaurant/brand is visible, include the restaurant name naturally in meal.name_ar and item name_ar.',
     '- Example: if McDonald’s branding is visible, do NOT say برجر مشوي. Say ماكدونالدز - برجر غير محدد and ask for the exact sandwich if the exact item is not clear.',
-    '- If the exact menu item is readable or clearly identifiable, name it specifically, e.g. ماكدونالدز - بيج ماك, ماكدونالدز - بطاطس وسط, ستاربكس - لاتيه مثلج.',
+    '- If the exact menu item or packaged meal title is readable or clearly identifiable, name it specifically, e.g. ماكدونالدز - بيج ماك, ماكدونالدز - بطاطس وسط, ستاربكس - لاتيه مثلج, or the product/meal name on the label.',
+    '- If a package/sticker label shows a weight such as 210g, 210 جم, net wt, serving size, or وزن الوجبة, use that visible weight as the portion for the whole shown meal unless the user clearly says only part was eaten. Do not replace it with a smaller visual guess like 60g.',
+    '- If nutrition facts are per 100g and the label also shows total weight, scale macros to the total shown portion.',
     '- If restaurant is detected but the exact menu item is not clear, estimate the most likely broad item and use a conservative medium/common portion. Put the uncertainty in wazin_analysis and keep confidence lower.',
     '- If fries/drinks/sides are visible but size is unclear, assume medium/common size and lower confidence instead of returning zero.',
     '- If drink sugar status is unclear, assume regular/sugared by default, lower confidence, and mention that the user can edit or reanalyze if it was diet/zero.',
@@ -635,6 +682,7 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
     '',
     'PORTION AND MACRO RULES:',
     '- For each item, grams must be the estimated edible portion in grams whenever visually possible. Do not leave grams null for visible solid food that you decide to calculate.',
+    '- For leafy vegetables and simple fresh vegetables, keep calories realistic: romaine/lettuce is about 15-20 kcal per 100g, cucumber/tomato/arugula are also low-calorie. A few lettuce leaves should not become 60+ kcal unless oil/dressing/cheese is visible or stated.',
     '- For liquids, use ml and approximate grams when reasonable.',
     '- If an edible item has positive grams or ml, do not return all-zero macros unless it is truly zero-calorie.',
     '- Water, ice, black coffee, unsweetened tea, and diet/zero soda may be near zero.',
@@ -653,6 +701,8 @@ function buildWazenVisionSystemInstructionV2(userNote: string) {
     '  هل فيه صوص أو جبن إضافي؟',
     '',
     'OUTPUT STYLE:',
+    '- meal.name_ar must be concise Arabic: the actual meal/product name only. Never make it identical to the components/ingredients list. Bad: دجاج، رز، خس، صوص. Good: وجبة دجاج مع رز or سلطة دجاج.',
+    '- Item names can be ingredient names, but the top-level meal name must summarize the meal itself.',
     '- primary_query must be a short English nutrition search phrase. For restaurant food, include restaurant name and menu item when known, e.g. McDonald’s Big Mac, McDonald’s medium fries.',
     '- wazin_analysis must be a short friendly Saudi-dialect tip.',
     '- If the estimate is uncertain, wazin_analysis must clearly say it is تقديري and the user can add details for better accuracy.',
@@ -712,7 +762,7 @@ function enhanceWazenVisionV2(base: WazenVisionAnalysis, userNote = ""): WazenVi
     portionTotal = num(fixedItems[0].grams);
   }
 
-  const finalized = finalizeWazenVisionAnalysis({...base, items: fixedItems});
+  const finalized = finalizeWazenVisionAnalysis({...base, items: fixedItems}, userNote);
   if (portionTotal > 0) {
     finalized.portion_grams = Math.round(portionTotal);
     finalized.portion_desc_ar = `${Math.round(portionTotal)} جم إجمالي الوجبة`;
@@ -928,6 +978,36 @@ function hasRestaurantFoodSignal(text: string): boolean {
     !!detectKnownRestaurantName(text);
 }
 
+
+function escapeRegExpLiteral(value: string): string {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasLatinWordOrPhrase(haystack: string, needle: string): boolean {
+  const n = normalizeEnText(needle);
+  if (!n) return false;
+  const h = normalizeEnText(haystack);
+  if (!h) return false;
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExpLiteral(n)}([^a-z0-9]|$)`, "i").test(h);
+}
+
+function isLikelyZeroCalorieNameText(text: string): boolean {
+  const raw = normStr(text);
+  if (!raw) return false;
+  const ar = normalizeArabicText(raw.toLowerCase());
+
+  // Do not use substring regexes for short English words like "ice".
+  // Otherwise "rice" becomes a false zero-calorie match because it contains "ice".
+  const englishZeroTerms = [
+    "water", "ice", "ice cubes", "black coffee", "americano", "espresso",
+    "tea", "unsweetened tea", "diet soda", "zero soda", "cola zero",
+    "diet cola", "cola diet", "pepsi diet", "diet pepsi",
+  ];
+  const hasEnglishZero = englishZeroTerms.some((term) => hasLatinWordOrPhrase(raw, term));
+  const hasArabicZero = /(?:ماء|موية|مياه|ثلج|مكعبات ثلج|قهوة سوداء|قهوه سوداء|امريكانو|أمريكانو|اسبريسو|إسبريسو|شاي بدون سكر|قهوة بدون سكر|قهوه بدون سكر|دايت|زيرو|كولا دايت|بيبسي دايت|بدون سكر)/.test(ar);
+  return hasEnglishZero || hasArabicZero;
+}
+
 function isGenericVisionFoodName(text: string): boolean {
   const raw = normalizeArabicText(normStr(text)).toLowerCase();
   if (!raw) return true;
@@ -974,7 +1054,7 @@ function enforceWazenVisionV2StrictGate(base: WazenVisionAnalysis, userNote = ''
   const avgConf = items.length ? items.reduce((sum, item) => sum + clamp01(num(item.confidence)), 0) / items.length : 0;
   const majorMissingPortion = items.some((item) => {
     const name = `${normStr(item.name_ar)} ${normStr(item.name_en)} ${normStr(item.primary_query)}`;
-    const zeroOk = /(water|ice|black coffee|americano|espresso|tea|diet|zero|ماء|موية|ثلج|قهوة سوداء|شاي|دايت|زيرو)/i.test(name);
+    const zeroOk = isLikelyZeroCalorieNameText(name);
     return !zeroOk && num(item.grams) <= 0 && num(item.ml) <= 0;
   });
   const hasDrinkOrFries = isDrinkOrFriesText(allSignals);
@@ -993,6 +1073,17 @@ function enforceWazenVisionV2StrictGate(base: WazenVisionAnalysis, userNote = ''
     );
 
   if (base.need_clarification === true && (items.length > 0 || hasAnyMacro)) {
+    const keepClarification = avgConf > 0 && avgConf < 0.58 && (genericMeal || unclearWords || majorMissingPortion);
+    if (keepClarification) {
+      return {
+        ...base,
+        need_clarification: true,
+        questions: (Array.isArray(base.questions) && base.questions.length)
+          ? base.questions.slice(0, 2)
+          : ['النتيجة تقديرية لأن الصورة أو الكمية غير واضحة. اكتب اسم الوجبة أو الوزن إذا تبي دقة أعلى.'],
+        wazin_analysis: normStr(base.wazin_analysis) || 'النتيجة تقديرية وليست مؤكدة لأن الصورة/الكمية غير واضحة بالكامل.',
+      };
+    }
     return {
       ...base,
       need_clarification: false,
@@ -1503,20 +1594,12 @@ function normalizeWazenVisionResponse(raw: any): WazenVisionAnalysis {
 }
 
 
-function buildVisionNameBlob(item: Partial<WazenVisionItem>) {
-  return normalizeEnText([
+function isLikelyZeroCalorieVisionItem(item: Partial<WazenVisionItem>) {
+  return isLikelyZeroCalorieNameText([
     normStr(item.name_ar || ""),
     normStr(item.name_en || ""),
     normStr(item.primary_query || ""),
   ].join(" "));
-}
-
-function isLikelyZeroCalorieVisionItem(item: Partial<WazenVisionItem>) {
-  const s = buildVisionNameBlob(item);
-  if (!s) return false;
-  if (/(water|ice|black coffee|americano|espresso|tea|unsweetened tea|diet soda|zero soda|cola zero|diet cola|cola diet)/i.test(s)) return true;
-  if (/(ماء|موية|ثلج|قهوة سوداء|امريكانو|اسبريسو|شاي بدون سكر|قهوة بدون سكر|دايت|زيرو|كولا دايت|بيبسي دايت|بدون سكر)/.test([normStr(item.name_ar || ""), normStr(item.primary_query || "")].join(" "))) return true;
-  return false;
 }
 
 function isLikelyCarbFoodName(sRaw: string) {
@@ -1529,6 +1612,218 @@ function isLikelyProteinFoodName(sRaw: string) {
   const s = normalizeEnText(sRaw);
   return /(chicken|beef|meat|fish|tuna|egg|eggs|shrimp|prawn|turkey|lamb|yogurt|greek yogurt|cheese|halloumi|labneh|bean|beans|lentil|protein)/i.test(s)
     || /(دجاج|لحم|سمك|تونة|بيض|روبيان|جمبري|تركي|غنم|زبادي|لبن|جبن|حلوم|لبنة|فاصوليا|عدس|بروتين)/.test(sRaw);
+}
+
+
+function isLowCalorieVegetableVisionName(sRaw: string) {
+  const s = normalizeEnText(sRaw);
+  return /(romaine|lettuce|iceberg|leaf lettuce|cucumber|tomato|arugula|rocket|spinach|bell pepper|sweet pepper|green pepper|red pepper|capsicum|celery|radish)/i.test(s) ||
+    /(خس|خس روماني|روماني|ايسبرغ|آيسبرغ|خيار|طماطم|بندورة|جرجير|سبانخ|فلفل رومي|فليفلة|كرفس|فجل)/.test(sRaw);
+}
+
+function hasCalorieDenseAddOnForVeg(sRaw: string) {
+  const s = normalizeEnText(sRaw);
+  return /(dressing|sauce|ranch|mayonnaise|mayo|oil|olive oil|cheese|feta|halloumi|nuts|crouton|fried|creamy)/i.test(s) ||
+    /(صوص|صلصة|رانش|مايونيز|زيت|زيت زيتون|جبن|جبنة|فيتا|حلوم|مكسرات|خبز محمص|مقلي|كريمي)/.test(sRaw);
+}
+
+function defaultLowCalorieVegetablePortionG(sRaw: string) {
+  const s = normalizeEnText(sRaw);
+  if (/(romaine|lettuce|iceberg|leaf lettuce)/i.test(s) || /(خس|روماني|ايسبرغ|آيسبرغ)/.test(sRaw)) return 25;
+  if (/(cucumber)/i.test(s) || /(خيار)/.test(sRaw)) return 50;
+  if (/(tomato)/i.test(s) || /(طماطم|بندورة)/.test(sRaw)) return 60;
+  if (/(arugula|rocket|spinach)/i.test(s) || /(جرجير|سبانخ)/.test(sRaw)) return 25;
+  if (/(bell pepper|sweet pepper|green pepper|red pepper|capsicum)/i.test(s) || /(فلفل رومي|فليفلة)/.test(sRaw)) return 45;
+  if (/(celery|radish)/i.test(s) || /(كرفس|فجل)/.test(sRaw)) return 35;
+  return 35;
+}
+
+function lowCalorieVegetablePer100(sRaw: string) {
+  const s = normalizeEnText(sRaw);
+  if (/(romaine|lettuce|iceberg|leaf lettuce)/i.test(s) || /(خس|روماني|ايسبرغ|آيسبرغ)/.test(sRaw)) {
+    return {kcal: 17, protein_g: 1.2, carbs_g: 3.3, fat_g: 0.3};
+  }
+  if (/(cucumber)/i.test(s) || /(خيار)/.test(sRaw)) {
+    return {kcal: 15, protein_g: 0.7, carbs_g: 3.6, fat_g: 0.1};
+  }
+  if (/(tomato)/i.test(s) || /(طماطم|بندورة)/.test(sRaw)) {
+    return {kcal: 18, protein_g: 0.9, carbs_g: 3.9, fat_g: 0.2};
+  }
+  if (/(arugula|rocket)/i.test(s) || /(جرجير)/.test(sRaw)) {
+    return {kcal: 25, protein_g: 2.6, carbs_g: 3.7, fat_g: 0.7};
+  }
+  if (/(spinach)/i.test(s) || /(سبانخ)/.test(sRaw)) {
+    return {kcal: 23, protein_g: 2.9, carbs_g: 3.6, fat_g: 0.4};
+  }
+  if (/(bell pepper|sweet pepper|green pepper|red pepper|capsicum)/i.test(s) || /(فلفل رومي|فليفلة)/.test(sRaw)) {
+    return {kcal: 31, protein_g: 1.0, carbs_g: 6.0, fat_g: 0.3};
+  }
+  if (/(celery)/i.test(s) || /(كرفس)/.test(sRaw)) {
+    return {kcal: 16, protein_g: 0.7, carbs_g: 3.0, fat_g: 0.2};
+  }
+  if (/(radish)/i.test(s) || /(فجل)/.test(sRaw)) {
+    return {kcal: 16, protein_g: 0.7, carbs_g: 3.4, fat_g: 0.1};
+  }
+  return {kcal: 20, protein_g: 1.2, carbs_g: 4.0, fat_g: 0.2};
+}
+
+function estimateLowCalorieVegetableVisionMacros(item: WazenVisionItem) {
+  const sRaw = [normStr(item.name_ar), normStr(item.name_en), normStr(item.primary_query)].join(" ").trim();
+  if (!sRaw || !isLowCalorieVegetableVisionName(sRaw) || hasCalorieDenseAddOnForVeg(sRaw)) return null;
+
+  const gramsFromItem = num(item.grams) > 0 ? num(item.grams) : (num(item.ml) > 0 ? num(item.ml) : 0);
+  const grams = gramsFromItem > 0 ? gramsFromItem : defaultLowCalorieVegetablePortionG(sRaw);
+  if (grams <= 0) return null;
+
+  const p = lowCalorieVegetablePer100(sRaw);
+  const scale = grams / 100;
+  return {
+    grams: Math.round(grams),
+    kcal: round1(p.kcal * scale),
+    protein_g: round1(p.protein_g * scale),
+    carbs_g: round1(p.carbs_g * scale),
+    fat_g: round1(p.fat_g * scale),
+  };
+}
+
+function shouldCorrectLowCalorieVegetableVisionMacros(item: WazenVisionItem, expected: {grams: number; kcal: number; protein_g: number; carbs_g: number; fat_g: number}) {
+  const kcal = num(item.est?.kcal);
+  const protein = num(item.est?.protein_g);
+  const carbs = num(item.est?.carbs_g);
+  const fat = num(item.est?.fat_g);
+  const totalMacroKcal = round1((protein * 4) + (carbs * 4) + (fat * 9));
+  const effectiveKcal = kcal > 0 ? kcal : totalMacroKcal;
+  if (effectiveKcal <= 0) return false;
+
+  const expectedKcal = Math.max(1, num(expected.kcal));
+  const grams = num(item.grams) > 0 ? num(item.grams) : num(expected.grams);
+  if (grams <= 80 && effectiveKcal > Math.max(35, expectedKcal * 2.4)) return true;
+  if (effectiveKcal > expectedKcal * 3.0 + 12) return true;
+  return false;
+}
+
+function extractExplicitVisionPortionGramsFromText(text: string) {
+  const raw = normalizeDigits(normStr(text));
+  if (!raw) return null;
+  const hasWeightContext = /(net\s*wt|net\s*weight|serving\s*size|total\s*weight|weight|grams?|وزن|الوزن|الصافي|صافي|حصة|الحصة|جرام|غرام|جم|غ)/i.test(raw);
+  if (!hasWeightContext) return null;
+
+  const patterns = [
+    /(?:net\s*wt|net\s*weight|serving\s*size|total\s*weight|weight|وزن\s*صافي|الوزن\s*الصافي|وزن\s*الوجبة|وزن|الحصة|حصة)\s*[:：-]?\s*(\d{2,4}(?:\.\d+)?)\s*(?:g|gram|grams|جم|غ|غرام|جرام)\b/i,
+    /(\d{2,4}(?:\.\d+)?)\s*(?:g|gram|grams|جم|غ|غرام|جرام)\b/i,
+  ];
+
+  for (const re of patterns) {
+    const m = raw.match(re);
+    if (!m) continue;
+    const g = num(m[1]);
+    if (g >= 15 && g <= 2000) return Math.round(g);
+  }
+  return null;
+}
+
+function collectVisionPortionEvidenceText(base: WazenVisionAnalysis, userNote = '') {
+  const items = Array.isArray(base.items) ? base.items : [];
+  const ingredients = Array.isArray(base.ingredients) ? base.ingredients : [];
+  return [
+    userNote,
+    base.dish_name,
+    base.name_ar,
+    base.name_en,
+    base.label,
+    base.meal?.name_ar,
+    base.meal?.name_en,
+    base.wazin_analysis,
+    ...(Array.isArray(base.questions) ? base.questions : []),
+    ...items.flatMap((item) => [item.name_ar, item.name_en, item.primary_query]),
+    ...ingredients.map((ing) => ing.name),
+  ].map((x) => normStr(x)).filter(Boolean).join(' ');
+}
+
+function applyExplicitVisionPortionFromEvidence(items: WazenVisionItem[], base: WazenVisionAnalysis, userNote = '') {
+  if (!items.length) return;
+  const evidence = collectVisionPortionEvidenceText(base, userNote);
+  const explicitG = extractExplicitVisionPortionGramsFromText(evidence);
+  if (!explicitG) return;
+
+  const packageSignal = /(net\s*wt|net\s*weight|serving\s*size|total\s*weight|package|label|sticker|nutrition|وزن|الصافي|حصة|الحصة|عبوة|علبة|ملصق|ستيكر|بطاقة|القيم الغذائية)/i.test(evidence);
+  const partialSignal = /(half|نصف|ربع|جزء|بعض|قطعة من|لقمة|part|partial|share|مقسوم|ما كملت|اكلت شوي)/i.test(evidence);
+  if (!packageSignal || partialSignal) return;
+
+  if (items.length === 1) {
+    const item = items[0];
+    const oldG = num(item.grams) > 0 ? num(item.grams) : 0;
+    if (oldG <= 0 || oldG < explicitG * 0.72 || oldG > explicitG * 1.35) {
+      const ratio = oldG > 0 ? explicitG / oldG : 0;
+      item.grams = explicitG;
+      if (ratio > 0 && ratio >= 0.45 && ratio <= 4.5) {
+        item.est = {
+          kcal: round1(num(item.est.kcal) * ratio),
+          protein_g: round1(num(item.est.protein_g) * ratio),
+          carbs_g: round1(num(item.est.carbs_g) * ratio),
+          fat_g: round1(num(item.est.fat_g) * ratio),
+        };
+      }
+      item.confidence = Math.max(num(item.confidence), 0.76);
+    }
+    return;
+  }
+
+  const currentTotal = items.reduce((sum, item) => sum + (num(item.grams) > 0 ? num(item.grams) : 0), 0);
+  if (currentTotal > 0 && (currentTotal < explicitG * 0.72 || currentTotal > explicitG * 1.35)) {
+    const ratio = explicitG / currentTotal;
+    if (ratio >= 0.45 && ratio <= 4.5) {
+      for (const item of items) {
+        if (num(item.grams) <= 0) continue;
+        item.grams = Math.max(1, Math.round(num(item.grams) * ratio));
+        item.est = {
+          kcal: round1(num(item.est.kcal) * ratio),
+          protein_g: round1(num(item.est.protein_g) * ratio),
+          carbs_g: round1(num(item.est.carbs_g) * ratio),
+          fat_g: round1(num(item.est.fat_g) * ratio),
+        };
+        item.confidence = Math.max(num(item.confidence), 0.72);
+      }
+    }
+  }
+}
+
+function looksLikeIngredientListVisionName(name: string) {
+  const raw = normStr(name);
+  if (!raw) return true;
+  const normalized = normalizeArabicText(raw).toLowerCase();
+  const delimiterCount = (raw.match(/[،,;+/]/g) || []).length;
+  const repeatedAnd = (normalized.match(/\sو\s/g) || []).length;
+  const ingredientWords = (normalized.match(/(مكونات|المكونات|ingredients|nutrition|القيم الغذائيه|سعرات|بروتين|كارب|دهون|دجاج|رز|ارز|خس|طماطم|خيار|جبن|صوص|صلصه|بيض|بطاطس|خبز|تونه|لحم|زيت)/gi) || []).length;
+  if (raw.length > 58) return true;
+  if (delimiterCount >= 2) return true;
+  if (repeatedAnd >= 3 && ingredientWords >= 3) return true;
+  if (/(ingredients|nutrition facts|مكونات|المكونات|القيم الغذائية|القيم الغذائيه|السعرات|calories|protein|carbs|fat)/i.test(raw)) return true;
+  return false;
+}
+
+function sanitizeVisionMealName(candidate: string, items: Partial<WazenVisionItem>[] = [], ingredients: WazenVisionIngredient[] = []) {
+  const raw = normStr(candidate);
+  const fallback = composeVisionDishNameFromItems(items, ingredients) || (ingredients.length === 1 ? ingredients[0].name : 'وجبة');
+  if (!raw || isGenericVisionDishName(raw) || looksLikeIngredientListVisionName(raw)) return fallback;
+
+  const itemNames = items.map((item) => normStr(item.name_ar || item.name_en)).filter(Boolean);
+  if (itemNames.length >= 2) {
+    const joinedA = itemNames.join('، ');
+    const joinedB = itemNames.join(' و');
+    const nr = normalizeArabicText(raw);
+    if (normalizeArabicText(joinedA) === nr || normalizeArabicText(joinedB) === nr) {
+      return fallback;
+    }
+  }
+
+  return raw.length > 42 ? raw.slice(0, 42).trim() : raw;
+}
+
+function visionAverageConfidence(base: WazenVisionAnalysis) {
+  const items = Array.isArray(base.items) ? base.items : [];
+  if (!items.length) return 0;
+  return items.reduce((sum, item) => sum + clamp01(num(item.confidence)), 0) / items.length;
 }
 
 function estimateZeroSafeVisionMacros(item: WazenVisionItem) {
@@ -1587,7 +1882,95 @@ function hasSuspiciousZeroVisionMacros(item: WazenVisionItem) {
   return false;
 }
 
-function finalizeWazenVisionAnalysis(base: WazenVisionAnalysis): WazenVisionAnalysis {
+
+function hasRiceVisionNameText(text: string) {
+  const raw = normStr(text);
+  const ar = normalizeArabicText(raw.toLowerCase());
+  const en = normalizeEnText(raw).toLowerCase();
+  return /(^|[^a-z0-9])rice([^a-z0-9]|$)/i.test(en) ||
+    /(رز|ارز|أرز|الرز|الأرز|كبسة|كبسه|مندي|بخاري|مضغوط)/.test(ar);
+}
+
+function enforceRiceVisionItemMacros(item: WazenVisionItem): WazenVisionItem {
+  const allNames = [item.name_ar, item.name_en, item.primary_query].map((x) => normStr(x)).join(" ");
+  if (!hasRiceVisionNameText(allNames)) return item;
+
+  let grams = num(item.grams) > 0 ? num(item.grams) : (num(item.ml) > 0 ? num(item.ml) : 0);
+  if (grams <= 0) grams = 150;
+  item.grams = Math.round(grams);
+  item.ml = null;
+
+  const kcal = num(item.est?.kcal);
+  const carbs = num(item.est?.carbs_g);
+  const protein = num(item.est?.protein_g);
+  const fat = num(item.est?.fat_g);
+  const impossibleZero = item.grams >= 10 && (kcal <= 0.01 || carbs <= 0.01 || (kcal + carbs + protein + fat) <= 0.01);
+
+  if (impossibleZero) {
+    const scale = item.grams / 100;
+    item.est = {
+      kcal: round1(150 * scale),
+      protein_g: round1(2.7 * scale),
+      carbs_g: round1(32.5 * scale),
+      fat_g: round1(0.35 * scale),
+    };
+    item.confidence = Math.max(num(item.confidence), 0.66);
+  }
+
+  return item;
+}
+
+function attachVisionItemMacroCompatFields<T extends WazenVisionItem>(item: T): T {
+  const anyItem = item as any;
+  anyItem.calories_kcal = round1(num(item.est?.kcal));
+  anyItem.kcal = anyItem.calories_kcal;
+  anyItem.calories = anyItem.calories_kcal;
+  anyItem.protein_g = round1(num(item.est?.protein_g));
+  anyItem.protein = anyItem.protein_g;
+  anyItem.carbs_g = round1(num(item.est?.carbs_g));
+  anyItem.carbs = anyItem.carbs_g;
+  anyItem.carb = anyItem.carbs_g;
+  anyItem.fat_g = round1(num(item.est?.fat_g));
+  anyItem.fat = anyItem.fat_g;
+  anyItem.estimated_weight_g = num(item.grams) > 0 ? Math.round(num(item.grams)) : null;
+  anyItem.quantity_g = anyItem.estimated_weight_g;
+  anyItem.weight_g = anyItem.estimated_weight_g;
+  anyItem.portion_grams = anyItem.estimated_weight_g;
+  return item;
+}
+
+function attachVisionRootMacroCompatFields<T extends WazenVisionAnalysis>(base: T): T {
+  const anyBase = base as any;
+  const total: any = base.total_macros || {};
+  const kcal = round1(num(total.calories_kcal ?? total.kcal ?? total.calories));
+  const protein = round1(num(total.protein_g ?? total.protein));
+  const carbs = round1(num(total.carbs_g ?? total.carbs ?? total.carb));
+  const fat = round1(num(total.fat_g ?? total.fat));
+  anyBase.total_macros = {
+    calories_kcal: kcal,
+    kcal,
+    calories: kcal,
+    protein_g: protein,
+    protein,
+    carbs_g: carbs,
+    carbs,
+    carb: carbs,
+    fat_g: fat,
+    fat,
+  };
+  anyBase.calories = kcal;
+  anyBase.calories_kcal = kcal;
+  anyBase.kcal = kcal;
+  anyBase.protein = protein;
+  anyBase.protein_g = protein;
+  anyBase.carbs = carbs;
+  anyBase.carbs_g = carbs;
+  anyBase.fat = fat;
+  anyBase.fat_g = fat;
+  return base;
+}
+
+function finalizeWazenVisionAnalysis(base: WazenVisionAnalysis, userNote = ''): WazenVisionAnalysis {
   const fixedItems: WazenVisionItem[] = (Array.isArray(base.items) ? base.items : []).map((rawItem) => {
     const item: WazenVisionItem = {
       name_ar: normStr(rawItem?.name_ar || rawItem?.name_en || "عنصر"),
@@ -1615,13 +1998,32 @@ function finalizeWazenVisionAnalysis(base: WazenVisionAnalysis): WazenVisionAnal
       item.confidence = Math.max(item.confidence || 0, 0.62);
     }
 
+    const lowCalVeg = estimateLowCalorieVegetableVisionMacros(item);
+    if (lowCalVeg && shouldCorrectLowCalorieVegetableVisionMacros(item, lowCalVeg)) {
+      item.grams = lowCalVeg.grams;
+      item.ml = null;
+      item.est = {
+        kcal: round1(num(lowCalVeg.kcal)),
+        protein_g: round1(num(lowCalVeg.protein_g)),
+        carbs_g: round1(num(lowCalVeg.carbs_g)),
+        fat_g: round1(num(lowCalVeg.fat_g)),
+      };
+      item.confidence = Math.max(item.confidence || 0, 0.68);
+    }
+
     const macroKcal = round1((num(item.est.protein_g) * 4) + (num(item.est.carbs_g) * 4) + (num(item.est.fat_g) * 9));
     if (num(item.est.kcal) <= 0 && macroKcal > 0) {
       item.est.kcal = macroKcal;
     }
 
-    return item;
+    return attachVisionItemMacroCompatFields(enforceRiceVisionItemMacros(item));
   });
+
+  applyExplicitVisionPortionFromEvidence(fixedItems, base, userNote);
+  for (const item of fixedItems) {
+    enforceRiceVisionItemMacros(item);
+    attachVisionItemMacroCompatFields(item);
+  }
 
   const ingredients: WazenVisionIngredient[] = fixedItems.map((it) => ({
     name: it.name_ar || it.name_en || "عنصر",
@@ -1643,12 +2045,16 @@ function finalizeWazenVisionAnalysis(base: WazenVisionAnalysis): WazenVisionAnal
   const totalPortionGrams = fixedItems.reduce((sum, it) => sum + num(it.grams), 0);
   const baseDishName = normStr(base.dish_name || base.name_ar || base.meal?.name_ar || "");
   const inferredDishName = composeVisionDishNameFromItems(fixedItems, ingredients);
-  const dishName = !isGenericVisionDishName(baseDishName)
-    ? baseDishName
-    : (inferredDishName || (ingredients.length === 1 ? ingredients[0].name : "وجبة مختلطة"));
+  const dishName = sanitizeVisionMealName(
+    !isGenericVisionDishName(baseDishName)
+      ? baseDishName
+      : (inferredDishName || (ingredients.length === 1 ? ingredients[0].name : "وجبة مختلطة")),
+    fixedItems,
+    ingredients
+  );
   const dishNameEn = normStr(base.name_en || base.meal?.name_en || "");
 
-  return {
+  const finalOut: WazenVisionAnalysis = {
     ...base,
     dish_name: dishName,
     ingredients,
@@ -1675,6 +2081,12 @@ function finalizeWazenVisionAnalysis(base: WazenVisionAnalysis): WazenVisionAnal
       fat_g: round1(total.fat_g),
     }),
   };
+
+  const anyOut = attachVisionRootMacroCompatFields(finalOut) as any;
+  anyOut.ingredients_breakdown = fixedItems.map((it) => ({...it}));
+  anyOut.components = fixedItems.map((it) => ({...it}));
+  anyOut.detected_items = fixedItems.map((it) => ({...it}));
+  return anyOut as WazenVisionAnalysis;
 }
 
 
@@ -1751,7 +2163,7 @@ async function repairWazenVisionSuspiciousZerosWithGemini({
   systemInstruction: string;
 }) {
   const suspicious = (Array.isArray(base.items) ? base.items : []).filter((item) => hasSuspiciousZeroVisionMacros(item));
-  if (!suspicious.length) return finalizeWazenVisionAnalysis(base);
+  if (!suspicious.length) return finalizeWazenVisionAnalysis(base, userClarifier);
 
   const suspiciousSummary = suspicious.map((item) => ({
     name_ar: item.name_ar,
@@ -1793,11 +2205,11 @@ async function repairWazenVisionSuspiciousZerosWithGemini({
       maxAttempts: 1,
     });
     const repairedRaw = tryExtractJson(repairedText);
-    if (!repairedRaw) return finalizeWazenVisionAnalysis(base);
-    return finalizeWazenVisionAnalysis(normalizeWazenVisionResponse(repairedRaw));
+    if (!repairedRaw) return finalizeWazenVisionAnalysis(base, userClarifier);
+    return finalizeWazenVisionAnalysis(normalizeWazenVisionResponse(repairedRaw), userClarifier);
   } catch (e) {
     logger.warn("vision gemini zero-repair failed", {error: String((e as any)?.message || e).slice(0, 180)});
-    return finalizeWazenVisionAnalysis(base);
+    return finalizeWazenVisionAnalysis(base, userClarifier);
   }
 }
 
@@ -2337,7 +2749,15 @@ function normFoodSignalText(input: any): string {
 
 function hasAnyNeedle(text: string, needles: string[]) {
   const t = normFoodSignalText(text);
-  return needles.some((x) => t.includes(normFoodSignalText(x)));
+  return needles.some((x) => {
+    const needle = normFoodSignalText(x);
+    if (!needle) return false;
+    // English terms must match as words/phrases. This prevents false positives like rice -> ice.
+    if (/[a-z]/i.test(needle)) {
+      return hasLatinWordOrPhrase(t, needle);
+    }
+    return t.includes(needle);
+  });
 }
 
 function hasSweetenerOrMilk(text: string) {
@@ -3990,10 +4410,14 @@ async function callGeminiTextV2FastJson({
 
 export const analyzeMealTextV2 = onCall(
   {
-    region: 'europe-west1',
+    region: WAZEN_REGION,
     secrets: [GEMINI_API_KEY],
-    timeoutSeconds: 45,
+    timeoutSeconds: 60,
     memory: '512MiB',
+    cpu: 1,
+    minInstances: 0,
+    maxInstances: WAZEN_TEXT_MAX_INSTANCES,
+    concurrency: WAZEN_TEXT_CONCURRENCY,
     enforceAppCheck: false,
     cors: true,
   },
@@ -4059,10 +4483,14 @@ export const analyzeMealTextV2 = onCall(
 // =============== 1) تحليل نصّي (Callable) ===============
 export const analyzeMealText = onCall(
   {
-    region: "europe-west1",
+    region: WAZEN_REGION,
     secrets: [GEMINI_API_KEY],
-    timeoutSeconds: 120,
+    timeoutSeconds: 90,
     memory: "512MiB",
+    cpu: 1,
+    minInstances: 0,
+    maxInstances: WAZEN_TEXT_MAX_INSTANCES,
+    concurrency: WAZEN_TEXT_CONCURRENCY,
     enforceAppCheck: false,
     cors: true,
   },
@@ -4761,12 +5189,14 @@ export const gateUsage = onCall(
 
 export const analyzeFood = onRequest(
   {
-    region: "europe-west1",
+    region: WAZEN_REGION,
     secrets: [GEMINI_API_KEY],
-    timeoutSeconds: 180,
-    memory: "2GiB",
-    concurrency: 4,
-    maxInstances: 8,
+    timeoutSeconds: WAZEN_VISION_TIMEOUT_SECONDS,
+    memory: "1GiB",
+    cpu: 1,
+    minInstances: WAZEN_VISION_MIN_INSTANCES,
+    concurrency: WAZEN_VISION_CONCURRENCY,
+    maxInstances: WAZEN_VISION_MAX_INSTANCES,
   },
   async (req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
@@ -4810,14 +5240,24 @@ export const analyzeFood = onRequest(
       logger.info("analyzeFood: missing appcheck", {uid});
     }
 
-    const countUsage = String(req.headers["x-count-usage"] || "1") !== "0";
-    const imgGate = await checkAndIncUsage(uid, "food_image", 20, "Asia/Riyadh", countUsage);
-    if (!imgGate.allowed) {
-      res.status(429).json({error: "quota_exceeded", message: gateMessage("food_image")});
+    const releaseVisionSlot = acquireWazenVisionSlot();
+    if (!releaseVisionSlot) {
+      res.set("Retry-After", "8");
+      logger.warn("analyzeFood instance overload guard", {uid, inFlight: wazenVisionInFlight});
+      res.status(200).json(stripUndefinedDeep(
+        makeBusyVisionFallback("خدمة تحليل الصورة عليها ضغط حاليًا. جرّب بعد ثوانٍ قليلة أو استخدم التحليل النصي مؤقتًا.")
+      ));
       return;
     }
 
     try {
+      const countUsage = String(req.headers["x-count-usage"] || "1") !== "0";
+      const imgGate = await checkAndIncUsage(uid, "food_image", 20, "Asia/Riyadh", countUsage);
+      if (!imgGate.allowed) {
+        res.status(429).json({error: "quota_exceeded", message: gateMessage("food_image")});
+        return;
+      }
+
       const contentType = (req.headers["content-type"] || "").toString();
       let imageUrl = "";
       let imageBase64 = "";
@@ -4855,7 +5295,10 @@ export const analyzeFood = onRequest(
       const bodyClarifier = typeof body?.clarifier === "string" ? body.clarifier.trim() : "";
       const userClarifier = (headerClarifier || bodyClarifier).trim();
       const visionVersion = String(req.headers["x-wazen-vision-version"] || body?.vision_version || body?.visionVersion || "").trim();
-      const useVisionV2 = visionVersion === "2" || visionVersion.toLowerCase() === "v2";
+      // بدون تحديث التطبيق: اجعل المحرك الأدق V2 هو الافتراضي لكل المستخدمين.
+      // من يحتاج الرجوع للمحرك القديم يستطيع إرسال v1/legacy صراحة من أدوات الاختبار فقط.
+      const visionVersionLower = visionVersion.toLowerCase();
+      const useVisionV2 = !(visionVersionLower === "1" || visionVersionLower === "v1" || visionVersionLower === "legacy");
 
       if (!imageUrl && !imageBase64) {
         res.status(400).json({error: "أرسل imageUrl أو imageBase64"});
@@ -4863,8 +5306,20 @@ export const analyzeFood = onRequest(
       }
 
       const geminiKey = GEMINI_API_KEY.value();
-      const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
-      const cooldownMs = getGeminiModelCooldownRemainingMs(model);
+      const primaryModel = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
+      const fallbackModel = String(process.env.GEMINI_VISION_FALLBACK_MODEL || "gemini-2.5-flash-lite").trim();
+      let model = primaryModel;
+      let cooldownMs = getGeminiModelCooldownRemainingMs(model);
+      if (cooldownMs > 0 && fallbackModel && fallbackModel !== model) {
+        const fallbackCooldownMs = getGeminiModelCooldownRemainingMs(fallbackModel);
+        if (fallbackCooldownMs <= 0) {
+          logger.warn("analyzeFood switching to fallback model", {uid, primaryModel, fallbackModel});
+          model = fallbackModel;
+          cooldownMs = 0;
+        } else {
+          cooldownMs = Math.min(cooldownMs, fallbackCooldownMs);
+        }
+      }
       if (cooldownMs > 0) {
         const retryAfter = Math.max(1, Math.ceil(cooldownMs / 1000));
         res.set("Retry-After", String(retryAfter));
@@ -4888,7 +5343,9 @@ export const analyzeFood = onRequest(
       const userTextV1 = [
         "حلل صورة الطعام التالية لتطبيق وازن.",
         userClarifier ? `ملاحظة المستخدم: ${userClarifier}` : "ملاحظة المستخدم: لا يوجد.",
-        "إذا ظهر على العبوة أو الملصق وزن صريح فاستخدمه كما هو.",
+        "إذا ظهر على العبوة أو الملصق وزن صريح مثل 210 جم/210g فاستخدمه كوزن الوجبة/المنتج الظاهر كاملًا ولا تستبدله بتقدير بصري أصغر مثل 60 جم، إلا إذا المستخدم قال إنه أكل جزءًا فقط.",
+        "إذا كان الملصق يحتوي اسم المنتج ومكوناته، اجعل meal.name_ar اسم المنتج/الوجبة فقط، وليس قائمة المكونات ولا نص الملصق كاملًا.",
+        "الخضار الورقية مثل الخس الروماني قليلة السعرات جدًا: بضع شرائح أو أوراق خس غالبًا 2-8 سعرات، وليس 60+ سعرة إلا إذا ظهر صوص/زيت/جبن.",
         "إذا كان العنصر قابلًا للعد بصريًا فاذكر العدد داخل الاسم العربي بشكل طبيعي.",
         "أعد JSON فقط حسب الـ schema المطلوب.",
       ].join("\n");
@@ -4901,7 +5358,9 @@ export const analyzeFood = onRequest(
         "إذا كانت الوجبة من مطعم والحجم غير واضح، قدّر حجمًا متوسطًا شائعًا واخفض الثقة بدل إيقاف التحليل.",
         "لا تسأل عن المشروب إلا إذا ذكر المستخدم مشروبًا صراحة. إذا ذكر مشروبًا ولم يحدد دايت/عادي، افترض عادي بسكر واخفض الثقة.",
         "إذا كانت الوجبة قابلة للتعرّف، احسبها بتقدير محافظ ولا ترجع أصفارًا. استخدم need_clarification فقط للنصوص غير المفهومة تمامًا.",
-        "إذا ظهر على العبوة أو الملصق وزن صريح فاستخدمه كما هو.",
+        "إذا ظهر على العبوة أو الملصق وزن صريح مثل 210 جم/210g فاستخدمه كوزن الوجبة/المنتج الظاهر كاملًا ولا تستبدله بتقدير بصري أصغر مثل 60 جم، إلا إذا المستخدم قال إنه أكل جزءًا فقط.",
+        "إذا كان الملصق يحتوي اسم المنتج ومكوناته، اجعل meal.name_ar اسم المنتج/الوجبة فقط، وليس قائمة المكونات ولا نص الملصق كاملًا.",
+        "الخضار الورقية مثل الخس الروماني قليلة السعرات جدًا: بضع شرائح أو أوراق خس غالبًا 2-8 سعرات، وليس 60+ سعرة إلا إذا ظهر صوص/زيت/جبن.",
         "إذا كان العنصر قابلًا للعد بصريًا فاذكر العدد داخل الاسم العربي بشكل طبيعي.",
         "أعد JSON فقط حسب الـ schema المطلوب.",
       ].join("\n");
@@ -4919,7 +5378,7 @@ export const analyzeFood = onRequest(
         systemInstruction,
         responseSchema: WAZEN_VISION_RESPONSE_SCHEMA,
         temperature: 0.12,
-        maxOutputTokens: 10000,
+        maxOutputTokens: WAZEN_VISION_MAX_OUTPUT_TOKENS,
         maxAttempts: 2,
       });
       let raw = tryExtractJson(outText);
@@ -4937,7 +5396,7 @@ export const analyzeFood = onRequest(
           systemInstruction,
           responseSchema: WAZEN_VISION_RESPONSE_SCHEMA,
           temperature: 0.08,
-          maxOutputTokens: 10000,
+          maxOutputTokens: WAZEN_VISION_MAX_OUTPUT_TOKENS,
           maxAttempts: 2,
         });
         raw = tryExtractJson(secondPass);
@@ -5079,28 +5538,42 @@ export const analyzeFood = onRequest(
       if (useVisionV2) {
         finalVisionOut = enforceWazenVisionV2StrictGate(finalVisionOut, userClarifier);
         if (hasUsableWazenVisionAnalysis(finalVisionOut) && Array.isArray(finalVisionOut.items) && finalVisionOut.items.length > 0) {
-          finalVisionOut = {
-            ...finalVisionOut,
-            need_clarification: false,
-            questions: [],
-          };
+          const avgFinalConfidence = visionAverageConfidence(finalVisionOut);
+          const keepClarification = finalVisionOut.need_clarification === true && avgFinalConfidence > 0 && avgFinalConfidence < 0.58;
+          finalVisionOut = keepClarification
+            ? {
+              ...finalVisionOut,
+              questions: (Array.isArray(finalVisionOut.questions) && finalVisionOut.questions.length)
+                ? finalVisionOut.questions.slice(0, 2)
+                : ['النتيجة تقديرية لأن الصورة أو الكمية غير واضحة. أضف اسم الوجبة أو الوزن لدقة أعلى.'],
+              wazin_analysis: normStr(finalVisionOut.wazin_analysis) || 'النتيجة تقديرية وليست مؤكدة لأن الصورة/الكمية غير واضحة بالكامل.',
+            }
+            : {
+              ...finalVisionOut,
+              need_clarification: false,
+              questions: [],
+            };
         }
       }
 
-      // توليد نصيحة وازن من Gemini حسب الوجبة نفسها بدون تغيير شكل الاستجابة.
-      // إذا تأخر Gemini أو فشل، نرجع النصيحة الاحتياطية مباشرة حتى لا يتأثر المستخدمون.
+      // تكلفة منخفضة: لا نستدعي Gemini مرة ثانية فقط لتوليد النصيحة إلا عند تفعيلها صراحة بمتغير بيئة.
+      // التحليل الأول يرجع wazin_analysis، وإذا كان ناقصًا نستخدم نصيحة محلية بدون تكلفة إضافية.
       if (hasUsableWazenVisionAnalysis(finalVisionOut)) {
+        const enableExtraAiAdvice = /^(1|true|yes)$/i.test(String(process.env.WAZEN_VISION_AI_ADVICE || ""));
         finalVisionOut = {
           ...finalVisionOut,
-          wazin_analysis: await generateAiWazenVisionAdvice({
-            analysis: finalVisionOut,
-            model,
-            apiKey: geminiKey,
-            userClarifier,
-          }),
+          wazin_analysis: enableExtraAiAdvice
+            ? await generateAiWazenVisionAdvice({
+              analysis: finalVisionOut,
+              model,
+              apiKey: geminiKey,
+              userClarifier,
+            })
+            : (normStr(finalVisionOut.wazin_analysis) || defaultWazenAnalysis(finalVisionOut.meal?.name_ar || finalVisionOut.dish_name || 'وجبة', finalVisionOut.total_macros)),
         };
       }
 
+      finalVisionOut = finalizeWazenVisionAnalysis(finalVisionOut, userClarifier);
       res.status(200).json(stripUndefinedDeep(finalVisionOut));
     } catch (err: any) {
       const status = Number(err?.status ?? 0);
@@ -5122,6 +5595,8 @@ export const analyzeFood = onRequest(
 
       logger.error("analyzeFood error", err);
       res.status(200).json(stripUndefinedDeep(makeBusyVisionFallback("تعذر تحليل الصورة الآن. جرّب صورة أوضح أو استخدم التحليل النصي مؤقتًا.")));
+    } finally {
+      releaseVisionSlot();
     }
   }
 );
@@ -5694,10 +6169,14 @@ function buildCoachContextFromReport(report: any): string {
 
 export const askWazenCoach = onCall(
   {
-    region: "europe-west1",
+    region: WAZEN_REGION,
     secrets: [GEMINI_API_KEY],
     timeoutSeconds: 120,
     memory: "512MiB",
+    cpu: 1,
+    minInstances: 0,
+    maxInstances: WAZEN_COACH_MAX_INSTANCES,
+    concurrency: WAZEN_COACH_CONCURRENCY,
     enforceAppCheck: false,
     cors: true,
  },
@@ -7066,6 +7545,8 @@ export const assertCouponAdminAccess = onRequest(
     region: "europe-west1",
     timeoutSeconds: 20,
     memory: "256MiB",
+    maxInstances: 5,
+    concurrency: 40,
   },
   async (req, res) => {
     setWebPaymentsCors(req, res);
@@ -7167,6 +7648,122 @@ async function collectUserFcmTokens(uid: string): Promise<string[]> {
     if (v.length > 20) out.add(v);
   });
   return Array.from(out).slice(0, 500);
+}
+
+type StaffWebPushToken = {
+  id: string;
+  token: string;
+  uid: string;
+  email: string;
+  role: string;
+};
+
+function hashPushToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function cleanWebUrl(value: any, fallback = "https://wazenfapp.web.app/support/"): string {
+  const raw = cleanSmallText(value, 260);
+  if (!raw) return fallback;
+  if (raw.startsWith("/")) return `https://wazenfapp.web.app${raw}`;
+  if (/^https:\/\/wazenfapp\.(web\.app|firebaseapp\.com)/i.test(raw)) return raw;
+  return fallback;
+}
+
+async function collectStaffWebPushTokens(roles?: string[]): Promise<StaffWebPushToken[]> {
+  const allowedRoles = new Set((roles && roles.length ? roles : ["owner", "admin", "support"]).map(normalizeStaffRole));
+  const snap = await db.collection("adminWebPushTokens")
+    .where("enabled", "==", true)
+    .limit(1000)
+    .get();
+  const out: StaffWebPushToken[] = [];
+  snap.docs.forEach((doc) => {
+    const data = doc.data() as any;
+    const token = String(data?.token || "").trim();
+    const role = normalizeStaffRole(data?.role);
+    if (token.length > 20 && allowedRoles.has(role)) {
+      out.push({
+        id: doc.id,
+        token,
+        uid: String(data?.uid || ""),
+        email: String(data?.email || ""),
+        role,
+      });
+    }
+  });
+  return out.slice(0, 500);
+}
+
+function rolesForStaffAudience(value: any): string[] {
+  const audience = String(value || "all_staff").trim().toLowerCase();
+  if (audience === "owner") return ["owner"];
+  if (audience === "support") return ["support"];
+  if (audience === "admins") return ["owner", "admin"];
+  return ["owner", "admin", "support"];
+}
+
+async function sendStaffWebPush(args: {
+  title: string;
+  body: string;
+  type: string;
+  deeplink?: string;
+  sourceId?: string;
+  roles?: string[];
+}) {
+  const devices = await collectStaffWebPushTokens(args.roles);
+  const tokens = devices.map((d) => d.token);
+  const url = cleanWebUrl(args.deeplink || "/support/");
+  if (!tokens.length) {
+    return {tokenCount: 0, successCount: 0, failureCount: 0};
+  }
+
+  const response = await getMessaging().sendEachForMulticast({
+    tokens,
+    notification: {
+      title: args.title,
+      body: args.body,
+    },
+    data: {
+      type: args.type,
+      sourceId: args.sourceId || "",
+      deeplink: args.deeplink || "/support/",
+      url,
+      title: args.title,
+      body: args.body,
+    },
+    webpush: {
+      notification: {
+        icon: "/wazen_logo.png",
+        badge: "/wazen_logo.png",
+        tag: `${args.type}-${args.sourceId || Date.now()}`,
+        renotify: true,
+        requireInteraction: args.type === "staff_call" || args.type === "support_ticket_new",
+      },
+      fcmOptions: {
+        link: url,
+      },
+    },
+  } as any);
+
+  const invalidDocIds: string[] = [];
+  response.responses.forEach((r, i) => {
+    const code = String((r.error as any)?.code || "");
+    if (!r.success && /registration-token-not-registered|invalid-registration-token|invalid-argument/i.test(code)) {
+      invalidDocIds.push(devices[i].id);
+    }
+  });
+  await Promise.allSettled(invalidDocIds.map((id) => db.collection("adminWebPushTokens").doc(id).set({
+    enabled: false,
+    disabledReason: "invalid_token",
+    disabledAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, {merge: true})));
+
+  return {
+    tokenCount: tokens.length,
+    successCount: response.successCount,
+    failureCount: response.failureCount,
+  };
 }
 
 function safeTicketId(value: any): string {
@@ -7349,6 +7946,8 @@ export const adminRevokeUserSubscription = onRequest(
     region: "europe-west1",
     timeoutSeconds: 30,
     memory: "256MiB",
+    maxInstances: 5,
+    concurrency: 20,
   },
   async (req, res) => {
     setWebPaymentsCors(req, res);
@@ -7531,6 +8130,232 @@ export const adminSendUserPushNotification = onRequest(
   }
 );
 
+export const adminRegisterWebPushToken = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 30,
+    memory: "256MiB",
+    maxInstances: 5,
+    concurrency: 20,
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+    try {
+      const staff = await assertStaffAccess(req, false);
+      const token = String(req.body?.token || "").trim();
+      if (token.length < 20) {
+        jsonError(res, 400, "توكن الإشعارات غير صحيح.", "invalid_token");
+        return;
+      }
+      const id = hashPushToken(token);
+      await db.collection("adminWebPushTokens").doc(id).set({
+        token,
+        uid: staff.uid,
+        email: staff.email,
+        role: staff.role,
+        enabled: true,
+        deviceLabel: cleanSmallText(req.body?.deviceLabel || "لوحة وازن", 120),
+        platform: cleanSmallText(req.body?.platform, 80),
+        userAgent: cleanSmallText(req.body?.userAgent, 260),
+        updatedAt: FieldValue.serverTimestamp(),
+        lastSeenAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+      await db.collection("admin_audit_logs").add({
+        action: "register_admin_web_push_token",
+        byUid: staff.uid,
+        byEmail: staff.email,
+        role: staff.role,
+        tokenId: id,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.status(200).json({ok: true, tokenId: id, message: "تم تفعيل إشعارات الإدارة لهذا الجهاز."});
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "not_admin") {
+        jsonError(res, 403, "تفعيل إشعارات الإدارة متاح للمالك أو الدعم فقط.", "permission_denied");
+        return;
+      }
+      logger.error("adminRegisterWebPushToken failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر تفعيل إشعارات الإدارة.", "register_push_failed");
+    }
+  }
+);
+
+export const adminUnregisterWebPushToken = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 20,
+    memory: "256MiB",
+    maxInstances: 5,
+    concurrency: 20,
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+    try {
+      const staff = await assertStaffAccess(req, false);
+      const token = String(req.body?.token || "").trim();
+      if (token.length < 20) {
+        jsonError(res, 400, "توكن الإشعارات غير صحيح.", "invalid_token");
+        return;
+      }
+      const id = hashPushToken(token);
+      await db.collection("adminWebPushTokens").doc(id).set({
+        enabled: false,
+        disabledBy: staff.uid,
+        disabledByEmail: staff.email,
+        disabledAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+      res.status(200).json({ok: true, tokenId: id, message: "تم إيقاف إشعارات الإدارة لهذا الجهاز."});
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "not_admin") {
+        jsonError(res, 403, "إيقاف إشعارات الإدارة متاح للمالك أو الدعم فقط.", "permission_denied");
+        return;
+      }
+      logger.error("adminUnregisterWebPushToken failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر إيقاف إشعارات الإدارة.", "unregister_push_failed");
+    }
+  }
+);
+
+export const adminSendStaffCallNotification = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 45,
+    memory: "256MiB",
+    maxInstances: 3,
+    concurrency: 20,
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+    try {
+      const staff = await assertStaffAccess(req, false);
+      const title = cleanSmallText(req.body?.title || "🚨 استدعاء عاجل من وازن", 90);
+      const body = cleanSmallText(req.body?.body || "يوجد نداء عاجل يحتاج دخول لوحة الدعم الآن.", 900);
+      const deeplink = cleanSmallText(req.body?.deeplink || "/support/?view=staffCall", 180);
+      const roles = rolesForStaffAudience(req.body?.audience);
+      const callRef = await db.collection("admin_staff_calls").add({
+        title,
+        body,
+        deeplink,
+        roles,
+        status: "sending",
+        createdBy: staff.uid,
+        createdByEmail: staff.email,
+        createdByRole: staff.role,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      const result = await sendStaffWebPush({
+        title,
+        body,
+        deeplink,
+        roles,
+        type: "staff_call",
+        sourceId: callRef.id,
+      });
+      await callRef.set({
+        status: "sent",
+        ...result,
+        sentAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+      await db.collection("admin_audit_logs").add({
+        action: "send_staff_call_notification",
+        byUid: staff.uid,
+        byEmail: staff.email,
+        role: staff.role,
+        callId: callRef.id,
+        title,
+        ...result,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.status(200).json({ok: true, callId: callRef.id, message: "تم إرسال الاستدعاء لأجهزة الإدارة.", ...result});
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "not_admin") {
+        jsonError(res, 403, "الاستدعاء متاح للمالك أو الدعم فقط.", "permission_denied");
+        return;
+      }
+      logger.error("adminSendStaffCallNotification failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر إرسال الاستدعاء.", "staff_call_failed");
+    }
+  }
+);
+
+export const onSupportTicketCreatedNotifyStaff = functionsV1
+  .region(MARKETING_FN_REGION)
+  .firestore.document("supportTickets/{ticketId}")
+  .onCreate(async (snap, context) => {
+    const ticketId = context.params.ticketId as string;
+    const data = snap.data() as any;
+    const publicId = cleanSmallText(data?.publicTicketId || ticketId, 60);
+    const subject = cleanSmallText(data?.subject || "تذكرة دعم جديدة", 120);
+    const customer = cleanSmallText(data?.customerName || data?.email || "عميل وازن", 90);
+    const priority = cleanSmallText(data?.priority || "normal", 40);
+    const title = priority === "high" ? "🚨 تذكرة دعم عالية الأولوية" : "🎫 تذكرة دعم جديدة";
+    const body = cleanSmallText(`${customer} — ${subject} — ${publicId}`, 220);
+    try {
+      const result = await sendStaffWebPush({
+        title,
+        body,
+        type: "support_ticket_new",
+        sourceId: ticketId,
+        deeplink: "/support/?view=tickets",
+      });
+      await snap.ref.set({
+        adminWebPushStatus: "sent",
+        adminWebPushResult: result,
+        adminWebPushSentAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    } catch (e: any) {
+      logger.error("onSupportTicketCreatedNotifyStaff failed", {ticketId, error: String(e?.message ?? e)});
+      await snap.ref.set({
+        adminWebPushStatus: "error",
+        adminWebPushError: String(e?.message ?? e).slice(0, 400),
+        adminWebPushFailedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+  });
+
 export const createPublicSupportTicket = onRequest(
   {
     region: "europe-west1",
@@ -7599,6 +8424,8 @@ export const getPublicSupportTicket = onRequest(
     region: "europe-west1",
     timeoutSeconds: 30,
     memory: "256MiB",
+    maxInstances: 10,
+    concurrency: 40,
   },
   async (req, res) => {
     setWebPaymentsCors(req, res);

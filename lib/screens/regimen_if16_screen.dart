@@ -1,6 +1,6 @@
 // =============================================================
 // FILE: lib/screens/regimen_if16_screen.dart
-// صفحة الصيام المتقطع — نسخة ثابتة بدون سكرول + مؤقت فوري + AppBar بنفس اتجاه التطبيق
+// صفحة الصيام المتقطع — واجهة مرتبة وهادئة مع الحفاظ على نفس الميزات
 // =============================================================
 import 'dart:ui' as ui;
 
@@ -173,82 +173,55 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
         body: Directionality(
           textDirection: ui.TextDirection.rtl,
           child: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, c) {
-                // توزيع مرن للارتفاعات بدون سكرول، عشان الصفحة تثبت على الجوالات الصغيرة.
-                final h = c.maxHeight;
-                final verySmall = h < 620;
-                final small = h < 700;
-                final gap = verySmall ? 6.0 : (small ? 8.0 : 10.0);
-                final padTop = verySmall ? 6.0 : 8.0;
-                final padBottom = verySmall ? 8.0 : 12.0;
-
-                var heroHeight = (h * (verySmall ? 0.38 : 0.39))
-                    .clamp(218.0, small ? 274.0 : 292.0)
-                    .toDouble();
-                var setupHeight = (h * (_startNow ? 0.255 : 0.292))
-                    .clamp(_startNow ? 148.0 : 176.0, _startNow ? 202.0 : 224.0)
-                    .toDouble();
-
-                // اضمن أن الجزء السفلي لا يقل عن حد عملي، ولو الشاشة صغيرة قلّص الأعلى بدل overflow.
-                final availableForBottom = h - padTop - padBottom - (gap * 2) - heroHeight - setupHeight;
-                final minBottom = verySmall ? 104.0 : 132.0;
-                if (availableForBottom < minBottom) {
-                  final deficit = minBottom - availableForBottom;
-                  final cutHero = (deficit * 0.62).clamp(0.0, 36.0).toDouble();
-                  final cutSetup = (deficit - cutHero).clamp(0.0, 30.0).toDouble();
-                  heroHeight = (heroHeight - cutHero).clamp(208.0, 292.0).toDouble();
-                  setupHeight = (setupHeight - cutSetup).clamp(_startNow ? 142.0 : 168.0, 224.0).toDouble();
-                }
-
-                return Padding(
-                  padding: EdgeInsets.fromLTRB(12, padTop, 12, padBottom),
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        height: heroHeight,
-                        child: _HeroCard(
-                          active: active,
-                          busy: _busy,
-                          hours: _hours,
-                          percent: active ? fs.percent : 0,
-                          remaining: _formatHms(remaining),
-                          startText: startAt == null ? '--' : _timeFmt.format(startAt.toLocal()),
-                          endText: endAt == null ? '--' : _timeFmt.format(endAt.toLocal()),
-                          stage: stage,
-                          nextStage: nextStage,
-                          onPrimary: active ? () => _stopFasting(fs) : () => _startFasting(fs),
-                        ),
-                      ),
-                      SizedBox(height: gap),
-                      SizedBox(
-                        height: setupHeight,
-                        child: _ControlCard(
-                          active: active,
-                          hours: _hours,
-                          startNow: _startNow,
-                          customStart: _customStart,
-                          plannedEndText: _dateFmt.format(_plannedEnd.toLocal()),
-                          onHoursChanged: active || _busy ? null : (h) => setState(() => _hours = h),
-                          onStartNowChanged: active || _busy ? null : (v) => setState(() => _startNow = v),
-                          onPickStart: active || _busy ? null : _pickStartTime,
-                        ),
-                      ),
-                      SizedBox(height: gap),
-                      Expanded(
-                        child: _BottomTools(
-                          active: active,
-                          endText: endAt == null ? '--' : _timeFmt.format(endAt.toLocal()),
-                          stats: stats,
-                          onHistory: _openHistory,
-                          onTimeline: () => _showTimelineSheet(elapsed: elapsed, total: total, active: active),
-                          onGuide: _showGuideMenu,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+            child: ListView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
+              children: [
+                _HeroCard(
+                  active: active,
+                  busy: _busy,
+                  hours: _hours,
+                  percent: active ? fs.percent : 0,
+                  remaining: _formatHms(remaining),
+                  startText: startAt == null ? '--' : _timeFmt.format(startAt.toLocal()),
+                  endText: endAt == null ? '--' : _timeFmt.format(endAt.toLocal()),
+                  stage: stage,
+                  nextStage: nextStage,
+                  onPrimary: active ? () => _stopFasting(fs) : () => _startFasting(fs),
+                ),
+                const SizedBox(height: 14),
+                if (active) ...[
+                  _ActiveLockNotice(endText: endAt == null ? '--' : _timeFmt.format(endAt.toLocal())),
+                  const SizedBox(height: 14),
+                ],
+                _PlanCard(
+                  active: active,
+                  hours: _hours,
+                  startNow: _startNow,
+                  customStart: _customStart,
+                  plannedEndText: _dateFmt.format(_plannedEnd.toLocal()),
+                  onHoursChanged: active || _busy ? null : (h) => setState(() => _hours = h),
+                  onStartNowChanged: active || _busy ? null : (v) => setState(() => _startNow = v),
+                  onPickStart: active || _busy ? null : _pickStartTime,
+                ),
+                const SizedBox(height: 14),
+                _StageCard(
+                  active: active,
+                  stage: stage,
+                  nextStage: nextStage,
+                  elapsed: elapsed,
+                  total: total,
+                  onTimeline: () => _showTimelineSheet(elapsed: elapsed, total: total, active: active),
+                ),
+                const SizedBox(height: 14),
+                _StatsCard(stats: stats),
+                const SizedBox(height: 14),
+                _ToolsCard(
+                  onHistory: _openHistory,
+                  onTimeline: () => _showTimelineSheet(elapsed: elapsed, total: total, active: active),
+                  onGuide: _showGuideMenu,
+                ),
+              ],
             ),
           ),
         ),
@@ -314,30 +287,22 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
       context: context,
       useSafeArea: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => Directionality(
         textDirection: ui.TextDirection.rtl,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const _SheetHandle(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
               Row(
                 children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(icon, color: color),
-                  ),
-                  const SizedBox(width: 10),
+                  _IconBubble(icon: icon, color: color),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       title,
@@ -346,9 +311,9 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Text(message, style: Theme.of(ctx).textTheme.bodyMedium),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              Text(message, style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(height: 1.45)),
+              const SizedBox(height: 18),
               Row(
                 children: [
                   Expanded(
@@ -380,26 +345,31 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
       context: context,
       useSafeArea: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => Directionality(
         textDirection: ui.TextDirection.rtl,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const _SheetHandle(),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               Row(
                 children: [
-                  Icon(Icons.menu_book_rounded, color: cs.primary),
-                  const SizedBox(width: 8),
-                  Text('دليل الصيام السريع', style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                  _IconBubble(icon: Icons.menu_book_rounded, color: cs.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'دليل الصيام السريع',
+                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               _GuideTile(icon: Icons.local_cafe_rounded, title: 'المسموح أثناء الصيام', onTap: () { Navigator.pop(ctx); _showAllowedGuide(); }),
               _GuideTile(icon: Icons.restaurant_menu_rounded, title: 'طريقة كسر الصيام', onTap: () { Navigator.pop(ctx); _showBreakFastGuide(); }),
               _GuideTile(icon: Icons.warning_amber_rounded, title: 'أخطاء تخرب الالتزام', onTap: () { Navigator.pop(ctx); _showMistakesGuide(); }),
@@ -422,7 +392,7 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
       useSafeArea: true,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => Directionality(
         textDirection: ui.TextDirection.rtl,
@@ -433,10 +403,10 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
           maxChildSize: 0.92,
           builder: (_, controller) => ListView(
             controller: controller,
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
             children: [
               const _SheetHandle(),
-              const SizedBox(height: 14),
+              const SizedBox(height: 18),
               Text('مراحل الصيام', style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
               const SizedBox(height: 12),
               for (final s in list)
@@ -511,30 +481,22 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
       useSafeArea: true,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => Directionality(
         textDirection: ui.TextDirection.rtl,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const _SheetHandle(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
               Row(
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: cs.primary.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(icon, color: cs.primary),
-                  ),
-                  const SizedBox(width: 10),
+                  _IconBubble(icon: icon, color: cs.primary),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       title,
@@ -543,9 +505,9 @@ class _RegimenIF16ScreenState extends State<RegimenIF16Screen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              ...items.map((e) => _BulletText(e)),
               const SizedBox(height: 14),
+              ...items.map((e) => _BulletText(e)),
+              const SizedBox(height: 12),
               FilledButton.tonal(
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('فهمت'),
@@ -597,184 +559,144 @@ class _HeroCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
 
-    return LayoutBuilder(
-      builder: (context, c) {
-        final short = c.maxHeight < 246;
-        final veryShort = c.maxHeight < 222;
-        final narrow = c.maxWidth < 340;
-        final pad = short ? 10.0 : 14.0;
-        final gap = short ? 6.0 : 8.0;
-        final topH = short ? 30.0 : 34.0;
-        final windowH = short ? 36.0 : 40.0;
-        final buttonH = short ? 38.0 : 44.0;
-        final bodyH = (c.maxHeight - (pad * 2) - topH - windowH - buttonH - (gap * 3))
-            .clamp(66.0, 136.0)
-            .toDouble();
-        final ringSize = bodyH.clamp(76.0, short ? 108.0 : 132.0).toDouble();
-
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(short ? 22 : 28),
-            gradient: LinearGradient(
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-              colors: [
-                cs.primary.withOpacity(0.95),
-                cs.primary.withOpacity(0.76),
-                cs.tertiary.withOpacity(0.58),
-              ],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: cs.primary.withOpacity(0.18),
-                blurRadius: 16,
-                offset: const Offset(0, 9),
-              ),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            cs.primary.withOpacity(0.98),
+            cs.primary.withOpacity(0.82),
+            cs.tertiary.withOpacity(0.54),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: cs.primary.withOpacity(0.20),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
           ),
-          clipBehavior: Clip.antiAlias,
-          child: Stack(
-            children: [
-              PositionedDirectional(top: -55, start: -38, child: _Glow(size: 160, color: Colors.white.withOpacity(0.10))),
-              PositionedDirectional(bottom: -72, end: -44, child: _Glow(size: 190, color: Colors.white.withOpacity(0.10))),
-              Padding(
-                padding: EdgeInsets.all(pad),
-                child: Column(
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          PositionedDirectional(top: -70, start: -45, child: _Glow(size: 185, color: Colors.white.withOpacity(0.10))),
+          PositionedDirectional(bottom: -90, end: -40, child: _Glow(size: 210, color: Colors.white.withOpacity(0.10))),
+          Padding(
+            padding: const EdgeInsets.all(18),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final narrow = constraints.maxWidth < 355;
+                final ring = narrow ? 122.0 : 142.0;
+
+                final summary = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
-                      height: topH,
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerRight,
-                              child: Row(
-                                children: [
-                                  _WhitePill(
-                                    icon: active ? Icons.lock_rounded : Icons.auto_awesome_rounded,
-                                    text: active ? 'الصيام نشط' : 'جاهز للبدء',
-                                    compact: short || narrow,
-                                  ),
-                                  SizedBox(width: short ? 6 : 8),
-                                  _WhitePill(
-                                    icon: Icons.schedule_rounded,
-                                    text: '$hours ساعة',
-                                    compact: short || narrow,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(
-                            active ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
-                            color: Colors.white,
-                            size: short ? 20 : 24,
-                          ),
-                        ],
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.start,
+                      children: [
+                        _WhitePill(
+                          icon: active ? Icons.lock_rounded : Icons.radio_button_unchecked_rounded,
+                          text: active ? 'الصيام نشط' : 'جاهز للبدء',
+                        ),
+                        _WhitePill(icon: Icons.schedule_rounded, text: '$hours ساعة'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      active ? 'باقي على نهاية الصيام' : 'ابدأ صيامك بخطة واضحة',
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: Colors.white.withOpacity(0.86),
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    SizedBox(height: gap),
-                    SizedBox(
-                      height: bodyH,
-                      child: Row(
+                    const SizedBox(height: 4),
+                    Text(
+                      active ? remaining : _planLabel(hours),
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _StageMiniCard(stage: stage, nextStage: nextStage, active: active),
+                  ],
+                );
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (narrow)
+                      Column(
                         children: [
                           SizedBox.square(
-                            dimension: ringSize,
+                            dimension: ring,
                             child: FastingRing(
                               percent: percent,
                               centerTop: active ? remaining : '$hours ساعة',
                               centerBottom: active ? 'المتبقي' : 'الخطة',
                             ),
                           ),
-                          SizedBox(width: short ? 8 : 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  active ? 'استمر.. أنت داخل نافذة الصيام' : 'ابدأ صيامك من هنا',
-                                  textAlign: TextAlign.right,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: veryShort ? 13 : (short ? 14 : null),
-                                  ),
-                                ),
-                                if (!veryShort) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    active
-                                        ? 'منع الوجبات وباقي الأنظمة مفعّل حتى نهاية الصيام.'
-                                        : 'المؤقت والتنبيهات وقفل الأنظمة تعمل مباشرة بعد البدء.',
-                                    textAlign: TextAlign.right,
-                                    maxLines: short ? 1 : 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.white.withOpacity(0.86),
-                                      height: 1.15,
-                                      fontSize: short ? 10.5 : null,
-                                    ),
-                                  ),
-                                ],
-                                SizedBox(height: short ? 5 : 8),
-                                Flexible(
-                                  child: _StageMiniCard(
-                                    stage: stage,
-                                    nextStage: nextStage,
-                                    active: active,
-                                    compact: short,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(height: 16),
+                          summary,
+                        ],
+                      )
+                    else
+                      Row(
+                        children: [
+                          SizedBox.square(
+                            dimension: ring,
+                            child: FastingRing(
+                              percent: percent,
+                              centerTop: active ? remaining : '$hours ساعة',
+                              centerBottom: active ? 'المتبقي' : 'الخطة',
                             ),
                           ),
+                          const SizedBox(width: 18),
+                          Expanded(child: summary),
                         ],
                       ),
-                    ),
-                    SizedBox(height: gap),
-                    SizedBox(height: windowH, child: _WindowRow(start: startText, end: endText, compact: short || narrow)),
-                    SizedBox(height: gap),
+                    const SizedBox(height: 16),
+                    _WindowRow(start: startText, end: endText),
+                    const SizedBox(height: 16),
                     SizedBox(
-                      height: buttonH,
+                      height: 48,
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(
                           backgroundColor: active ? Colors.white.withOpacity(0.18) : Colors.white,
                           foregroundColor: active ? Colors.white : cs.primary,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(short ? 14 : 16)),
-                          padding: EdgeInsets.symmetric(horizontal: short ? 10 : 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                         ),
                         onPressed: busy ? null : onPrimary,
                         icon: busy
                             ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                            : Icon(active ? Icons.stop_circle_outlined : Icons.play_circle_fill_rounded, size: short ? 18 : 20),
-                        label: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            active ? 'إنهاء الصيام' : 'ابدأ الصيام الآن',
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
+                            : Icon(active ? Icons.stop_circle_outlined : Icons.play_circle_fill_rounded),
+                        label: Text(
+                          active ? 'إنهاء الصيام' : 'ابدأ الصيام الآن',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
                     ),
                   ],
-                ),
-              ),
-            ],
+                );
+              },
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }
 
-class _ControlCard extends StatelessWidget {
-  const _ControlCard({
+class _PlanCard extends StatelessWidget {
+  const _PlanCard({
     required this.active,
     required this.hours,
     required this.startNow,
@@ -797,139 +719,308 @@ class _ControlCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final theme = Theme.of(context);
-    return LayoutBuilder(
-      builder: (context, c) {
-        final short = c.maxHeight < 170;
-        final veryShort = c.maxHeight < 154;
-        final pad = short ? 9.0 : 12.0;
-        final headerH = veryShort ? 34.0 : 40.0;
-        final chipH = short ? 30.0 : 34.0;
-        final boxPadV = short ? 6.0 : 8.0;
-
-        return _Card(
-          padding: EdgeInsets.all(pad),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return _SectionCard(
+      icon: Icons.tune_rounded,
+      title: 'إعداد الصيام',
+      subtitle: active ? 'الخطة مقفلة أثناء الصيام.' : 'اختر المدة ووقت البداية.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              SizedBox(
-                height: headerH,
-                child: _CardTitle(
-                  icon: Icons.tune_rounded,
-                  title: 'إعداد الصيام',
-                  subtitle: active ? 'الخطة مقفلة أثناء الصيام.' : 'اختر المدة ووقت البداية.',
-                  compact: short,
+              for (final h in const [12, 14, 16, 18, 20])
+                _PlanChip(
+                  label: _planLabel(h),
+                  selected: hours == h,
+                  enabled: !active && onHoursChanged != null,
+                  onTap: () => onHoursChanged?.call(h),
                 ),
-              ),
-              SizedBox(height: short ? 5 : 8),
-              SizedBox(
-                height: chipH,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  reverse: true,
-                  physics: const BouncingScrollPhysics(),
-                  child: Row(
-                    children: [
-                      for (final h in const [12, 14, 16, 18, 20]) ...[
-                        _PlanChip(
-                          label: _planLabel(h),
-                          selected: hours == h,
-                          enabled: !active && onHoursChanged != null,
-                          compact: short,
-                          onTap: () => onHoursChanged?.call(h),
-                        ),
-                        const SizedBox(width: 7),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(height: short ? 5 : 8),
-              Expanded(
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: boxPadV),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceVariant.withOpacity(0.30),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: cs.outlineVariant.withOpacity(0.75)),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        height: short ? 32 : 36,
-                        child: Row(
-                          children: [
-                            Icon(Icons.play_arrow_rounded, color: cs.primary, size: short ? 18 : 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'ابدأ من الآن',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: short ? 12 : null,
-                                ),
-                              ),
-                            ),
-                            Transform.scale(
-                              scale: short ? 0.82 : 0.92,
-                              child: Switch.adaptive(
-                                value: startNow,
-                                onChanged: active || onStartNowChanged == null ? null : onStartNowChanged,
-                              ),
-                            ),
-                          ],
-                        ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: cs.surfaceVariant.withOpacity(0.28),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: cs.outlineVariant.withOpacity(0.75)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.play_arrow_rounded, color: cs.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'ابدأ من الآن',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
                       ),
-                      if (!startNow) ...[
-                        SizedBox(height: short ? 4 : 6),
-                        SizedBox(
-                          width: double.infinity,
-                          height: short ? 32 : 36,
-                          child: OutlinedButton.icon(
-                            onPressed: active ? null : onPickStart,
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            icon: const Icon(Icons.access_time_rounded, size: 17),
-                            label: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(customStart == null ? 'اختيار وقت البداية' : 'البداية: ${customStart!.format(context)}'),
+                    ),
+                    Switch.adaptive(
+                      value: startNow,
+                      onChanged: active || onStartNowChanged == null ? null : onStartNowChanged,
+                    ),
+                  ],
+                ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: startNow
+                      ? const SizedBox.shrink()
+                      : Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: active ? null : onPickStart,
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              ),
+                              icon: const Icon(Icons.access_time_rounded),
+                              label: Text(customStart == null ? 'اختيار وقت البداية' : 'البداية: ${customStart!.format(context)}'),
                             ),
                           ),
                         ),
-                      ],
-                      if (!veryShort) ...[
-                        SizedBox(height: short ? 3 : 5),
-                        Row(
-                          children: [
-                            Icon(Icons.event_available_rounded, color: cs.primary, size: 17),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                'الانتهاء المتوقع: $plannedEndText',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: short ? 10.5 : null,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
                 ),
-              ),
+                const SizedBox(height: 10),
+                _InfoLine(
+                  icon: Icons.event_available_rounded,
+                  text: 'الانتهاء المتوقع: $plannedEndText',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StageCard extends StatelessWidget {
+  const _StageCard({
+    required this.active,
+    required this.stage,
+    required this.nextStage,
+    required this.elapsed,
+    required this.total,
+    required this.onTimeline,
+  });
+
+  final bool active;
+  final FastingStage stage;
+  final FastingStage? nextStage;
+  final Duration elapsed;
+  final Duration total;
+  final VoidCallback onTimeline;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final elapsedText = _formatStageTime(elapsed);
+    final totalText = _formatStageTime(total);
+
+    return _SectionCard(
+      icon: stage.icon,
+      title: active ? stage.title : 'مراحل الصيام',
+      subtitle: active
+          ? (nextStage == null ? 'أنت في آخر مرحلة من الخطة.' : 'المرحلة القادمة: ${nextStage!.title}')
+          : 'تظهر المراحل بالتدرج بعد تشغيل الصيام.',
+      trailing: TextButton(
+        onPressed: onTimeline,
+        child: const Text('عرض المراحل'),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            active ? stage.description : 'ابدأ الصيام، ووازن يعرض لك المرحلة الحالية وماذا يحدث خلال الخطة.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 9,
+              value: active ? (total.inSeconds <= 0 ? 0 : (elapsed.inSeconds / total.inSeconds).clamp(0.0, 1.0)) : 0,
+              backgroundColor: cs.surfaceVariant.withOpacity(0.55),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: _SmallLabel(label: 'المنقضي', value: active ? elapsedText : 'لم يبدأ')),
+              const SizedBox(width: 8),
+              Expanded(child: _SmallLabel(label: 'الخطة', value: totalText)),
             ],
           ),
-        );
-      },
+        ],
+      ),
+    );
+  }
+}
+
+class _StatsCard extends StatelessWidget {
+  const _StatsCard({required this.stats});
+
+  final _FastingStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      icon: Icons.insights_rounded,
+      title: 'ملخص الصيام',
+      subtitle: 'إحصائياتك من السجل.',
+      child: Row(
+        children: [
+          Expanded(child: _StatBox(label: 'الستريك', value: '${stats.streak}', suffix: 'يوم', icon: Icons.local_fire_department_rounded)),
+          const SizedBox(width: 10),
+          Expanded(child: _StatBox(label: 'الجلسات', value: '${stats.sessions}', suffix: 'جلسة', icon: Icons.check_circle_rounded)),
+          const SizedBox(width: 10),
+          Expanded(child: _StatBox(label: 'المتوسط', value: stats.avgHours.toStringAsFixed(1), suffix: 'س', icon: Icons.timer_rounded)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToolsCard extends StatelessWidget {
+  const _ToolsCard({required this.onHistory, required this.onTimeline, required this.onGuide});
+
+  final VoidCallback onHistory;
+  final VoidCallback onTimeline;
+  final VoidCallback onGuide;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      icon: Icons.grid_view_rounded,
+      title: 'الأدوات',
+      subtitle: 'كل شيء تحتاجه للصيام في مكان مرتب.',
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _ToolButton(icon: Icons.timeline_rounded, label: 'المراحل', onTap: onTimeline)),
+              const SizedBox(width: 10),
+              Expanded(child: _ToolButton(icon: Icons.menu_book_rounded, label: 'الدليل', onTap: onGuide)),
+              const SizedBox(width: 10),
+              Expanded(child: _ToolButton(icon: Icons.history_rounded, label: 'السجل', onTap: onHistory)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const _InfoLine(
+            icon: Icons.notifications_active_rounded,
+            text: 'التنبيهات تعمل لبداية الصيام، منتصف المدة، النهاية، وتذكير الوجبة.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActiveLockNotice extends StatelessWidget {
+  const _ActiveLockNotice({required this.endText});
+
+  final String endText;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.primary.withOpacity(0.18)),
+      ),
+      child: Row(
+        children: [
+          _IconBubble(icon: Icons.lock_rounded, color: cs.primary, size: 38),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'أثناء الصيام يتم قفل إضافة الوجبات وباقي الأنظمة حتى $endText.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.82)),
+        boxShadow: [
+          BoxShadow(
+            color: cs.shadow.withOpacity(0.045),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _IconBubble(icon: icon, color: cs.primary, size: 42),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.62)),
+                    ),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing!,
+              ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
     );
   }
 }
@@ -940,29 +1031,26 @@ class _PlanChip extends StatelessWidget {
     required this.selected,
     required this.enabled,
     required this.onTap,
-    required this.compact,
   });
 
   final String label;
   final bool selected;
   final bool enabled;
   final VoidCallback onTap;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final bg = selected ? cs.primary.withOpacity(0.18) : cs.surface;
-    final border = selected ? cs.primary.withOpacity(0.34) : cs.outlineVariant.withOpacity(0.85);
+    final bg = selected ? cs.primary.withOpacity(0.16) : cs.surface;
+    final border = selected ? cs.primary.withOpacity(0.42) : cs.outlineVariant.withOpacity(0.86);
     return InkWell(
       onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        height: compact ? 30 : 34,
-        constraints: BoxConstraints(minWidth: compact ? 58 : 64),
-        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 13),
+        constraints: const BoxConstraints(minWidth: 68),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
         decoration: BoxDecoration(
-          color: enabled ? bg : bg.withOpacity(0.55),
+          color: enabled ? bg : bg.withOpacity(0.58),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: border),
         ),
@@ -973,402 +1061,71 @@ class _PlanChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: compact ? 11 : 12,
+                fontWeight: FontWeight.w900,
+                fontSize: 12.5,
                 color: selected ? cs.primary : cs.onSurface.withOpacity(enabled ? 0.88 : 0.45),
               ),
             ),
             if (selected) ...[
               const SizedBox(width: 5),
-              Icon(Icons.check_rounded, size: compact ? 14 : 16, color: cs.primary),
+              Icon(Icons.check_rounded, size: 16, color: cs.primary),
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _BottomTools extends StatelessWidget {
-  const _BottomTools({
-    required this.active,
-    required this.endText,
-    required this.stats,
-    required this.onHistory,
-    required this.onTimeline,
-    required this.onGuide,
-  });
-
-  final bool active;
-  final String endText;
-  final _FastingStats stats;
-  final VoidCallback onHistory;
-  final VoidCallback onTimeline;
-  final VoidCallback onGuide;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return LayoutBuilder(
-      builder: (context, c) {
-        final ultra = c.maxHeight < 126;
-        final compact = c.maxHeight < 158;
-        final pad = ultra ? 7.0 : 10.0;
-        final buttonH = ultra ? 34.0 : 40.0;
-
-        return _Card(
-          padding: EdgeInsets.all(pad),
-          child: Column(
-            children: [
-              if (active && !compact) ...[
-                _MiniNotice(endText: endText),
-                const SizedBox(height: 7),
-              ],
-              if (ultra)
-                SizedBox(
-                  height: 31,
-                  child: Row(
-                    children: [
-                      Expanded(child: _StatInline(label: 'ستريك', value: '${stats.streak}ي', icon: Icons.local_fire_department_rounded)),
-                      const SizedBox(width: 6),
-                      Expanded(child: _StatInline(label: 'جلسات', value: '${stats.sessions}', icon: Icons.check_circle_rounded)),
-                      const SizedBox(width: 6),
-                      Expanded(child: _StatInline(label: 'متوسط', value: '${stats.avgHours.toStringAsFixed(1)}س', icon: Icons.timer_rounded)),
-                    ],
-                  ),
-                )
-              else
-                Expanded(
-                  child: Row(
-                    children: [
-                      Expanded(child: _StatBox(label: 'الستريك', value: '${stats.streak}', suffix: 'يوم', icon: Icons.local_fire_department_rounded, compact: compact)),
-                      const SizedBox(width: 8),
-                      Expanded(child: _StatBox(label: 'الجلسات', value: '${stats.sessions}', suffix: 'جلسة', icon: Icons.check_circle_rounded, compact: compact)),
-                      const SizedBox(width: 8),
-                      Expanded(child: _StatBox(label: 'المتوسط', value: stats.avgHours.toStringAsFixed(1), suffix: 'س', icon: Icons.timer_rounded, compact: compact)),
-                    ],
-                  ),
-                ),
-              SizedBox(height: ultra ? 6 : 8),
-              SizedBox(
-                height: buttonH,
-                child: Row(
-                  children: [
-                    Expanded(child: _ToolButton(icon: Icons.timeline_rounded, label: 'المراحل', onTap: onTimeline, compact: compact)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _ToolButton(icon: Icons.menu_book_rounded, label: 'الدليل', onTap: onGuide, compact: compact)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _ToolButton(icon: Icons.history_rounded, label: 'السجل', onTap: onHistory, compact: compact)),
-                  ],
-                ),
-              ),
-              if (!compact) ...[
-                const SizedBox(height: 7),
-                Row(
-                  children: [
-                    Icon(Icons.notifications_active_rounded, color: cs.primary, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'التنبيهات: بداية الصيام، منتصف المدة، النهاية، وتذكير وجبة.',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _StatInline extends StatelessWidget {
-  const _StatInline({required this.label, required this.value, required this.icon});
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(
-        color: cs.surfaceVariant.withOpacity(0.30),
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.65)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: cs.primary, size: 14),
-          const SizedBox(width: 4),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text('$label $value', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniNotice extends StatelessWidget {
-  const _MiniNotice({required this.endText});
-  final String endText;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: cs.primary.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.primary.withOpacity(0.20)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.lock_rounded, color: cs.primary, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'باقي الأنظمة مقفلة حتى $endText',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w800),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ToolButton extends StatelessWidget {
-  const _ToolButton({required this.icon, required this.label, required this.onTap, this.compact = false});
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: cs.surfaceVariant.withOpacity(0.28),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: cs.outlineVariant.withOpacity(0.75)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: compact ? 16 : 18, color: cs.primary),
-            SizedBox(width: compact ? 4 : 6),
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  label,
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: compact ? 12 : 13),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Card extends StatelessWidget {
-  const _Card({required this.child, this.padding = const EdgeInsets.all(14)});
-  final Widget child;
-  final EdgeInsets padding;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.85)),
-        boxShadow: [
-          BoxShadow(
-            color: cs.shadow.withOpacity(0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-}
-
-class _CardTitle extends StatelessWidget {
-  const _CardTitle({required this.icon, required this.title, required this.subtitle, this.compact = false});
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final size = compact ? 34.0 : 40.0;
-    return Row(
-      children: [
-        Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: cs.primary.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(compact ? 12 : 14),
-          ),
-          child: Icon(icon, color: cs.primary, size: compact ? 18 : 21),
-        ),
-        SizedBox(width: compact ? 8 : 10),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  fontSize: compact ? 13 : null,
-                ),
-              ),
-              if (!compact) ...[
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurface.withOpacity(0.64)),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatBox extends StatelessWidget {
-  const _StatBox({required this.label, required this.value, required this.suffix, required this.icon, this.compact = false});
-  final String label;
-  final String value;
-  final String suffix;
-  final IconData icon;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: compact ? 5 : 8),
-      decoration: BoxDecoration(
-        color: cs.surfaceVariant.withOpacity(0.32),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.70)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: cs.primary, size: compact ? 16 : 18),
-          SizedBox(height: compact ? 2 : 4),
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: compact ? 10 : null)),
-          SizedBox(height: compact ? 1 : 2),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              '$value $suffix',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w900,
-                fontSize: compact ? 12 : null,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
 }
 
 class _WindowRow extends StatelessWidget {
-  const _WindowRow({required this.start, required this.end, this.compact = false});
+  const _WindowRow({required this.start, required this.end});
   final String start;
   final String end;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: _GlassTime(icon: Icons.play_arrow_rounded, label: 'البداية', value: start, compact: compact)),
-        SizedBox(width: compact ? 6 : 8),
-        Expanded(child: _GlassTime(icon: Icons.flag_rounded, label: 'النهاية', value: end, compact: compact)),
+        Expanded(child: _GlassTime(icon: Icons.play_arrow_rounded, label: 'البداية', value: start)),
+        const SizedBox(width: 8),
+        Expanded(child: _GlassTime(icon: Icons.flag_rounded, label: 'النهاية', value: end)),
       ],
     );
   }
 }
 
 class _GlassTime extends StatelessWidget {
-  const _GlassTime({required this.icon, required this.label, required this.value, this.compact = false});
+  const _GlassTime({required this.icon, required this.label, required this.value});
   final IconData icon;
   final String label;
   final String value;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 7 : 9, vertical: compact ? 4 : 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(compact ? 14 : 16),
-        border: Border.all(color: Colors.white.withOpacity(0.18)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.20)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: Colors.white, size: compact ? 15 : 17),
-          SizedBox(width: compact ? 5 : 7),
+          Icon(icon, color: Colors.white, size: 18),
+          const SizedBox(width: 7),
           Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(label, style: TextStyle(color: Colors.white.withOpacity(0.72), fontSize: compact ? 9 : 10)),
-                  Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: compact ? 10.5 : 12),
-                  ),
-                ],
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: TextStyle(color: Colors.white.withOpacity(0.72), fontSize: 10)),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12),
+                ),
+              ],
             ),
           ),
         ],
@@ -1378,48 +1135,170 @@ class _GlassTime extends StatelessWidget {
 }
 
 class _StageMiniCard extends StatelessWidget {
-  const _StageMiniCard({required this.stage, required this.nextStage, required this.active, this.compact = false});
+  const _StageMiniCard({required this.stage, required this.nextStage, required this.active});
   final FastingStage stage;
   final FastingStage? nextStage;
   final bool active;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(compact ? 7 : 10),
+      padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(compact ? 14 : 18),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white.withOpacity(0.18)),
       ),
       child: Row(
         children: [
-          Icon(stage.icon, color: Colors.white, size: compact ? 18 : 22),
-          SizedBox(width: compact ? 6 : 9),
+          Icon(stage.icon, color: Colors.white, size: 22),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   active ? stage.title : 'مراحل الصيام جاهزة',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: compact ? 12 : 13),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
                 ),
-                SizedBox(height: compact ? 1 : 2),
+                const SizedBox(height: 2),
                 Text(
                   active
                       ? (nextStage == null ? 'أنت في آخر مرحلة.' : 'القادمة: ${nextStage!.title}')
                       : 'تظهر المرحلة بعد التشغيل.',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white.withOpacity(0.78), fontSize: compact ? 10 : 11),
+                  style: TextStyle(color: Colors.white.withOpacity(0.78), fontSize: 11),
                 ),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatBox extends StatelessWidget {
+  const _StatBox({required this.label, required this.value, required this.suffix, required this.icon});
+  final String label;
+  final String value;
+  final String suffix;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.30),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.72)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: cs.primary, size: 20),
+          const SizedBox(height: 6),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              '$value $suffix',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToolButton extends StatelessWidget {
+  const _ToolButton({required this.icon, required this.label, required this.onTap});
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        height: 76,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.28),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant.withOpacity(0.72)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 22, color: cs.primary),
+            const SizedBox(height: 7),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(label, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoLine extends StatelessWidget {
+  const _InfoLine({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: cs.primary, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w800, height: 1.35),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SmallLabel extends StatelessWidget {
+  const _SmallLabel({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.28),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.onSurface.withOpacity(0.58))),
+          const SizedBox(height: 2),
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
         ],
       ),
     );
@@ -1440,13 +1319,13 @@ class _TimelineRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 34,
-            height: 34,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: reached ? cs.primary.withOpacity(0.14) : cs.surfaceVariant.withOpacity(0.45),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(reached ? Icons.check_rounded : stage.icon, color: reached ? cs.primary : cs.onSurface.withOpacity(0.50), size: 18),
+            child: Icon(reached ? Icons.check_rounded : stage.icon, color: reached ? cs.primary : cs.onSurface.withOpacity(0.50), size: 19),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1455,7 +1334,7 @@ class _TimelineRow extends StatelessWidget {
               children: [
                 Text('${_formatStageTime(stage.threshold)} • ${stage.title}', style: const TextStyle(fontWeight: FontWeight.w900)),
                 const SizedBox(height: 2),
-                Text(stage.description, style: Theme.of(context).textTheme.bodySmall),
+                Text(stage.description, style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.35)),
               ],
             ),
           ),
@@ -1466,15 +1345,14 @@ class _TimelineRow extends StatelessWidget {
 }
 
 class _WhitePill extends StatelessWidget {
-  const _WhitePill({required this.icon, required this.text, this.compact = false});
+  const _WhitePill({required this.icon, required this.text});
   final IconData icon;
   final String text;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 10, vertical: compact ? 5 : 7),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.16),
         borderRadius: BorderRadius.circular(999),
@@ -1483,11 +1361,31 @@ class _WhitePill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white, size: compact ? 13 : 15),
-          SizedBox(width: compact ? 4 : 5),
-          Text(text, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: compact ? 11 : 12)),
+          Icon(icon, color: Colors.white, size: 15),
+          const SizedBox(width: 5),
+          Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
         ],
       ),
+    );
+  }
+}
+
+class _IconBubble extends StatelessWidget {
+  const _IconBubble({required this.icon, required this.color, this.size = 46});
+  final IconData icon;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(size >= 44 ? 16 : 14),
+      ),
+      child: Icon(icon, color: color, size: size >= 44 ? 22 : 19),
     );
   }
 }
@@ -1505,19 +1403,19 @@ class _GuideTile extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(13),
           decoration: BoxDecoration(
             color: cs.surfaceVariant.withOpacity(0.26),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(color: cs.outlineVariant.withOpacity(0.65)),
           ),
           child: Row(
             children: [
               Icon(icon, color: cs.primary),
               const SizedBox(width: 10),
-              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800))),
+              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w900))),
               Icon(Icons.chevron_left_rounded, color: cs.onSurface.withOpacity(0.40)),
             ],
           ),
@@ -1535,7 +1433,7 @@ class _BulletText extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1546,7 +1444,7 @@ class _BulletText extends StatelessWidget {
             decoration: BoxDecoration(shape: BoxShape.circle, color: cs.primary),
           ),
           const SizedBox(width: 8),
-          Expanded(child: Text(text)),
+          Expanded(child: Text(text, style: const TextStyle(height: 1.35))),
         ],
       ),
     );

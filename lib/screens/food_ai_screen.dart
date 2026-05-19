@@ -3283,31 +3283,36 @@ class _AnalyzingView extends StatefulWidget {
 }
 
 class _AnalyzingViewState extends State<_AnalyzingView>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+    with TickerProviderStateMixin {
+  late final AnimationController _scanController;
+  late final AnimationController _stepController;
 
   static const List<String> _scanSteps = [
-    'نراجع الصورة والتفاصيل',
-    'نحدد الوجبة والمكونات',
-    'نقدّر الكميات والقرامات',
-    'نحسب السعرات والماكروز',
-    'نجهز النتيجة النهائية',
+    'فحص الصورة كاملة',
+    'تحديد الوجبة والمكونات',
+    'تقدير الكميات والقرامات',
+    'حساب السعرات والماكروز',
+    'تجهيز النتيجة النهائية',
   ];
 
   @override
   void initState() {
     super.initState();
-    // تشغيل واحد فقط: الخطوات تظهر بالتسلسل مرة واحدة ولا تعيد نفسها.
-    // لو التحليل أخذ وقت أطول، تبقى آخر خطوة ظاهرة بدون استهلاك أنيميشن مستمر.
-    _controller = AnimationController(
+    _scanController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 14500),
+      duration: const Duration(milliseconds: 1850),
+    )..repeat();
+
+    _stepController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 16000),
     )..forward();
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _scanController.dispose();
+    _stepController.dispose();
     super.dispose();
   }
 
@@ -3323,117 +3328,87 @@ class _AnalyzingViewState extends State<_AnalyzingView>
       textDirection: TextDirection.rtl,
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 26),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: cs.surface.withOpacity(.96),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: cs.primary.withOpacity(.16)),
+              color: cs.surface.withOpacity(.97),
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: cs.primary.withOpacity(.14)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(.07),
-                  blurRadius: 28,
-                  offset: const Offset(0, 14),
+                  color: Colors.black.withOpacity(.08),
+                  blurRadius: 34,
+                  offset: const Offset(0, 18),
                 ),
               ],
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: SizedBox(
-                    height: 285,
-                    width: double.infinity,
-                    child: _AnalyzingImageStage(
+            child: AnimatedBuilder(
+              animation: _stepController,
+              builder: (context, _) {
+                final progress = _stepController.value.clamp(0.0, 1.0);
+                final activeIndex = _activeStep(progress);
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _WazenMealScanStage(
                       imagePath: widget.imagePath,
-                      controller: _controller,
+                      scanController: _scanController,
+                      progress: progress,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'انتظر شوي عشان نحسب لك الماكروز',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
+                    const SizedBox(height: 18),
+                    Text(
+                      'وازن يمسح الوجبة الآن',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -.2,
+                          ),
+                    ),
+                    const SizedBox(height: 7),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 260),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child: Text(
+                        _scanSteps[activeIndex],
+                        key: ValueKey<int>(activeIndex),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: cs.onSurfaceVariant,
+                              height: 1.45,
+                              fontWeight: FontWeight.w800,
+                            ),
                       ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, _) {
-                    final progress = _controller.value.clamp(0.0, 1.0);
-                    final activeIndex = _activeStep(progress);
-                    return Column(
-                      children: [
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 280),
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          child: Text(
-                            _scanSteps[activeIndex],
-                            key: ValueKey<int>(activeIndex),
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: cs.onSurfaceVariant,
-                                  height: 1.45,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                            textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    _WazenScanTimeline(
+                      steps: _scanSteps,
+                      activeIndex: activeIndex,
+                    ),
+                    const SizedBox(height: 16),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: (0.08 + (progress * .90)).clamp(0.0, .98),
+                        minHeight: 8,
+                        backgroundColor: cs.surfaceVariant.withOpacity(.45),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'بنطلع لك السعرات والماكروز مباشرة بعد اكتمال التحليل',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant.withOpacity(.82),
+                            height: 1.4,
+                            fontWeight: FontWeight.w700,
                           ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _AnalyzeMiniStatusCard(
-                                title: 'الصورة',
-                                subtitle: activeIndex >= 0 ? 'جاري' : 'انتظار',
-                                active: activeIndex >= 0,
-                              ),
-                            ),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: _AnalyzeMiniStatusCard(
-                                title: 'المكونات',
-                                subtitle: activeIndex >= 2 ? 'تم البدء' : 'انتظار',
-                                active: activeIndex >= 2,
-                              ),
-                            ),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: _AnalyzeMiniStatusCard(
-                                title: 'القرامات',
-                                subtitle: activeIndex >= 3 ? 'تقدير' : 'انتظار',
-                                active: activeIndex >= 3,
-                              ),
-                            ),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: _AnalyzeMiniStatusCard(
-                                title: 'الماكروز',
-                                subtitle: activeIndex >= 4 ? 'حساب' : 'انتظار',
-                                active: activeIndex >= 4,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: (0.10 + (progress * 0.88)).clamp(0.0, 0.98),
-                            minHeight: 8,
-                            backgroundColor: cs.surfaceVariant.withOpacity(.45),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -3442,228 +3417,310 @@ class _AnalyzingViewState extends State<_AnalyzingView>
   }
 }
 
-class _AnalyzingImageStage extends StatelessWidget {
+class _WazenMealScanStage extends StatelessWidget {
   final String imagePath;
-  final Animation<double> controller;
+  final Animation<double> scanController;
+  final double progress;
 
-  const _AnalyzingImageStage({
+  const _WazenMealScanStage({
     required this.imagePath,
-    required this.controller,
+    required this.scanController,
+    required this.progress,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // الصورة ثابتة داخل RepaintBoundary حتى لا يعاد رسمها مع كل فريم.
-        RepaintBoundary(
-          child: Image.file(
-            File(imagePath),
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.low,
-            cacheWidth: 900,
-            errorBuilder: (_, __, ___) => Container(
-              color: cs.surfaceContainerHighest,
-              child: Icon(
-                Icons.image_not_supported_outlined,
-                color: cs.onSurfaceVariant,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(26),
+      child: SizedBox(
+        height: 318,
+        width: double.infinity,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            RepaintBoundary(
+              child: Image.file(
+                File(imagePath),
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
+                cacheWidth: 1000,
+                errorBuilder: (_, __, ___) => Container(
+                  color: cs.surfaceContainerHighest,
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withOpacity(.10),
-                Colors.black.withOpacity(.25),
-              ],
-            ),
-          ),
-        ),
-        AnimatedBuilder(
-          animation: controller,
-          builder: (context, _) {
-            final progress = controller.value.clamp(0.0, 1.0);
-            return _MacroPulseOverlay(progress: progress);
-          },
-        ),
-        Positioned(
-          right: 14,
-          left: 14,
-          bottom: 14,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(.42),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withOpacity(.16)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(.10),
+                    Colors.black.withOpacity(.04),
+                    Colors.black.withOpacity(.32),
+                  ],
                 ),
-                SizedBox(width: 9),
-                Flexible(
-                  child: Text(
-                    'انتظر شوي عشان نحسب لك الماكروز',
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13,
+              ),
+            ),
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _WazenScanGridPainter(
+                  color: cs.primary.withOpacity(.16),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: scanController,
+                builder: (context, _) {
+                  return _WazenSweepBand(
+                    value: scanController.value,
+                    color: cs.primary,
+                  );
+                },
+              ),
+            ),
+            Positioned(
+              top: 16,
+              right: 16,
+              child: _ScanCorner(top: true, right: true),
+            ),
+            Positioned(
+              top: 16,
+              left: 16,
+              child: _ScanCorner(top: true, right: false),
+            ),
+            Positioned(
+              bottom: 16,
+              right: 16,
+              child: _ScanCorner(top: false, right: true),
+            ),
+            Positioned(
+              bottom: 16,
+              left: 16,
+              child: _ScanCorner(top: false, right: false),
+            ),
+            Positioned(
+              top: 14,
+              right: 14,
+              child: _LiveScanBadge(progress: progress),
+            ),
+            Positioned(
+              right: 14,
+              left: 14,
+              bottom: 14,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(.48),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(.15)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
+                    SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        'جاري مسح الوجبة بالكامل',
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
 
-class _MacroPulseOverlay extends StatelessWidget {
-  final double progress;
-  const _MacroPulseOverlay({required this.progress});
+class _WazenSweepBand extends StatelessWidget {
+  final double value;
+  final Color color;
+
+  const _WazenSweepBand({required this.value, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final pulse = Curves.easeInOut.transform(progress.clamp(0.0, 1.0));
-    final softScale = 0.92 + (pulse * 0.16);
-    final softOpacity = 0.18 + (pulse * 0.24);
-
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 0.82,
-                colors: [
-                  cs.primary.withOpacity(softOpacity),
-                  Colors.transparent,
-                ],
-              ),
-            ),
-          ),
-        ),
-        Center(
-          child: Transform.scale(
-            scale: softScale,
-            child: Container(
-              width: 150,
-              height: 150,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withOpacity(.34),
-                  width: 1.6,
-                ),
-                color: cs.primary.withOpacity(.12),
-              ),
-              child: Center(
-                child: Container(
-                  width: 82,
-                  height: 82,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.black.withOpacity(.32),
-                    border: Border.all(color: Colors.white.withOpacity(.18)),
-                  ),
-                  child: const Icon(
-                    Icons.auto_awesome_rounded,
-                    color: Colors.white,
-                    size: 34,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        final bandHeight = (height * .26).clamp(72.0, 104.0);
+        final top = (-bandHeight) + ((height + bandHeight * 2) * value);
+        return Stack(
+          children: [
+            Positioned(
+              top: top,
+              left: 0,
+              right: 0,
+              height: bandHeight,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      color.withOpacity(.08),
+                      color.withOpacity(.34),
+                      color.withOpacity(.08),
+                      Colors.transparent,
+                    ],
+                    stops: const [0, .25, .50, .75, 1],
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ],
+            Positioned(
+              top: top + (bandHeight * .50),
+              left: 14,
+              right: 14,
+              child: Container(
+                height: 2.4,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(999),
+                  color: Colors.white.withOpacity(.86),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(.80),
+                      blurRadius: 18,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
-class _AnalyzeMiniStatusCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final bool active;
+class _LiveScanBadge extends StatelessWidget {
+  final double progress;
+  const _LiveScanBadge({required this.progress});
 
-  const _AnalyzeMiniStatusCard({
-    required this.title,
-    required this.subtitle,
-    required this.active,
+  @override
+  Widget build(BuildContext context) {
+    final percent = ((0.08 + progress * .90) * 100).clamp(8, 98).round();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(.46),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(.14)),
+      ),
+      child: Text(
+        'مسح وازن $percent%',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _WazenScanTimeline extends StatelessWidget {
+  final List<String> steps;
+  final int activeIndex;
+
+  const _WazenScanTimeline({
+    required this.steps,
+    required this.activeIndex,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
-        color: active
-            ? cs.primary.withOpacity(.10)
-            : cs.surfaceVariant.withOpacity(.22),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: active
-              ? cs.primary.withOpacity(.18)
-              : cs.outlineVariant.withOpacity(.18),
-        ),
+        color: cs.surfaceVariant.withOpacity(.24),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.22)),
       ),
-      child: Column(
-        children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: active ? cs.primary : cs.outlineVariant,
-              shape: BoxShape.circle,
+      child: Row(
+        children: List.generate(steps.length, (index) {
+          final done = index < activeIndex;
+          final active = index == activeIndex;
+          return Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    height: active ? 7 : 5,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: done || active
+                          ? cs.primary
+                          : cs.outlineVariant.withOpacity(.45),
+                    ),
+                  ),
+                ),
+                if (index != steps.length - 1) const SizedBox(width: 6),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11.8, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 10.2,
-              height: 1.2,
-              color: cs.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+          );
+        }),
       ),
     );
+  }
+}
+
+class _WazenScanGridPainter extends CustomPainter {
+  final Color color;
+  const _WazenScanGridPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+
+    const cols = 4;
+    const rows = 5;
+    for (var i = 1; i < cols; i++) {
+      final x = size.width * i / cols;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
+    }
+    for (var i = 1; i < rows; i++) {
+      final y = size.height * i / rows;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WazenScanGridPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 

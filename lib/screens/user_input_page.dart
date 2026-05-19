@@ -407,21 +407,22 @@ class _UserInputPageState extends State<UserInputPage> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final tt = theme.textTheme;
+
     return Directionality(
-      textDirection: TextDirection.ltr,
+      textDirection: TextDirection.rtl,
       child: Scaffold(
+        extendBodyBehindAppBar: true,
         appBar: AppBar(
           title: const Text('بياناتك'),
           centerTitle: true,
           elevation: 0,
           backgroundColor: Colors.transparent,
           surfaceTintColor: Colors.transparent,
+          foregroundColor: cs.onSurface,
           flexibleSpace: ClipRect(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: Container(
-                color: Theme.of(context).colorScheme.surface.withOpacity(0.55),
-              ),
+              child: Container(color: cs.surface.withOpacity(0.54)),
             ),
           ),
         ),
@@ -431,150 +432,226 @@ class _UserInputPageState extends State<UserInputPage> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                cs.primary.withOpacity(0.06),
+                cs.primary.withOpacity(0.16),
+                cs.primaryContainer.withOpacity(0.06),
                 cs.surface,
               ],
             ),
           ),
-          child: SafeArea(
-            top: false,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: _GlassCard(
-                  margin: const EdgeInsets.all(16),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          child: Stack(
+            children: [
+              Positioned(
+                top: -88,
+                right: -70,
+                child: _DecorativeOrb(color: cs.primary.withOpacity(0.20), size: 210),
+              ),
+              Positioned(
+                top: 150,
+                left: -96,
+                child: _DecorativeOrb(color: cs.secondary.withOpacity(0.14), size: 230),
+              ),
+              SafeArea(
+                top: false,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 620),
                     child: Form(
                       key: _formKey,
                       child: ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 104, 16, 22),
                         children: [
-                          Text('أدخل بياناتك',
-                              textAlign: TextAlign.center,
-                              style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 12),
+                          _HeroProfileCard(
+                            title: 'خلّ وازن يفهمك أكثر',
+                            subtitle:
+                                'هذه البيانات تساعد وازن يحسب السعرات والماكروز بطريقة أدق وتناسب هدفك الصحي.',
+                            score: widget.lifestyleScore,
+                          ),
+                          const SizedBox(height: 14),
 
-                          // تنبيه
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: cs.tertiaryContainer,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: cs.outlineVariant),
+                          _SoftNotice(
+                            text:
+                                'اكتب بياناتك بدقة. تقدر تعدّلها لاحقًا من صفحة بياناتي بدون ما نخرب سجلك.',
+                          ),
+                          const SizedBox(height: 14),
+
+                          _SectionCard(
+                            title: 'بياناتك الصحية',
+                            subtitle: 'الأساس اللي يُبنى عليه هدفك اليومي في وازن',
+                            leading: Icons.monitor_heart_outlined,
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _input(
+                                        label: 'الوزن',
+                                        controller: weightController,
+                                        suffix: 'كجم',
+                                        helperText: 'مثال: 78.5',
+                                        validator: (val) {
+                                          if (val == null || val.trim().isEmpty) {
+                                            return 'يرجى إدخال الوزن';
+                                          }
+                                          final v = double.tryParse(val);
+                                          if (v == null || v < 30 || v > 400) {
+                                            return 'الوزن يجب أن يكون بين 30 و 400 كجم';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _input(
+                                        label: 'الطول',
+                                        controller: heightController,
+                                        suffix: 'سم',
+                                        helperText: 'مثال: 172',
+                                        validator: (val) {
+                                          if (val == null || val.trim().isEmpty) {
+                                            return 'يرجى إدخال الطول';
+                                          }
+                                          final v = double.tryParse(val);
+                                          if (v == null || v < 100 || v > 230) {
+                                            return 'الطول يجب أن يكون بين 100 و 230 سم';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _dropdown<String>(
+                                        label: 'الجنس',
+                                        value: gender,
+                                        options: const ['ذكر', 'أنثى'],
+                                        onChanged: (val) => setState(() => gender = val),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _dropdown<int>(
+                                        label: 'العمر',
+                                        value: age,
+                                        options: List<int>.generate(84, (i) => 16 + i),
+                                        onChanged: (val) => setState(() => age = (val ?? 16)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                _dropdown<String>(
+                                  label: 'هدفك الصحي',
+                                  value: selectedGoal,
+                                  options: _goalOptions,
+                                  onChanged: (val) => setState(() => selectedGoal = val),
+                                  trailingIcon: Icons.keyboard_arrow_down_rounded,
+                                ),
+                                const SizedBox(height: 8),
+                                _MiniHealthPreview(
+                                  age: age,
+                                  gender: gender,
+                                  goal: selectedGoal,
+                                ),
+                              ],
                             ),
-                            child: Text(
-                              'يرجى الإجابة على جميع البيانات بشكل صحيح.',
-                              style: tt.titleSmall?.copyWith(
-                                color: cs.onTertiaryContainer,
-                                fontWeight: FontWeight.w700,
+                          ),
+                          const SizedBox(height: 14),
+
+                          _SectionCard(
+                            title: 'ملفك في وازن',
+                            subtitle: 'نبذة بسيطة تظهر في صفحات المجتمع والوصفات لاحقًا',
+                            leading: Icons.person_outline_rounded,
+                            child: TextFormField(
+                              controller: bioController,
+                              maxLines: 4,
+                              minLines: 3,
+                              textInputAction: TextInputAction.newline,
+                              decoration: InputDecoration(
+                                labelText: 'النبذة (اختياري)',
+                                hintText: 'مثال: هدفي أنزل دهون وأثبت على نمط صحي.',
+                                alignLabelWithHint: true,
+                                filled: true,
+                                fillColor: cs.surface.withOpacity(0.72),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                  borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.70)),
+                                ),
                               ),
-                              textAlign: TextAlign.center,
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 14),
 
-                          // ===== ملف شخصي =====
-                          Text('كمل ملفك الشخصي', style: tt.titleMedium),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: bioController,
-                            maxLines: 3,
-                            decoration: const InputDecoration(
-                              labelText: 'النبذة (اختياري)',
-                              prefixIcon: Icon(Icons.info_outline),
+                          _SectionCard(
+                            title: 'حسابات التواصل',
+                            subtitle: 'اختيارية، وتفيد لاحقًا في صفحة المجتمع أو الوصفات',
+                            leading: Icons.alternate_email_rounded,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _socialChip(_Social.instagram, 'Instagram', FontAwesomeIcons.instagram),
+                                    _socialChip(_Social.snapchat, 'Snapchat', FontAwesomeIcons.snapchatGhost),
+                                    _socialChip(_Social.tiktok, 'TikTok', FontAwesomeIcons.tiktok),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 180),
+                                  child: Column(
+                                    key: ValueKey(_selectedSocials.length),
+                                    children: [
+                                      if (_selectedSocials.contains(_Social.instagram))
+                                        _socialField(_Social.instagram, '@username (Instagram)'),
+                                      if (_selectedSocials.contains(_Social.snapchat))
+                                        _socialField(_Social.snapchat, '@username (Snapchat)'),
+                                      if (_selectedSocials.contains(_Social.tiktok))
+                                        _socialField(_Social.tiktok, '@username (TikTok)'),
+                                      if (_selectedSocials.isEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 2),
+                                          child: Text(
+                                            'تقدر تتخطاها الآن وتضيفها لاحقًا من الملف الشخصي.',
+                                            style: tt.bodySmall?.copyWith(
+                                              color: cs.onSurface.withOpacity(0.58),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
+                          const SizedBox(height: 18),
 
-                          const SizedBox(height: 16),
-
-                          // ===== سوشيال =====
-                          Text('حسابات التواصل (اختياري)', style: tt.titleMedium),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _socialChip(_Social.instagram, 'Instagram', FontAwesomeIcons.instagram),
-                              _socialChip(_Social.snapchat, 'Snapchat', FontAwesomeIcons.snapchatGhost),
-                              _socialChip(_Social.tiktok, 'TikTok', FontAwesomeIcons.tiktok),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          if (_selectedSocials.contains(_Social.instagram))
-                            _socialField(_Social.instagram, '@username (Instagram)'),
-                          if (_selectedSocials.contains(_Social.snapchat))
-                            _socialField(_Social.snapchat, '@username (Snapchat)'),
-                          if (_selectedSocials.contains(_Social.tiktok))
-                            _socialField(_Social.tiktok, '@username (TikTok)'),
-
-                          const SizedBox(height: 16),
-
-                          // ===== بياناتك الصحية =====
-                          Text('بياناتك الصحية', style: tt.titleMedium),
-                          _input(
-                            label: 'الوزن (كجم)',
-                            controller: weightController,
-                            suffix: 'كجم',
-                            validator: (val) {
-                              if (val == null || val.trim().isEmpty) {
-                                return 'يرجى إدخال الوزن';
-                              }
-                              final v = double.tryParse(val);
-                              if (v == null || v < 30 || v > 400) {
-                                return 'الوزن يجب أن يكون بين 30 و 400 كجم';
-                              }
-                              return null;
-                            },
-                          ),
-                          _input(
-                            label: 'الطول (سم)',
-                            controller: heightController,
-                            suffix: 'سم',
-                            validator: (val) {
-                              if (val == null || val.trim().isEmpty) {
-                                return 'يرجى إدخال الطول';
-                              }
-                              final v = double.tryParse(val);
-                              if (v == null || v < 100 || v > 230) {
-                                return 'الطول يجب أن يكون بين 100 و 230 سم';
-                              }
-                              return null;
-                            },
-                          ),
-                          _dropdown<String>(
-                            label: 'الجنس',
-                            value: gender,
-                            options: const ['ذكر', 'أنثى'],
-                            onChanged: (val) => setState(() => gender = val),
-                            icon: Icons.transgender,
-                          ),
-                          _dropdown<int>(
-                            label: 'العمر',
-                            value: age,
-                            options: List<int>.generate(84, (i) => 16 + i),
-                            onChanged: (val) => setState(() => age = (val ?? 16)),
-                            icon: Icons.cake_outlined,
-                          ),
-                          _dropdown<String>(
-                            label: 'هدفك الصحي',
-                            value: selectedGoal,
-                            options: _goalOptions,
-                            onChanged: (val) => setState(() => selectedGoal = val),
-                            icon: Icons.track_changes,
-                          ),
-
-                          const SizedBox(height: 20),
                           SizedBox(
-                            height: 52,
+                            height: 56,
                             child: FilledButton(
                               onPressed: _saving ? null : _saveAll,
+                              style: FilledButton.styleFrom(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                              ),
                               child: _saving
                                   ? const SizedBox(
                                       width: 22,
                                       height: 22,
                                       child: CircularProgressIndicator(strokeWidth: 2),
                                     )
-                                  : const Text('حفظ ومتابعة'),
+                                  : const Text(
+                                      'حفظ ومتابعة',
+                                      style: TextStyle(fontWeight: FontWeight.w800),
+                                    ),
                             ),
                           ),
                         ],
@@ -583,7 +660,7 @@ class _UserInputPageState extends State<UserInputPage> {
                   ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -597,7 +674,11 @@ class _UserInputPageState extends State<UserInputPage> {
     return FilterChip(
       label: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [FaIcon(icon, size: 16), const SizedBox(width: 6), Text(label)],
+        children: [
+          FaIcon(icon, size: 15),
+          const SizedBox(width: 6),
+          Text(label),
+        ],
       ),
       selected: selected,
       onSelected: (v) => setState(() {
@@ -608,9 +689,18 @@ class _UserInputPageState extends State<UserInputPage> {
           _socialCtrls[s]!.clear();
         }
       }),
-      selectedColor: cs.primaryContainer,
-      checkmarkColor: cs.onPrimaryContainer,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      selectedColor: cs.primary.withOpacity(0.14),
+      backgroundColor: cs.surface.withOpacity(0.72),
+      checkmarkColor: cs.primary,
+      side: BorderSide(
+        color: selected ? cs.primary.withOpacity(0.55) : cs.outlineVariant.withOpacity(0.70),
+      ),
+      labelStyle: TextStyle(
+        color: selected ? cs.primary : cs.onSurface,
+        fontWeight: FontWeight.w700,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
     );
   }
 
@@ -622,15 +712,23 @@ class _UserInputPageState extends State<UserInputPage> {
             ? FontAwesomeIcons.snapchatGhost
             : FontAwesomeIcons.tiktok;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: TextFormField(
         controller: _socialCtrls[s],
+        textDirection: TextDirection.ltr,
         decoration: InputDecoration(
           labelText: 'اسم المستخدم',
           hintText: hint,
           prefixIcon: Padding(
             padding: const EdgeInsets.only(top: 12),
-            child: FaIcon(icon, size: 18, color: cs.onSurfaceVariant),
+            child: FaIcon(icon, size: 18, color: cs.primary),
+          ),
+          filled: true,
+          fillColor: cs.surface.withOpacity(0.72),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.70)),
           ),
         ),
       ),
@@ -641,33 +739,49 @@ class _UserInputPageState extends State<UserInputPage> {
     required String label,
     required TextEditingController controller,
     String? suffix,
+    String? helperText,
     TextInputType keyboardType = const TextInputType.numberWithOptions(decimal: true),
     String? Function(String?)? validator,
   }) {
+    final cs = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 7),
       child: TextFormField(
         controller: controller,
         keyboardType: keyboardType,
+        textDirection: TextDirection.ltr,
         textAlign: TextAlign.start,
         decoration: InputDecoration(
           labelText: label,
           suffixText: suffix,
-          prefixIcon: const Icon(Icons.edit_outlined),
+          helperText: helperText,
+          filled: true,
+          fillColor: cs.surface.withOpacity(0.72),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.70)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: cs.primary, width: 1.3),
+          ),
         ),
         validator: validator,
       ),
     );
   }
 
-  // Dropdown آمن
+  // Dropdown آمن — بدون رموز العمر والطول داخل الحقول
   Widget _dropdown<T>({
     required String label,
     required T? value,
     required List<T> options,
     required ValueChanged<T?> onChanged,
-    IconData icon = Icons.arrow_drop_down,
+    IconData? leadingIcon,
+    IconData? trailingIcon,
   }) {
+    final cs = Theme.of(context).colorScheme;
     final filtered = options.where((e) => e != null).cast<T>().toList();
     final seen = <T>{};
     final unique = <T>[];
@@ -678,13 +792,26 @@ class _UserInputPageState extends State<UserInputPage> {
     final T? effectiveValue = hasValue ? value as T : null;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 7),
       child: DropdownButtonFormField<T>(
         value: effectiveValue,
         isExpanded: true,
+        icon: const Icon(Icons.keyboard_arrow_down_rounded),
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(icon),
+          prefixIcon: leadingIcon == null ? null : Icon(leadingIcon),
+          suffixIcon: trailingIcon == null ? null : Icon(trailingIcon, color: cs.primary),
+          filled: true,
+          fillColor: cs.surface.withOpacity(0.72),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: cs.outlineVariant.withOpacity(0.70)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: cs.primary, width: 1.3),
+          ),
         ),
         items: unique
             .map((opt) => DropdownMenuItem<T>(
@@ -700,8 +827,356 @@ class _UserInputPageState extends State<UserInputPage> {
 }
 
 // ==============================
-// تصميم Glass Card (فخم + ثابت)
+// تصميم فخم لصفحة بيانات المستخدم
 // ==============================
+class _HeroProfileCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final int score;
+
+  const _HeroProfileCard({
+    required this.title,
+    required this.subtitle,
+    required this.score,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            cs.surface.withOpacity(isDark ? 0.78 : 0.94),
+            cs.primary.withOpacity(isDark ? 0.14 : 0.075),
+            cs.surface.withOpacity(isDark ? 0.70 : 0.88),
+          ],
+        ),
+        border: Border.all(color: cs.primary.withOpacity(isDark ? 0.18 : 0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: cs.primary.withOpacity(isDark ? 0.10 : 0.13),
+            blurRadius: 34,
+            spreadRadius: -8,
+            offset: const Offset(0, 18),
+          ),
+          BoxShadow(
+            color: cs.shadow.withOpacity(0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(30),
+        child: Stack(
+          children: [
+            PositionedDirectional(
+              top: -72,
+              end: -52,
+              child: _DecorativeOrb(color: cs.primary.withOpacity(0.10), size: 168),
+            ),
+            PositionedDirectional(
+              bottom: -96,
+              start: -72,
+              child: _DecorativeOrb(color: cs.secondary.withOpacity(0.08), size: 190),
+            ),
+            BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 19, 18, 17),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: cs.primary.withOpacity(0.12)),
+                        ),
+                        child: Text(
+                          'إعداد خطتك في وازن',
+                          style: tt.labelMedium?.copyWith(
+                            color: cs.primary,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      title,
+                      style: tt.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        height: 1.12,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      subtitle,
+                      style: tt.bodyMedium?.copyWith(
+                        color: cs.onSurface.withOpacity(0.66),
+                        height: 1.55,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: cs.surface.withOpacity(isDark ? 0.45 : 0.68),
+                        borderRadius: BorderRadius.circular(21),
+                        border: Border.all(color: cs.primary.withOpacity(0.10)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'جاهزية نمط الحياة محفوظة، وباقي نضبط أرقامك النهائية بدقة.',
+                              style: tt.bodySmall?.copyWith(
+                                color: cs.onSurface.withOpacity(0.72),
+                                fontWeight: FontWeight.w800,
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            width: 46,
+                            height: 46,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: cs.primary.withOpacity(0.095),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: cs.primary.withOpacity(0.13)),
+                            ),
+                            child: Text(
+                              score.toString(),
+                              style: tt.titleMedium?.copyWith(
+                                color: cs.primary,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SoftNotice extends StatelessWidget {
+  final String text;
+  const _SoftNotice({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: cs.tertiaryContainer.withOpacity(0.48),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.54)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.tips_and_updates_outlined, color: cs.onTertiaryContainer, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: tt.bodySmall?.copyWith(
+                color: cs.onTertiaryContainer,
+                fontWeight: FontWeight.w700,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData leading;
+  final Widget child;
+
+  const _SectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.leading,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return _GlassCard(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(leading, color: cs.primary, size: 22),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.onSurface.withOpacity(0.58),
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniHealthPreview extends StatelessWidget {
+  final int age;
+  final String? gender;
+  final String? goal;
+
+  const _MiniHealthPreview({
+    required this.age,
+    required this.gender,
+    required this.goal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.primary.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withOpacity(0.10)),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _InfoPill(label: 'العمر', value: '$age سنة'),
+          _InfoPill(label: 'الجنس', value: gender ?? 'غير محدد'),
+          _InfoPill(label: 'الهدف', value: goal ?? 'غير محدد'),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoPill({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(0.78),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.60)),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: tt.labelMedium?.copyWith(color: cs.onSurface),
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: TextStyle(color: cs.onSurface.withOpacity(0.55)),
+            ),
+            TextSpan(
+              text: value,
+              style: TextStyle(fontWeight: FontWeight.w900, color: cs.onSurface),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DecorativeOrb extends StatelessWidget {
+  final Color color;
+  final double size;
+  const _DecorativeOrb({required this.color, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 32, sigmaY: 32),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? margin;
@@ -713,21 +1188,21 @@ class _GlassCard extends StatelessWidget {
     return Container(
       margin: margin,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.65)),
-        color: cs.surface.withOpacity(0.80),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.58)),
+        color: cs.surface.withOpacity(0.82),
         boxShadow: [
           BoxShadow(
             color: cs.shadow.withOpacity(0.08),
-            blurRadius: 22,
-            offset: const Offset(0, 12),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(26),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: child,
         ),
       ),

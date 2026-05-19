@@ -88,7 +88,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
   }
 
   Widget _buildOverviewTab() {
-    final usersStream = _db.collection('users').limit(250).snapshots();
+    final usersStream = _db.collection('users').snapshots();
     final metricsStream = _db.collection('appConfig').doc('owner_metrics').snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -245,7 +245,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _db.collection('users').limit(250).snapshots(),
+            stream: _db.collection('users').snapshots(),
             builder: (context, snap) {
               if (!snap.hasData) {
                 return const Center(child: CircularProgressIndicator());

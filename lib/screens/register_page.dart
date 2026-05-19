@@ -264,7 +264,7 @@ class _RegisterPageState extends State<RegisterPage> {
     if (pass != pass2) {
       _showNotice(
         title: 'كلمة المرور غير متطابقة',
-        message: 'تأكد أن كلمة المرور وتأكيدها متطابقين تمامًا.',
+        message: 'خل كلمة المرور وتأكيدها نفس الشي عشان نحمي حسابك في وازن.',
         type: _NoticeType.warning,
       );
       return;
@@ -274,7 +274,7 @@ class _RegisterPageState extends State<RegisterPage> {
     if (_handleAvailable == false) {
       _showNotice(
         title: 'اسم المستخدم غير متاح',
-        message: 'هذا الاسم مستخدم بالفعل. جرّب الاسم المقترح أو اكتب اسمًا آخر.',
+        message: 'هذا اليوزر محجوز في وازن. جرّب الاسم المقترح أو اكتب اسمًا مختلفًا.',
         type: _NoticeType.warning,
       );
       return;
@@ -358,7 +358,7 @@ class _RegisterPageState extends State<RegisterPage> {
       );
     } on FirebaseAuthException catch (e) {
       _showNotice(
-        title: 'تعذر إنشاء الحساب',
+        title: 'ما قدرنا نبدأ حسابك',
         message: _mapAuthError(e),
         type: _NoticeType.error,
       );
@@ -377,19 +377,19 @@ class _RegisterPageState extends State<RegisterPage> {
       } else if (e.code == 'permission-denied') {
         _showNotice(
           title: 'تعذر حفظ بيانات الحساب',
-          message: 'قواعد Firestore تمنع إنشاء بيانات المستخدم. راجع صلاحيات users و usernames.',
+          message: 'ما قدرنا نحفظ بيانات حساب وازن بسبب الصلاحيات. راجع قواعد users و usernames.',
           type: _NoticeType.error,
         );
       } else if (e.code == 'unavailable' || e.code == 'deadline-exceeded') {
         _showNotice(
           title: 'المزامنة بطيئة',
-          message: 'تأكد من الإنترنت ثم حاول إنشاء الحساب مرة ثانية.',
+          message: 'تأكد من الإنترنت عشان نقدر نحفظ حسابك وبياناتك الصحية بأمان.',
           type: _NoticeType.warning,
         );
       } else {
         _showNotice(
           title: 'تعذر إنشاء بيانات الحساب',
-          message: 'ما قدرنا نحفظ بيانات الحساب الآن. حاول مرة أخرى بعد لحظات.',
+          message: 'ما قدرنا نحفظ ملفك في وازن الآن. حاول مرة ثانية بعد لحظات.',
           type: _NoticeType.error,
         );
       }
@@ -399,7 +399,7 @@ class _RegisterPageState extends State<RegisterPage> {
       }
       _showNotice(
         title: 'الاتصال غير مستقر',
-        message: 'تأكد من الإنترنت ثم حاول مرة ثانية.',
+        message: 'تأكد من اتصالك بالإنترنت عشان نقدر نجهز حسابك في وازن.',
         type: _NoticeType.warning,
       );
     } catch (e) {
@@ -408,7 +408,7 @@ class _RegisterPageState extends State<RegisterPage> {
       }
       _showNotice(
         title: 'صار خطأ غير متوقع',
-        message: 'حاول مرة ثانية. إذا استمرت المشكلة أعد فتح التطبيق.',
+        message: 'صار خلل بسيط أثناء إنشاء حسابك. أعد المحاولة، وإذا تكرر أعد فتح التطبيق.',
         type: _NoticeType.error,
       );
     } finally {
@@ -419,19 +419,19 @@ class _RegisterPageState extends State<RegisterPage> {
   String _mapAuthError(FirebaseAuthException e) {
     switch (e.code) {
       case 'email-already-in-use':
-        return 'هذا البريد مستخدم بالفعل. سجل دخولك أو استخدم بريدًا آخر.';
+        return 'هذا البريد عنده حساب وازن سابق. سجل دخولك أو استخدم بريدًا آخر.';
       case 'invalid-email':
-        return 'صيغة البريد غير صحيحة. اكتب البريد مثل: name@example.com';
+        return 'صيغة البريد غير واضحة. اكتبها بهذا الشكل: name@example.com';
       case 'weak-password':
-        return 'كلمة المرور ضعيفة. استخدم 6 أحرف على الأقل، والأفضل تضيف رقمًا وحرفًا كبيرًا.';
+        return 'اختر كلمة مرور أقوى لحساب وازن: 6 أحرف على الأقل، والأفضل معها رقم.';
       case 'network-request-failed':
-        return 'تعذر الاتصال بالإنترنت. تأكد من الشبكة ثم حاول.';
+        return 'ما وصلنا بسيرفرات وازن. تأكد من الشبكة ثم حاول.';
       case 'too-many-requests':
-        return 'تمت محاولات كثيرة خلال وقت قصير. انتظر قليلًا ثم حاول مرة أخرى.';
+        return 'صار فيه محاولات كثيرة. خذ دقيقة ثم جرّب إنشاء الحساب مرة ثانية.';
       case 'operation-not-allowed':
-        return 'إنشاء الحساب بالبريد غير مفعّل حاليًا. راجع إعدادات Firebase Authentication.';
+        return 'إنشاء الحساب بالبريد غير متاح حاليًا. جرّب لاحقًا أو تواصل مع دعم وازن.';
       default:
-        return 'تعذر إنشاء الحساب الآن. حاول مرة أخرى بعد لحظات.';
+        return 'ما قدرنا نفتح لك حساب وازن الآن. حاول مرة ثانية بعد لحظات.';
     }
   }
 
@@ -459,7 +459,7 @@ class _RegisterPageState extends State<RegisterPage> {
       );
   }
 
-  // --- اختيار/قص الأفتار ---
+  // --- اختيار/قص صورة الحساب ---
   Future<void> _pickImage() async {
     if (_busy) return;
 
@@ -478,22 +478,22 @@ class _RegisterPageState extends State<RegisterPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('اختيار الأفتار', style: Theme.of(ctx).textTheme.titleMedium),
+                Text('اختيار صورة حساب وازن', style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
                 const SizedBox(height: 12),
                 ListTile(
                   leading: const Icon(Icons.photo_library_outlined),
-                  title: const Text('من المعرض'),
+                  title: const Text('اختيار من الصور'),
                   onTap: () => Navigator.pop(ctx, 'gallery'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.photo_camera_outlined),
-                  title: const Text('التقاط صورة'),
+                  title: const Text('التقاط صورة جديدة'),
                   onTap: () => Navigator.pop(ctx, 'camera'),
                 ),
                 if (_pickedAvatarBytes != null)
                   ListTile(
                     leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                    title: const Text('إزالة الصورة', style: TextStyle(color: Colors.redAccent)),
+                    title: const Text('إزالة صورة الحساب', style: TextStyle(color: Colors.redAccent)),
                     onTap: () => Navigator.pop(ctx, 'remove'),
                   ),
               ],
@@ -541,7 +541,7 @@ class _RegisterPageState extends State<RegisterPage> {
     final insets = MediaQuery.of(context).viewInsets;
 
     return Directionality(
-      textDirection: TextDirection.ltr,
+      textDirection: TextDirection.rtl,
       child: Scaffold(
         body: OnboardingKit.background(
           child: SafeArea(
@@ -566,26 +566,10 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                       const SizedBox(height: 10),
 
-                      Center(child: OnboardingKit.logo(width: 310, height: 118)),
-                      const SizedBox(height: 8),
-
-                      Text(
-                        'إنشاء حساب',
-                        textAlign: TextAlign.center,
-                        style: (tt.headlineSmall ?? const TextStyle()).copyWith(
-                          fontWeight: FontWeight.w900,
-                          height: 1.15,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'ابدأ رحلتك — أدخل بياناتك عشان نضبط لك الأهداف.',
-                        textAlign: TextAlign.center,
-                        style: (tt.bodyLarge ?? const TextStyle()).copyWith(
-                          color: OnboardingKit.textMuted,
-                          fontWeight: FontWeight.w600,
-                          height: 1.6,
-                        ),
+                      _AuthHero(
+                        title: 'ابدأ رحلتك في وازن',
+                        subtitle: 'أنشئ حسابك ورتّب أهدافك الصحية بتجربة بسيطة وأنيقة.',
+                        chips: const [],
                       ),
                       const SizedBox(height: 18),
 
@@ -611,18 +595,18 @@ class _RegisterPageState extends State<RegisterPage> {
                               // ✅ الاسم
                               TextFormField(
                                 controller: _nameCtrl,
-                                textDirection: TextDirection.ltr,
+                                textDirection: TextDirection.rtl,
                                 decoration: OnboardingKit.inputDecoration(
-                                  label: 'الاسم',
-                                  icon: Icons.badge_outlined,
-                                  hint: 'مثال:  محمد',
+                                  label: 'اسمك في وازن',
+                                  icon: Icons.person_outline_rounded,
+                                  hint: 'مثال: محمد',
                                 ),
                                 validator: (v) {
                                   final t = (v ?? '').trim();
-                                  if (t.isEmpty) return 'أدخل الاسم';
-                                  if (t.length < 2) return 'الاسم قصير جدًا';
-                                  if (t.length > 40) return 'الاسم طويل جدًا';
-                                  if (RegExp(r'\s{2,}').hasMatch(t)) return 'قلّل المسافات المتتالية';
+                                  if (t.isEmpty) return 'اكتب اسمك عشان يظهر داخل وازن.';
+                                  if (t.length < 2) return 'الاسم قصير جدًا، اكتب اسمًا أوضح.';
+                                  if (t.length > 40) return 'خل الاسم مختصرًا وواضحًا داخل وازن.';
+                                  if (RegExp(r'\s{2,}').hasMatch(t)) return 'رتّب المسافات في الاسم.';
                                   return null;
                                 },
                                 textInputAction: TextInputAction.next,
@@ -635,18 +619,18 @@ class _RegisterPageState extends State<RegisterPage> {
                                 focusNode: _handleFocus,
                                 textDirection: TextDirection.ltr,
                                 decoration: OnboardingKit.inputDecoration(
-                                  label: 'اسم المستخدم (Username)',
+                                  label: 'يوزر وازن',
                                   icon: Icons.alternate_email,
                                   helperText: _buildHandleHelperText(),
                                   suffixIcon: _handleSuffixIcon(),
                                 ),
                                 validator: (v) {
                                   final t = (v ?? '').trim();
-                                  if (t.isEmpty) return 'أدخل اسم مستخدم';
-                                  if (t.length < 5 || t.length > 20) return 'من 5 إلى 20 حرفًا';
-                                  if (!RegExp(r'^[A-Za-z]').hasMatch(t)) return 'يجب أن يبدأ بحرف';
+                                  if (t.isEmpty) return 'اختر يوزر خاص فيك داخل وازن.';
+                                  if (t.length < 5 || t.length > 20) return 'اليوزر يكون من 5 إلى 20 حرفًا.';
+                                  if (!RegExp(r'^[A-Za-z]').hasMatch(t)) return 'ابدأ اليوزر بحرف إنجليزي.';
                                   if (!RegExp(r'^[A-Za-z0-9]+$').hasMatch(t)) {
-                                    return 'مسموح: حروف/أرقام (إنجليزي) فقط';
+                                    return 'استخدم حروف وأرقام إنجليزية فقط بدون مسافات.';
                                   }
 return null;
                                 },
@@ -660,14 +644,14 @@ return null;
                                 keyboardType: TextInputType.emailAddress,
                                 textDirection: TextDirection.ltr,
                                 decoration: OnboardingKit.inputDecoration(
-                                  label: 'البريد الإلكتروني',
+                                  label: 'بريد حساب وازن',
                                   icon: Icons.email_outlined,
                                   hint: 'example@mail.com',
                                 ),
                                 validator: (v) {
                                   final t = (v ?? '').trim();
-                                  if (t.isEmpty) return 'أدخل البريد الإلكتروني';
-                                  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(t)) return 'بريد غير صالح';
+                                  if (t.isEmpty) return 'اكتب بريدك عشان نربط فيه حساب وازن.';
+                                  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(t)) return 'تأكد من صيغة البريد، مثال: name@example.com';
                                   return null;
                                 },
                                 textInputAction: TextInputAction.next,
@@ -680,7 +664,7 @@ return null;
                                 obscureText: _obsc1,
                                 textDirection: TextDirection.ltr,
                                 decoration: OnboardingKit.inputDecoration(
-                                  label: 'كلمة المرور',
+                                  label: 'كلمة مرور وازن',
                                   icon: Icons.lock_outline,
                                   suffixIcon: IconButton(
                                     onPressed: _busy ? null : () => setState(() => _obsc1 = !_obsc1),
@@ -689,8 +673,8 @@ return null;
                                 ),
                                 validator: (v) {
                                   final t = (v ?? '');
-                                  if (t.isEmpty) return 'أدخل كلمة المرور';
-                                  if (t.length < 6) return 'على الأقل 6 أحرف';
+                                  if (t.isEmpty) return 'اكتب كلمة مرور تحمي حسابك في وازن.';
+                                  if (t.length < 6) return 'كلمة المرور لازم تكون 6 أحرف على الأقل.';
                                   return null;
                                 },
                                 textInputAction: TextInputAction.next,
@@ -703,7 +687,7 @@ return null;
                                 obscureText: _obsc2,
                                 textDirection: TextDirection.ltr,
                                 decoration: OnboardingKit.inputDecoration(
-                                  label: 'تأكيد كلمة المرور',
+                                  label: 'تأكيد كلمة مرور وازن',
                                   icon: Icons.lock_outline,
                                   suffixIcon: IconButton(
                                     onPressed: _busy ? null : () => setState(() => _obsc2 = !_obsc2),
@@ -712,8 +696,8 @@ return null;
                                 ),
                                 validator: (v) {
                                   final t = (v ?? '');
-                                  if (t.isEmpty) return 'أعد إدخال كلمة المرور';
-                                  if (t != _passCtrl.text) return 'غير متطابقة';
+                                  if (t.isEmpty) return 'أعد كتابة كلمة المرور للتأكيد.';
+                                  if (t != _passCtrl.text) return 'كلمة المرور غير متطابقة.';
                                   return null;
                                 },
                                 textInputAction: TextInputAction.done,
@@ -733,7 +717,7 @@ return null;
                                           height: 22,
                                           child: CircularProgressIndicator(strokeWidth: 2),
                                         )
-                                      : const Text('إنشاء حساب'),
+                                      : const Text('ابدأ رحلتك في وازن'),
                                 ),
                               ),
 
@@ -744,7 +728,7 @@ return null;
                                     ? null
                                     : () => Navigator.of(context).pushReplacementNamed('/login'),
                                 child: Text(
-                                  'عندك حساب؟ سجل دخولك',
+                                  'عندك حساب في وازن؟ سجل دخولك',
                                   style: (tt.titleSmall ?? const TextStyle()).copyWith(
                                     fontWeight: FontWeight.w900,
                                     color: OnboardingKit.primary,
@@ -759,7 +743,7 @@ return null;
                       const SizedBox(height: 14),
 
                       Text(
-                        'بالاطلاع والمتابعة، أنت توافق على سياسة الخصوصية',
+                        'بياناتك الصحية خاصة — وبإنشاء الحساب توافق على سياسة الخصوصية',
                         textAlign: TextAlign.center,
                         style: (tt.bodySmall ?? const TextStyle()).copyWith(
                           color: Colors.black.withOpacity(0.45),
@@ -813,6 +797,98 @@ return null;
   }
 }
 
+
+
+class _HeroChipData {
+  final IconData icon;
+  final String label;
+  const _HeroChipData(this.icon, this.label);
+}
+
+class _AuthHero extends StatelessWidget {
+  const _AuthHero({
+    required this.title,
+    required this.subtitle,
+    required this.chips,
+  });
+
+  final String title;
+  final String subtitle;
+  final List<_HeroChipData> chips;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(34),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            Colors.white.withOpacity(0.66),
+            Colors.white.withOpacity(0.34),
+          ],
+        ),
+        border: Border.all(color: Colors.white.withOpacity(0.42)),
+        boxShadow: [
+          BoxShadow(
+            color: OnboardingKit.primary.withOpacity(0.10),
+            blurRadius: 30,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const _WazenHeroMark(),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: (tt.headlineSmall ?? const TextStyle()).copyWith(
+              fontWeight: FontWeight.w900,
+              height: 1.15,
+              color: Colors.black.withOpacity(0.86),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: (tt.bodyMedium ?? const TextStyle()).copyWith(
+              color: OnboardingKit.textMuted,
+              fontWeight: FontWeight.w700,
+              height: 1.55,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WazenHeroMark extends StatelessWidget {
+  const _WazenHeroMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/images/app_logo.png',
+      width: 112,
+      height: 92,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      errorBuilder: (_, __, ___) => const Icon(
+        Icons.fitness_center_rounded,
+        color: OnboardingKit.primary,
+        size: 42,
+      ),
+    );
+  }
+}
 
 enum _NoticeType { success, error, warning, info }
 
@@ -1016,12 +1092,12 @@ class _PhotoPickerRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'أفتار الحساب',
+                      'صورة حساب وازن',
                       style: (tt.titleMedium ?? const TextStyle()).copyWith(fontWeight: FontWeight.w900),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      provider == null ? 'ارفع صورة واختر الحجم المناسب' : 'تم اختيار صورة — تقدر تعدّل الحجم',
+                      provider == null ? 'اختياريًا: أضف صورة تعطي حسابك طابعك الخاص' : 'تم اختيار الصورة — تقدر تعدّل حجمها قبل الحفظ',
                       style: (tt.bodySmall ?? const TextStyle()).copyWith(
                         color: OnboardingKit.textMuted,
                         height: 1.4,
@@ -1036,7 +1112,7 @@ class _PhotoPickerRow extends StatelessWidget {
           Row(
             children: [
               Text(
-                'حجم الأفتار',
+                'حجم الصورة',
                 style: (tt.bodyMedium ?? const TextStyle()).copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(width: 10),

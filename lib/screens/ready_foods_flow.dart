@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../shared/session_manager.dart';
 
-
 const String _kReadyFoodsPrefsKey = 'ready_foods_items';
 
 Future<String> _readyFoodsPrefsKey() async {
@@ -48,10 +47,13 @@ Future<List<FoodItem>> _loadReadyFoodsFromPrefs() async {
         final name = (m['name'] ?? '').toString().trim();
         if (name.isEmpty) continue;
 
-        double d(dynamic v) => (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+        double d(dynamic v) =>
+            (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
 
-        final kcal = d(m['kcalPer100g'] ?? m['kcal100'] ?? m['kcalBase'] ?? m['kcal']);
-        final p = d(m['proteinPer100g'] ?? m['p100'] ?? m['pBase'] ?? m['protein']);
+        final kcal =
+            d(m['kcalPer100g'] ?? m['kcal100'] ?? m['kcalBase'] ?? m['kcal']);
+        final p =
+            d(m['proteinPer100g'] ?? m['p100'] ?? m['pBase'] ?? m['protein']);
         final c = d(m['carbsPer100g'] ?? m['c100'] ?? m['cBase'] ?? m['carb']);
         final f = d(m['fatPer100g'] ?? m['f100'] ?? m['fBase'] ?? m['fat']);
 
@@ -119,7 +121,8 @@ List<FoodItem> _mergeReadyFoods(List<FoodItem> base, List<FoodItem> custom) {
   final byId = <String, FoodItem>{};
   final usedNames = <String>{};
 
-  String norm(FoodItem f) => '${f.name.trim().toLowerCase()}|${f.unit.trim().toLowerCase()}';
+  String norm(FoodItem f) =>
+      '${f.name.trim().toLowerCase()}|${f.unit.trim().toLowerCase()}';
 
   for (final f in base) {
     byId[f.id] = f;
@@ -169,7 +172,12 @@ class FoodItem {
 
   static bool _inferIsPer100g(String u) {
     final t = u.trim();
-    return t == 'قرام' || t == 'جرام' || t == 'غ' || t == 'غرام' || t == 'g' || t == 'gram';
+    return t == 'قرام' ||
+        t == 'جرام' ||
+        t == 'غ' ||
+        t == 'غرام' ||
+        t == 'g' ||
+        t == 'gram';
   }
 
   String get baseLabel => isPer100g ? '100 قرام' : unit;
@@ -182,13 +190,19 @@ class FoodItem {
   }
 
   String formatQty(double qty) {
-    return isPer100g ? '${qty.toStringAsFixed(0)} قرام' : '${_fmtNumber(qty)} $unit';
+    return isPer100g
+        ? '${qty.toStringAsFixed(0)} قرام'
+        : '${_fmtNumber(qty)} $unit';
   }
 
-  double kcalForQty(double qty) => isPer100g ? (kcalPer100g * qty / 100.0) : (kcalPer100g * qty);
-  double pForQty(double qty) => isPer100g ? (proteinPer100g * qty / 100.0) : (proteinPer100g * qty);
-  double cForQty(double qty) => isPer100g ? (carbsPer100g * qty / 100.0) : (carbsPer100g * qty);
-  double fForQty(double qty) => isPer100g ? (fatPer100g * qty / 100.0) : (fatPer100g * qty);
+  double kcalForQty(double qty) =>
+      isPer100g ? (kcalPer100g * qty / 100.0) : (kcalPer100g * qty);
+  double pForQty(double qty) =>
+      isPer100g ? (proteinPer100g * qty / 100.0) : (proteinPer100g * qty);
+  double cForQty(double qty) =>
+      isPer100g ? (carbsPer100g * qty / 100.0) : (carbsPer100g * qty);
+  double fForQty(double qty) =>
+      isPer100g ? (fatPer100g * qty / 100.0) : (fatPer100g * qty);
 }
 
 class SelectedFood {
@@ -211,6 +225,207 @@ class SelectedFood {
 
 enum ReadyPickerMode { composeMeal, quickPick }
 
+const Color _wazenBrandGreen = Color(0xFF006B5C);
+const Color _wazenBrandGreenDark = Color(0xFF004D42);
+const Color _wazenBrandSoft = Color(0xFFEAF4F1);
+
+InputDecoration _wazenInputDecoration(
+  BuildContext context, {
+  required String labelText,
+  String? hintText,
+}) {
+  final theme = Theme.of(context);
+  final cs = theme.colorScheme;
+  final isDark = theme.brightness == Brightness.dark;
+
+  return InputDecoration(
+    labelText: labelText,
+    hintText: hintText,
+    filled: true,
+    fillColor:
+        isDark ? cs.surfaceContainerHighest.withOpacity(.55) : Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+    labelStyle: TextStyle(
+      color: cs.onSurfaceVariant,
+      fontWeight: FontWeight.w700,
+    ),
+    hintStyle: TextStyle(color: cs.onSurfaceVariant.withOpacity(.72)),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(18),
+      borderSide: BorderSide(color: cs.outlineVariant),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(18),
+      borderSide: BorderSide(color: cs.primary, width: 1.4),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(18),
+      borderSide: BorderSide(color: cs.error),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(18),
+      borderSide: BorderSide(color: cs.error, width: 1.4),
+    ),
+  );
+}
+
+class _WazenBadge extends StatelessWidget {
+  const _WazenBadge({required this.text, this.selected = false});
+
+  final String text;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: selected
+            ? _wazenBrandGreen.withOpacity(.12)
+            : cs.surfaceContainerHighest.withOpacity(.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: selected
+              ? _wazenBrandGreen.withOpacity(.30)
+              : cs.outlineVariant.withOpacity(.75),
+        ),
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: selected ? _wazenBrandGreenDark : cs.onSurfaceVariant,
+              fontWeight: FontWeight.w900,
+            ),
+      ),
+    );
+  }
+}
+
+class _WazenPanel extends StatelessWidget {
+  const _WazenPanel(
+      {required this.child, this.padding = const EdgeInsets.all(14)});
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.75)),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+            color: Colors.black.withOpacity(.045),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _SegmentChoice extends StatelessWidget {
+  const _SegmentChoice({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? _wazenBrandGreen.withOpacity(.10)
+              : cs.surfaceContainerHighest.withOpacity(.55),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? _wazenBrandGreen : cs.outlineVariant,
+            width: selected ? 1.2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: selected ? _wazenBrandGreenDark : cs.onSurface,
+                  ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QtyTextButton extends StatelessWidget {
+  const _QtyTextButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onPressed,
+      child: Container(
+        width: 42,
+        height: 42,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.outlineVariant),
+        ),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: onPressed == null
+                    ? cs.onSurfaceVariant.withOpacity(.45)
+                    : cs.primary,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
 /// شاشة "القائمة الجاهزة" بشكل مرتّب:
 /// - بحث + تصنيفات
 /// - تكوين وجبة (اختيار متعدد + كميات)
@@ -227,10 +442,9 @@ Future<void> showReadyListPicker(
   List<FoodItem>? foods,
 }) async {
   final customFoods = await _loadReadyFoodsFromPrefs();
-  final baseFoods = (foods == null || foods.isEmpty) ? _defaultReadyFoods() : foods;
+  final baseFoods =
+      (foods == null || foods.isEmpty) ? _defaultReadyFoods() : foods;
   final list = _mergeReadyFoods(baseFoods, customFoods);
-
-
 
   await Navigator.of(context).push(
     MaterialPageRoute(
@@ -253,7 +467,8 @@ class ReadyFoodsHubPage extends StatefulWidget {
 
   final List<FoodItem> foods;
   final Future<void> Function(List<SelectedFood> items) onAddItemsToToday;
-  final Future<void> Function(String mealName, String? notes, List<SelectedFood> items)
+  final Future<void> Function(
+          String mealName, String? notes, List<SelectedFood> items)
       onSaveMealTemplate;
 
   @override
@@ -299,7 +514,7 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
     final storageKey = await SessionManager.currentStorageKey();
     final k = 'meal_templates_$storageKey';
 
-    // ✅ Migration: key القديم كان بدون suffix
+    // Migration: key القديم كان بدون suffix
     final legacyRaw = prefs.getString('meal_templates');
     if (legacyRaw != null && prefs.getString(k) == null) {
       await prefs.setString(k, legacyRaw);
@@ -347,13 +562,11 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
 
   List<FoodItem> get _filteredFoods {
     final q = _norm(_search.text);
-    return _foods
-        .where((f) {
-          final byCat = (_category == 'الكل') ? true : f.category == _category;
-          final bySearch = q.isEmpty ? true : _norm(f.name).contains(q);
-          return byCat && bySearch;
-        })
-        .toList()
+    return _foods.where((f) {
+      final byCat = (_category == 'الكل') ? true : f.category == _category;
+      final bySearch = q.isEmpty ? true : _norm(f.name).contains(q);
+      return byCat && bySearch;
+    }).toList()
       ..sort((a, b) {
         final c = a.category.compareTo(b.category);
         if (c != 0) return c;
@@ -403,7 +616,8 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
     return {'kcal': kcal, 'p': p, 'c': c, 'f': f};
   }
 
-  Future<double?> _pickQtySheet({required FoodItem item, required double initial}) async {
+  Future<double?> _pickQtySheet(
+      {required FoodItem item, required double initial}) async {
     double value = initial;
 
     final isGram = item.isPer100g;
@@ -424,7 +638,8 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
 
         void apply(double v) {
           value = v.clamp(min, max);
-          controller.text = isGram ? value.toStringAsFixed(0) : FoodItem._fmtNumber(value);
+          controller.text =
+              isGram ? value.toStringAsFixed(0) : FoodItem._fmtNumber(value);
         }
 
         final presets = isGram
@@ -459,22 +674,23 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
                 ),
                 const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: cs.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
                     children: [
-                      IconButton(
+                      _QtyTextButton(
+                        label: '−',
                         onPressed: () => apply(value - step),
-                        icon: const Icon(Icons.remove_circle_outline),
                       ),
                       Expanded(
                         child: TextField(
                           controller: controller,
-                          keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
                           textAlign: TextAlign.center,
                           decoration: InputDecoration(
                             border: InputBorder.none,
@@ -486,9 +702,9 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
                           },
                         ),
                       ),
-                      IconButton(
+                      _QtyTextButton(
+                        label: '+',
                         onPressed: () => apply(value + step),
-                        icon: const Icon(Icons.add_circle_outline),
                       ),
                     ],
                   ),
@@ -497,7 +713,9 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
                 Wrap(
                   spacing: 8,
                   children: presets.map((x) {
-                    final label = isGram ? '${x.toStringAsFixed(0)} قرام' : '${FoodItem._fmtNumber(x)} ${item.unit}';
+                    final label = isGram
+                        ? '${x.toStringAsFixed(0)} قرام'
+                        : '${FoodItem._fmtNumber(x)} ${item.unit}';
                     return ActionChip(
                       label: Text(label),
                       onPressed: () => apply(x),
@@ -516,7 +734,8 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
                     const SizedBox(width: 10),
                     Expanded(
                       child: FilledButton(
-                        onPressed: () => Navigator.pop(ctx, value.clamp(min, max)),
+                        onPressed: () =>
+                            Navigator.pop(ctx, value.clamp(min, max)),
                         child: const Text('تأكيد'),
                       ),
                     ),
@@ -567,11 +786,14 @@ class _ReadyFoodsHubPageState extends State<ReadyFoodsHubPage>
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('تم حفظ ${created.name} ويمكنك استخدامه في وجباتك.')),
+      SnackBar(
+          content: Text('تم حفظ ${created.name} ويمكنك استخدامه في وجباتك.')),
     );
   }
-Future<void> _quickAdd(FoodItem item) async {
-    final q = await _pickQtySheet(item: item, initial: item.isPer100g ? 100 : 1);
+
+  Future<void> _quickAdd(FoodItem item) async {
+    final q =
+        await _pickQtySheet(item: item, initial: item.isPer100g ? 100 : 1);
     if (q == null) return;
     await widget.onAddItemsToToday([SelectedFood(item, q)]);
     if (!mounted) return;
@@ -639,12 +861,12 @@ Future<void> _quickAdd(FoodItem item) async {
                   subtitle: Text(
                     '${s.qtyLabel} • ${_kcalFor(s.item, s.qty).toStringAsFixed(0)} kcal',
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
+                  trailing: TextButton(
                     onPressed: () {
                       setState(() => _selected.remove(s.item.id));
                       Navigator.pop(ctx);
                     },
+                    child: const Text('حذف'),
                   ),
                 );
               }),
@@ -657,8 +879,9 @@ Future<void> _quickAdd(FoodItem item) async {
 
   Widget _searchBar() {
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(
         children: [
           Expanded(
@@ -666,22 +889,40 @@ Future<void> _quickAdd(FoodItem item) async {
               controller: _search,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                hintText: 'ابحث عن عنصر…',
-                prefixIcon: const Icon(Icons.search),
+                hintText: 'ابحث عن عنصر غذائي',
                 filled: true,
-                fillColor: cs.surfaceContainerHighest,
+                fillColor: isDark
+                    ? cs.surfaceContainerHighest.withOpacity(.55)
+                    : Colors.white,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(999),
-                  borderSide: BorderSide.none,
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide(color: cs.outlineVariant),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide(color: cs.outlineVariant),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide:
+                      const BorderSide(color: _wazenBrandGreen, width: 1.3),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 10),
-          IconButton.filledTonal(
+          FilledButton(
             onPressed: _openCustomFoodSheet,
-            icon: const Icon(Icons.add),
-            tooltip: 'إضافة عنصر خاص',
+            style: FilledButton.styleFrom(
+              backgroundColor: _wazenBrandGreen,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18)),
+            ),
+            child: const Text('إضافة'),
           ),
         ],
       ),
@@ -710,73 +951,67 @@ Future<void> _quickAdd(FoodItem item) async {
   }
 
   Widget _modeSwitcher() {
-    // نستخدم ChoiceChips بدل SegmentedButton لزيادة التوافق
     final cs = Theme.of(context).colorScheme;
     final isCompose = _mode == ReadyPickerMode.composeMeal;
+
+    Widget option({
+      required String title,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected
+                  ? _wazenBrandGreen
+                  : cs.surfaceContainerHighest.withOpacity(.65),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: selected ? _wazenBrandGreen : cs.outlineVariant,
+              ),
+            ),
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: selected ? Colors.white : cs.onSurfaceVariant,
+                  ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: cs.outlineVariant.withOpacity(.75)),
+        ),
+        child: Row(
+          children: [
+            option(
+              title: 'تكوين وجبة',
+              selected: isCompose,
               onTap: () => setState(() => _mode = ReadyPickerMode.composeMeal),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: isCompose ? cs.primaryContainer : cs.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.restaurant,
-                        size: 18,
-                        color: isCompose ? cs.onPrimaryContainer : cs.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    Text(
-                      'تكوين وجبة',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: isCompose ? cs.onPrimaryContainer : cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
+            const SizedBox(width: 8),
+            option(
+              title: 'اختيار سريع',
+              selected: !isCompose,
               onTap: () => setState(() => _mode = ReadyPickerMode.quickPick),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: !isCompose ? cs.secondaryContainer : cs.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.flash_on,
-                        size: 18,
-                        color: !isCompose ? cs.onSecondaryContainer : cs.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    Text(
-                      'اختيار سريع',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: !isCompose ? cs.onSecondaryContainer : cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -792,14 +1027,26 @@ Future<void> _quickAdd(FoodItem item) async {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.inbox_outlined, size: 42),
-              const SizedBox(height: 10),
-              const Text('لا توجد عناصر في القائمة الجاهزة حالياً'),
-              const SizedBox(height: 12),
-              FilledButton.icon(
+              Text(
+                'القائمة فارغة حالياً',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'ابدأ بإضافة أول عنصر غذائي خاص بك.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
                 onPressed: _openCustomFoodSheet,
-                icon: const Icon(Icons.add),
-                label: const Text('إضافة عنصر خاص'),
+                child: const Text('إضافة عنصر خاص'),
               ),
             ],
           ),
@@ -822,7 +1069,8 @@ Future<void> _quickAdd(FoodItem item) async {
             itemBuilder: (_, i) {
               final item = foods[i];
               final isSelected = _selected.contains(item.id);
-              final qty = (_qty[item.id] ?? (item.isPer100g ? 100 : 1)).toDouble();
+              final qty =
+                  (_qty[item.id] ?? (item.isPer100g ? 100 : 1)).toDouble();
 
               return _FoodRowCard(
                 item: item,
@@ -842,7 +1090,8 @@ Future<void> _quickAdd(FoodItem item) async {
                           final step = item.isPer100g ? 25.0 : 1.0;
                           final min = item.isPer100g ? 1.0 : 0.25;
                           final max = item.isPer100g ? 5000.0 : 1000.0;
-                          _qty[item.id] = (qty - step).clamp(min, max).toDouble();
+                          _qty[item.id] =
+                              (qty - step).clamp(min, max).toDouble();
                         });
                       }
                     : null,
@@ -852,7 +1101,8 @@ Future<void> _quickAdd(FoodItem item) async {
                           final step = item.isPer100g ? 25.0 : 1.0;
                           final min = item.isPer100g ? 1.0 : 0.25;
                           final max = item.isPer100g ? 5000.0 : 1000.0;
-                          _qty[item.id] = (qty + step).clamp(min, max).toDouble();
+                          _qty[item.id] =
+                              (qty + step).clamp(min, max).toDouble();
                         });
                       }
                     : null,
@@ -867,7 +1117,6 @@ Future<void> _quickAdd(FoodItem item) async {
             },
           ),
         ),
-
         if (compose && _selected.isNotEmpty)
           _BottomSummaryBar(
             totals: _basketTotals,
@@ -908,11 +1157,13 @@ Future<void> _quickAdd(FoodItem item) async {
           final t = _templates[i];
           final name = (t['name'] ?? 'وجبة').toString();
           final notes = (t['notes'] as String?)?.trim();
-          final items = (t['items'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+          final items =
+              (t['items'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
 
           double kcal = 0, p = 0, c = 0, f = 0;
           for (final it in items) {
-            double d(dynamic v) => (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+            double d(dynamic v) =>
+                (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
 
             final unit = (it['unit'] ?? 'جرام').toString();
             final per100g = (it['per100g'] is bool)
@@ -966,10 +1217,9 @@ Future<void> _quickAdd(FoodItem item) async {
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                       ),
-                      IconButton(
+                      TextButton(
                         onPressed: () => _deleteTemplateAt(i),
-                        icon: const Icon(Icons.delete_outline),
-                        tooltip: 'حذف',
+                        child: const Text('حذف'),
                       ),
                     ],
                   ),
@@ -980,12 +1230,13 @@ Future<void> _quickAdd(FoodItem item) async {
                   const SizedBox(height: 10),
                   _TotalsRow(totals: {'kcal': kcal, 'p': p, 'c': c, 'f': f}),
                   const SizedBox(height: 10),
-                  FilledButton.icon(
+                  FilledButton(
                     onPressed: () async {
                       // نحولها إلى SelectedFood ليتعامل معها Home بنفس طريقة العناصر
                       final selected = items.map((it) {
-                        double d(dynamic v) =>
-                            (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+                        double d(dynamic v) => (v is num)
+                            ? v.toDouble()
+                            : double.tryParse('$v') ?? 0.0;
 
                         final id = (it['id'] ?? '').toString();
                         final nm = (it['name'] ?? '').toString();
@@ -1010,13 +1261,19 @@ Future<void> _quickAdd(FoodItem item) async {
                                     : d(it['kcal'])));
                         final pBase = d(it['pBase']) != 0
                             ? d(it['pBase'])
-                            : (d(it['p100']) != 0 ? d(it['p100']) : d(it['protein']));
+                            : (d(it['p100']) != 0
+                                ? d(it['p100'])
+                                : d(it['protein']));
                         final cBase = d(it['cBase']) != 0
                             ? d(it['cBase'])
-                            : (d(it['c100']) != 0 ? d(it['c100']) : d(it['carb']));
+                            : (d(it['c100']) != 0
+                                ? d(it['c100'])
+                                : d(it['carb']));
                         final fBase = d(it['fBase']) != 0
                             ? d(it['fBase'])
-                            : (d(it['f100']) != 0 ? d(it['f100']) : d(it['fat']));
+                            : (d(it['f100']) != 0
+                                ? d(it['f100'])
+                                : d(it['fat']));
 
                         final food = FoodItem(
                           id: id.isEmpty ? 'saved-$i-${nm.hashCode}' : id,
@@ -1038,8 +1295,7 @@ Future<void> _quickAdd(FoodItem item) async {
                         SnackBar(content: Text('تمت إضافة "$name" لليوم')),
                       );
                     },
-                    icon: const Icon(Icons.add_task),
-                    label: const Text('إضافة لليوم'),
+                    child: const Text('إضافة لليوم'),
                   ),
                 ],
               ),
@@ -1050,25 +1306,30 @@ Future<void> _quickAdd(FoodItem item) async {
     );
   }
 
-  
-
-  
-
-@override
+  @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: cs.surface,
       appBar: AppBar(
         title: const Text('القائمة الجاهزة'),
         centerTitle: true,
+        backgroundColor: _wazenBrandGreen,
+        foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
-          IconButton(
-            tooltip: 'إضافة عنصر خاص',
-            icon: const Icon(Icons.add_circle_outline_rounded),
+          TextButton(
             onPressed: _openCustomFoodSheet,
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+            child: const Text('إضافة'),
           ),
         ],
         bottom: TabBar(
           controller: _tabs,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
           tabs: const [
             Tab(text: 'العناصر'),
             Tab(text: 'وجباتي'),
@@ -1154,7 +1415,8 @@ class _CustomFoodSheetState extends State<_CustomFoodSheet> {
 
     if (kcal <= 0 && p <= 0 && c <= 0 && f <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('أدخل قيمة واحدة على الأقل من السعرات أو الماكروز.')),
+        const SnackBar(
+            content: Text('أدخل قيمة واحدة على الأقل من السعرات أو الماكروز.')),
       );
       return;
     }
@@ -1175,215 +1437,330 @@ class _CustomFoodSheetState extends State<_CustomFoodSheet> {
     );
   }
 
+  Widget _macroField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    bool enabled = true,
+    ValueChanged<String>? onChanged,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      enabled: enabled,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration:
+          _wazenInputDecoration(context, labelText: label, hintText: hint),
+      onChanged: onChanged,
+      validator: validator,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final unitLabel = _unitCtrl.text.trim().isEmpty ? 'وحدة' : _unitCtrl.text.trim();
+    final isDark = theme.brightness == Brightness.dark;
+    final unitLabel =
+        _unitCtrl.text.trim().isEmpty ? 'وحدة' : _unitCtrl.text.trim();
     final baseLabel = _isPer100g ? 'لكل 100 قرام' : 'لكل 1 $unitLabel';
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        4,
-        16,
-        16 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: cs.primaryContainer,
-                      borderRadius: BorderRadius.circular(14),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          2,
+          16,
+          16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: [_wazenBrandGreen, _wazenBrandGreenDark],
                     ),
-                    child: Icon(Icons.add_circle_rounded, color: cs.onPrimaryContainer),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'إضافة عنصر غذائي خاص',
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'احفظ عناصر مثل شريحة جبن، علبة تونة، صوص… واستخدمها لاحقًا في تكوين وجباتك.',
-                          style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _nameCtrl,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'اسم العنصر',
-                  hintText: 'مثال: شريحة جبن قليل الدسم',
-                  prefixIcon: Icon(Icons.restaurant_menu_rounded),
-                ),
-                validator: (v) => (v ?? '').trim().isEmpty ? 'اكتب اسم العنصر' : null,
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _categoryCtrl,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'التصنيف',
-                        hintText: 'عناصري',
-                        prefixIcon: Icon(Icons.category_rounded),
+                    boxShadow: [
+                      BoxShadow(
+                        blurRadius: 24,
+                        offset: const Offset(0, 12),
+                        color: _wazenBrandGreen.withOpacity(.20),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _unitCtrl,
-                      enabled: !_isPer100g,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'الوحدة',
-                        hintText: 'شريحة / حبة / علبة',
-                        prefixIcon: Icon(Icons.straighten_rounded),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'إضافة عنصر غذائي خاص',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(.14),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                  color: Colors.white.withOpacity(.22)),
+                            ),
+                            child: Text(
+                              'وازن',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      validator: (v) {
-                        if (_isPer100g) return null;
-                        return (v ?? '').trim().isEmpty ? 'اكتب الوحدة' : null;
-                      },
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: cs.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: cs.outlineVariant),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'طريقة حساب القيم',
-                      style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ChoiceChip(
-                          selected: !_isPer100g,
-                          label: const Text('لكل وحدة'),
-                          onSelected: (_) => setState(() => _isPer100g = false),
+                      const SizedBox(height: 8),
+                      Text(
+                        'احفظ العنصر بقيمه الصحيحة واستخدمه لاحقًا في تكوين وجباتك اليومية.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white.withOpacity(.86),
+                          height: 1.45,
+                          fontWeight: FontWeight.w600,
                         ),
-                        ChoiceChip(
-                          selected: _isPer100g,
-                          label: const Text('لكل 100 قرام'),
-                          onSelected: (_) => setState(() {
-                            _isPer100g = true;
-                            _unitCtrl.text = 'قرام';
-                          }),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'القيم التالية تُحفظ $baseLabel',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurfaceVariant,
-                        fontWeight: FontWeight.w700,
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile.adaptive(
-                value: _autoCalories,
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('احسب السعرات من الماكروز تلقائيًا'),
-                subtitle: const Text('البروتين والكارب × 4، الدهون × 9'),
-                onChanged: (v) {
-                  setState(() => _autoCalories = v);
-                  _balanceCalories();
-                },
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _kcalCtrl,
-                enabled: !_autoCalories,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: 'السعرات kcal ($baseLabel)',
-                  prefixIcon: const Icon(Icons.local_fire_department_rounded),
-                ),
-                validator: (v) {
-                  final n = _toDouble(v ?? '');
-                  if (n < 0 || n > 5000) return 'أدخل سعرات صحيحة';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _proteinCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'بروتين (قرام)'),
-                      onChanged: (_) => _balanceCalories(rebuild: true),
-                      validator: (v) => _toDouble(v ?? '') < 0 ? 'قيمة غير صحيحة' : null,
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _carbsCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'كارب (قرام)'),
-                      onChanged: (_) => _balanceCalories(rebuild: true),
-                      validator: (v) => _toDouble(v ?? '') < 0 ? 'قيمة غير صحيحة' : null,
-                    ),
+                ),
+                const SizedBox(height: 14),
+                _WazenPanel(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextFormField(
+                        controller: _nameCtrl,
+                        textInputAction: TextInputAction.next,
+                        decoration: _wazenInputDecoration(
+                          context,
+                          labelText: 'اسم العنصر',
+                          hintText: 'مثال: شريحة جبن قليل الدسم',
+                        ),
+                        validator: (v) =>
+                            (v ?? '').trim().isEmpty ? 'اكتب اسم العنصر' : null,
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _categoryCtrl,
+                              textInputAction: TextInputAction.next,
+                              decoration: _wazenInputDecoration(
+                                context,
+                                labelText: 'التصنيف',
+                                hintText: 'عناصري',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _unitCtrl,
+                              enabled: !_isPer100g,
+                              textInputAction: TextInputAction.next,
+                              decoration: _wazenInputDecoration(
+                                context,
+                                labelText: 'الوحدة',
+                                hintText: 'شريحة / حبة / علبة',
+                              ),
+                              validator: (v) {
+                                if (_isPer100g) return null;
+                                return (v ?? '').trim().isEmpty
+                                    ? 'اكتب الوحدة'
+                                    : null;
+                              },
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _fatCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'دهون (قرام)'),
-                onChanged: (_) => _balanceCalories(rebuild: true),
-                validator: (v) => _toDouble(v ?? '') < 0 ? 'قيمة غير صحيحة' : null,
-              ),
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                icon: const Icon(Icons.save_rounded),
-                label: const Text('حفظ العنصر'),
-                onPressed: _save,
-              ),
-              const SizedBox(height: 10),
-            ],
+                ),
+                const SizedBox(height: 12),
+                _WazenPanel(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'طريقة حساب القيم',
+                        style: theme.textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SegmentChoice(
+                              title: 'لكل وحدة',
+                              subtitle: 'شريحة، علبة، حبة',
+                              selected: !_isPer100g,
+                              onTap: () => setState(() => _isPer100g = false),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _SegmentChoice(
+                              title: 'لكل 100 قرام',
+                              subtitle: 'مناسب للوزن بالجرام',
+                              selected: _isPer100g,
+                              onTap: () => setState(() {
+                                _isPer100g = true;
+                                _unitCtrl.text = 'قرام';
+                              }),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'القيم التالية تُحفظ $baseLabel',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _WazenPanel(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'حساب السعرات تلقائيًا',
+                                  style: theme.textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w900),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  'البروتين والكارب × 4، الدهون × 9',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: cs.onSurfaceVariant,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: _autoCalories,
+                            activeColor: _wazenBrandGreen,
+                            onChanged: (v) {
+                              setState(() => _autoCalories = v);
+                              _balanceCalories();
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _macroField(
+                        controller: _kcalCtrl,
+                        enabled: !_autoCalories,
+                        label: 'السعرات ($baseLabel)',
+                        hint: 'مثال: 80',
+                        validator: (v) {
+                          final n = _toDouble(v ?? '');
+                          if (n < 0 || n > 5000) return 'أدخل سعرات صحيحة';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _macroField(
+                              controller: _proteinCtrl,
+                              label: 'بروتين (قرام)',
+                              hint: 'مثال: 6',
+                              onChanged: (_) => _balanceCalories(rebuild: true),
+                              validator: (v) => _toDouble(v ?? '') < 0
+                                  ? 'قيمة غير صحيحة'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _macroField(
+                              controller: _carbsCtrl,
+                              label: 'كارب (قرام)',
+                              hint: 'مثال: 1',
+                              onChanged: (_) => _balanceCalories(rebuild: true),
+                              validator: (v) => _toDouble(v ?? '') < 0
+                                  ? 'قيمة غير صحيحة'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _macroField(
+                        controller: _fatCtrl,
+                        label: 'دهون (قرام)',
+                        hint: 'مثال: 4',
+                        onChanged: (_) => _balanceCalories(rebuild: true),
+                        validator: (v) =>
+                            _toDouble(v ?? '') < 0 ? 'قيمة غير صحيحة' : null,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _wazenBrandGreen,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18)),
+                    textStyle: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                  onPressed: _save,
+                  child: const Text('حفظ العنصر'),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'الحين تقدر تسوي وجباتك بسهولة ',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark
+                        ? cs.onSurfaceVariant
+                        : cs.onSurfaceVariant.withOpacity(.85),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
           ),
         ),
       ),
@@ -1395,7 +1772,8 @@ class _SaveMealTemplateDialog extends StatefulWidget {
   const _SaveMealTemplateDialog();
 
   @override
-  State<_SaveMealTemplateDialog> createState() => _SaveMealTemplateDialogState();
+  State<_SaveMealTemplateDialog> createState() =>
+      _SaveMealTemplateDialogState();
 }
 
 class _SaveMealTemplateDialogState extends State<_SaveMealTemplateDialog> {
@@ -1472,108 +1850,166 @@ class _FoodRowCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    Widget miniChip(String text) {
+    Widget metricChip(String title, String value, {bool primary = false}) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: cs.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(999),
+          color: primary
+              ? _wazenBrandGreen.withOpacity(.10)
+              : cs.surfaceContainerHighest.withOpacity(.62),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: primary
+                ? _wazenBrandGreen.withOpacity(.28)
+                : cs.outlineVariant.withOpacity(.65),
+          ),
         ),
-        child: Text(
-          text,
-          style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w700),
-        ),
-      );
-    }
-
-    Widget macroText(String text) {
-      return Text(
-        text,
-        style: tt.bodySmall?.copyWith(
-          color: cs.onSurfaceVariant,
-          fontWeight: FontWeight.w800,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: tt.bodySmall?.copyWith(
+                color: primary ? _wazenBrandGreenDark : cs.onSurface,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
         ),
       );
     }
 
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(22),
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: cs.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: selected ? cs.primary : cs.outlineVariant),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: cs.primaryContainer,
-              child: Icon(Icons.local_dining, color: cs.onPrimaryContainer),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: selected
+                ? _wazenBrandGreen
+                : cs.outlineVariant.withOpacity(.75),
+            width: selected ? 1.4 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+              color: Colors.black.withOpacity(selected ? .070 : .035),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 5,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: selected ? _wazenBrandGreen : cs.outlineVariant,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
+                      Text(
+                        item.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: tt.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 5),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          _WazenBadge(text: item.category, selected: selected),
+                          _WazenBadge(text: 'الأساس: ${item.baseLabel}'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (compose)
+                  Checkbox(
+                    value: selected,
+                    activeColor: _wazenBrandGreen,
+                    onChanged: (_) => onTap(),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                metricChip(
+                    'السعرات', '${item.kcalPer100g.toStringAsFixed(0)} kcal',
+                    primary: true),
+                metricChip('البروتين',
+                    '${item.proteinPer100g.toStringAsFixed(0)} قرام'),
+                metricChip(
+                    'الكارب', '${item.carbsPer100g.toStringAsFixed(0)} قرام'),
+                metricChip(
+                    'الدهون', '${item.fatPer100g.toStringAsFixed(0)} قرام'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (compose)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHighest.withOpacity(.48),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: cs.outlineVariant.withOpacity(.65)),
+                ),
+                child: Row(
+                  children: [
+                    _QtyTextButton(label: '−', onPressed: onMinus),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextButton(
+                        onPressed: onEditQty,
                         child: Text(
-                          item.name,
-                          style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                          item.formatQty(qty),
+                          style: tt.labelLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                       ),
-                      if (compose)
-                        Checkbox(
-                          value: selected,
-                          onChanged: (_) => onTap(),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.category,
-                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      miniChip('${item.kcalPer100g.toStringAsFixed(0)} kcal/${item.baseLabel}'),
-                      macroText('بروتين ${item.proteinPer100g.toStringAsFixed(0)} قرام'),
-                      macroText('كارب ${item.carbsPer100g.toStringAsFixed(0)} قرام'),
-                      macroText('دهون ${item.fatPer100g.toStringAsFixed(0)} قرام'),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  if (compose)
-                    Row(
-                      children: [
-                        IconButton(onPressed: onMinus, icon: const Icon(Icons.remove_circle_outline)),
-                        TextButton(
-                          onPressed: onEditQty,
-                          child: Text(item.formatQty(qty)),
-                        ),
-                        IconButton(onPressed: onPlus, icon: const Icon(Icons.add_circle_outline)),
-                        const Spacer(),
-                        Text(
-                          'كمية العنصر',
-                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                        ),
-                      ],
-                    )
-                  else
-                    Text(
-                      'اضغط للإضافة',
-                      style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                     ),
-                ],
+                    const SizedBox(width: 8),
+                    _QtyTextButton(label: '+', onPressed: onPlus),
+                  ],
+                ),
+              )
+            else
+              Text(
+                'اضغط لاختيار الكمية والإضافة لليوم',
+                style: tt.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -1592,14 +2028,16 @@ class _TotalsRow extends StatelessWidget {
       runSpacing: 10,
       children: [
         _MiniChip(text: '${(totals['kcal'] ?? 0).toStringAsFixed(0)} kcal'),
-        _PlainMacroText(text: 'بروتين ${(totals['p'] ?? 0).toStringAsFixed(0)} قرام'),
-        _PlainMacroText(text: 'كارب ${(totals['c'] ?? 0).toStringAsFixed(0)} قرام'),
-        _PlainMacroText(text: 'دهون ${(totals['f'] ?? 0).toStringAsFixed(0)} قرام'),
+        _PlainMacroText(
+            text: 'بروتين ${(totals['p'] ?? 0).toStringAsFixed(0)} قرام'),
+        _PlainMacroText(
+            text: 'كارب ${(totals['c'] ?? 0).toStringAsFixed(0)} قرام'),
+        _PlainMacroText(
+            text: 'دهون ${(totals['f'] ?? 0).toStringAsFixed(0)} قرام'),
       ],
     );
   }
 }
-
 
 class _PlainMacroText extends StatelessWidget {
   const _PlainMacroText({required this.text});
@@ -1636,7 +2074,10 @@ class _MiniChip extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w800),
+        style: Theme.of(context)
+            .textTheme
+            .bodySmall
+            ?.copyWith(fontWeight: FontWeight.w800),
       ),
     );
   }
@@ -1664,15 +2105,16 @@ class _BottomSummaryBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         decoration: BoxDecoration(
           color: cs.surface,
-          border: Border(top: BorderSide(color: cs.outlineVariant)),
+          border: Border(
+              top: BorderSide(color: cs.outlineVariant.withOpacity(.75))),
           boxShadow: [
             BoxShadow(
-              blurRadius: 18,
-              offset: const Offset(0, -6),
-              color: Colors.black.withOpacity(.06),
+              blurRadius: 22,
+              offset: const Offset(0, -8),
+              color: Colors.black.withOpacity(.07),
             ),
           ],
         ),
@@ -1682,39 +2124,61 @@ class _BottomSummaryBar extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'مختار: $count عنصر',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ملخص الوجبة',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$count عنصر محدد',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: cs.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
                   ),
                 ),
-                TextButton.icon(
+                TextButton(
                   onPressed: onDetails,
-                  icon: const Icon(Icons.list_alt),
-                  label: const Text('تفاصيل'),
+                  child: const Text('تفاصيل'),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             _TotalsRow(totals: totals),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton(
                     onPressed: onAdd,
-                    icon: const Icon(Icons.add_task),
-                    label: const Text('إضافة لليوم'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: const Text('إضافة لليوم'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: FilledButton.icon(
+                  child: FilledButton(
                     onPressed: onSave,
-                    icon: const Icon(Icons.save),
-                    label: const Text('حفظ كوجبة'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _wazenBrandGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: const Text('حفظ كوجبة'),
                   ),
                 ),
               ],

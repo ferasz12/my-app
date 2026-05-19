@@ -13,6 +13,7 @@ class RecipeCard extends StatefulWidget {
   final bool canDelete;
   final VoidCallback? onDelete;
   final Future<void> Function() onToggleLike;
+  final VoidCallback? onShareToCommunity;
   final Widget? topRight;
 
   const RecipeCard({
@@ -22,6 +23,7 @@ class RecipeCard extends StatefulWidget {
     required this.canDelete,
     required this.onDelete,
     required this.onToggleLike,
+    this.onShareToCommunity,
     this.topRight,
   });
 
@@ -331,12 +333,22 @@ class _RecipeCardState extends State<RecipeCard> {
     final hasUserPhoto = (r.userPhotoUrl ?? '').trim().isNotEmpty;
     final imageUrl = (r.imageUrl ?? '').trim();
 
-    return Card(
-      elevation: 0,
+    return Container(
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.045),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         child: Stack(
           children: [
             Padding(
@@ -532,6 +544,16 @@ class _RecipeCardState extends State<RecipeCard> {
                           ),
                         ),
                       ),
+                      if (widget.onShareToCommunity != null)
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: widget.onShareToCommunity,
+                          icon: const Icon(Icons.ios_share_rounded),
+                          label: const Text('شارك'),
+                        ),
                       const Spacer(),
                       TextButton.icon(
                         style: TextButton.styleFrom(

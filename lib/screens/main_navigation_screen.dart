@@ -18,6 +18,7 @@ import 'package:my_app/achievements/achievements_with_leaderboard.dart';
 import 'settings_page.dart';
 import '../settings/edit_username_page.dart';
 import '../shared/user_goal_controller.dart';
+import '../services/whats_new_service.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -31,6 +32,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   bool _didPromptUsernameFix = false;
   bool _isShowingUsernameFix = false;
+  bool _didCheckWhatsNew = false;
 
   bool _usernameNeedsFix(String username) {
     final t = username.trim();
@@ -163,6 +165,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
+  Future<void> _runStartupPrompts() async {
+    if (_didCheckWhatsNew) return;
+
+    // أولاً نعطي أولوية لإصلاح اليوزر إذا كان مطلوبًا، ثم نعرض صفحة ما الجديد.
+    await _checkAndForceUsernameFix();
+    if (!mounted) return;
+
+    _didCheckWhatsNew = true;
+    await WhatsNewService.showIfNeeded(context);
+  }
+
   // مهم للأداء: لا نستخدم IndexedStack هنا.
   // IndexedStack كان يبقي كل التبويبات شغالة في الخلفية: Streams/Timers/صور/Firestore
   // وهذا يسبب تهنيق أو كراش بعد التنقل بين صفحات كثيرة.
@@ -195,7 +208,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     UserGoalController.loadGoal();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkAndForceUsernameFix());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _runStartupPrompts());
   }
 
   void _onItemTapped(int index) {

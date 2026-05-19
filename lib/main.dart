@@ -59,6 +59,7 @@ import 'services/end_of_day_cloud_backup_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'fasting/fasting_notifications.dart';
 import 'notifications/app_notifications.dart';
+import 'notifications/community_inbox_notification_service.dart';
 import 'notifications/notification_sync_service.dart';
 import 'notifications/tz_config.dart';
 import 'shared/safe_prefs.dart';
@@ -185,6 +186,9 @@ Future<void> _initNotificationsIfSupported() async {
 
   // ✅ مزامنة إعدادات الإشعارات من Firestore + جدولة العروض (عند فتح التطبيق)
   NotificationSyncService.instance.start();
+
+  // ✅ إشعارات مجتمع وازن: الردود، الإعجابات، تثبيت التعليقات، والبلاغات.
+  await CommunityInboxNotificationService.instance.start();
 }
 
 Future<void> _initFcmIfSupported() async {

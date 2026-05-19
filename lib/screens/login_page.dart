@@ -49,15 +49,15 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String? _validateEmail(String? v) {
-    if (v == null || v.trim().isEmpty) return 'أدخل البريد الإلكتروني';
+    if (v == null || v.trim().isEmpty) return 'اكتب بريدك المرتبط بوازن عشان نرجعك لحسابك.';
     final s = v.trim();
-    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(s)) return 'بريد غير صالح';
+    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(s)) return 'تأكد من صيغة البريد، مثال: name@example.com';
     return null;
   }
 
   String? _validatePass(String? v) {
-    if (v == null || v.isEmpty) return 'أدخل كلمة المرور';
-    if (v.length < 6) return 'ستة أحرف على الأقل';
+    if (v == null || v.isEmpty) return 'اكتب كلمة مرور حساب وازن.';
+    if (v.length < 6) return 'كلمة المرور لازم تكون 6 أحرف على الأقل.';
     return null;
   }
 
@@ -102,7 +102,7 @@ class _LoginPageState extends State<LoginPage> {
       if (user == null) {
         _showNotice(
           title: 'تعذر الدخول',
-          message: 'ما قدرنا نفتح الحساب الآن. حاول مرة ثانية بعد لحظات.',
+          message: 'ما قدرنا نرجعك لحسابك الصحي الآن. تأكد من بياناتك وحاول مرة ثانية.',
           type: _NoticeType.error,
         );
         return;
@@ -116,7 +116,7 @@ class _LoginPageState extends State<LoginPage> {
           await user.sendEmailVerification();
           _showNotice(
             title: 'تم إرسال رسالة التحقق',
-            message: 'افتح بريدك واضغط رابط التفعيل، بعدها ارجع لتطبيق وازن.',
+            message: 'افتح بريدك واضغط رابط التفعيل، بعدها ارجع لوازن وكمل رحلتك.',
             type: _NoticeType.success,
           );
         }
@@ -134,20 +134,20 @@ class _LoginPageState extends State<LoginPage> {
       Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
     } on FirebaseAuthException catch (e) {
       _showNotice(
-        title: 'تعذر تسجيل الدخول',
+        title: 'ما قدرنا ندخلك لوازن',
         message: _mapAuthError(e),
         type: _NoticeType.error,
       );
     } on TimeoutException {
       _showNotice(
         title: 'الاتصال غير مستقر',
-        message: 'تأكد من الإنترنت ثم حاول مرة ثانية.',
+        message: 'تأكد من اتصالك بالإنترنت عشان نقدر نزامن بيانات وازن.',
         type: _NoticeType.warning,
       );
     } catch (e) {
       _showNotice(
         title: 'صار خطأ غير متوقع',
-        message: 'حاول مرة ثانية. إذا استمرت المشكلة أعد فتح التطبيق.',
+        message: 'صار خلل بسيط أثناء الدخول. أعد المحاولة، وإذا تكرر أعد فتح التطبيق.',
         type: _NoticeType.error,
       );
     } finally {
@@ -161,7 +161,7 @@ class _LoginPageState extends State<LoginPage> {
     if (email.isEmpty || !_isEmail(email)) {
       _showNotice(
         title: 'اكتب بريدك أولًا',
-        message: 'أدخل بريدًا إلكترونيًا صحيحًا عشان نرسل لك رابط إعادة تعيين كلمة المرور.',
+        message: 'اكتب البريد المسجل في وازن عشان نرسل لك رابط تعيين كلمة مرور جديدة.',
         type: _NoticeType.warning,
       );
       return;
@@ -176,8 +176,8 @@ class _LoginPageState extends State<LoginPage> {
         actionCodeSettings: acs,
       );
       _showNotice(
-        title: 'تم إرسال رابط كلمة المرور',
-        message: 'افتح بريدك واضغط رابط إعادة التعيين. إذا ما وصل، تأكد من البريد غير الهام.',
+        title: 'أرسلنا لك رابط الاسترجاع',
+        message: 'افتح بريدك واتبع الرابط. إذا ما وصل، شيّك البريد غير الهام ثم ارجع لوازن.',
         type: _NoticeType.success,
       );
     } on FirebaseAuthException catch (e) {
@@ -189,7 +189,7 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       _showNotice(
         title: 'تعذر إرسال الرابط',
-        message: 'ما قدرنا نرسل رابط إعادة التعيين الآن. تأكد من البريد والإنترنت ثم حاول.',
+        message: 'ما قدرنا نرسل رابط الاسترجاع الآن. تأكد من البريد والاتصال ثم حاول.',
         type: _NoticeType.error,
       );
     }
@@ -200,23 +200,23 @@ class _LoginPageState extends State<LoginPage> {
   String _mapAuthError(FirebaseAuthException e) {
     switch (e.code) {
       case 'user-not-found':
-        return 'ما لقينا حساب بهذا البريد. تأكد من البريد أو أنشئ حسابًا جديدًا.';
+        return 'ما لقينا حساب وازن بهذا البريد. تأكد من البريد أو أنشئ حسابًا جديدًا.';
       case 'wrong-password':
       case 'invalid-credential':
       case 'invalid-login-credentials':
-        return 'البريد أو كلمة المرور غير صحيحة. جرّب مرة ثانية أو اضغط نسيت كلمة المرور.';
+        return 'بيانات الدخول ما تطابقت مع حساب وازن. جرّب مرة ثانية أو استخدم استرجاع كلمة المرور.';
       case 'invalid-email':
-        return 'صيغة البريد غير صحيحة. اكتب البريد مثل: name@example.com';
+        return 'صيغة البريد غير واضحة. اكتبها بهذا الشكل: name@example.com';
       case 'user-disabled':
-        return 'تم تعطيل هذا الحساب. تواصل مع دعم وازن للمساعدة.';
+        return 'هذا الحساب متوقف حاليًا. تواصل مع دعم وازن ونساعدك.';
       case 'too-many-requests':
-        return 'حاولت أكثر من مرة. انتظر قليلًا ثم حاول مرة أخرى.';
+        return 'حاولت أكثر من مرة. خذ دقيقة وارجع جرّب بهدوء.';
       case 'network-request-failed':
-        return 'تعذر الاتصال بالإنترنت. تأكد من الشبكة ثم حاول.';
+        return 'ما وصلنا بسيرفرات وازن. تأكد من الشبكة ثم حاول.';
       case 'operation-not-allowed':
-        return 'تسجيل الدخول بالبريد غير مفعّل حاليًا. راجع إعدادات Firebase Authentication.';
+        return 'الدخول بالبريد غير متاح حاليًا. جرّب طريقة دخول أخرى أو تواصل مع الدعم.';
       default:
-        return 'تعذر تسجيل الدخول الآن. حاول مرة أخرى بعد لحظات.';
+        return 'تعذر فتح حساب وازن الآن. حاول مرة ثانية بعد لحظات.';
     }
   }
 
@@ -252,7 +252,7 @@ class _LoginPageState extends State<LoginPage> {
             ],
           ),
           content: Text(
-            'حسابك موجود، لكن باقي ما تم تفعيل البريد. نقدر نرسل لك رابط التحقق مرة ثانية على: $email',
+            'حساب وازن موجود، لكن نحتاج تفعيل البريد قبل الدخول. نقدر نرسل رابط التحقق مرة ثانية على: $email',
             style: (tt.bodyMedium ?? const TextStyle()).copyWith(height: 1.6),
           ),
           actions: [
@@ -277,7 +277,7 @@ class _LoginPageState extends State<LoginPage> {
     final insets = MediaQuery.of(context).viewInsets;
 
     return Directionality(
-      textDirection: TextDirection.ltr,
+      textDirection: TextDirection.rtl,
       child: Scaffold(
         body: OnboardingKit.background(
           child: SafeArea(
@@ -302,26 +302,10 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 12),
 
-                      Center(child: OnboardingKit.logo(width: 310, height: 118)),
-                      const SizedBox(height: 10),
-
-                      Text(
-                        'تسجيل الدخول',
-                        textAlign: TextAlign.center,
-                        style: (tt.headlineSmall ?? const TextStyle()).copyWith(
-                          fontWeight: FontWeight.w900,
-                          height: 1.15,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'أهلًا فيك 👋 سجّل دخولك وتابع أهدافك اليومية.',
-                        textAlign: TextAlign.center,
-                        style: (tt.bodyLarge ?? const TextStyle()).copyWith(
-                          color: OnboardingKit.textMuted,
-                          fontWeight: FontWeight.w600,
-                          height: 1.6,
-                        ),
+                      _AuthHero(
+                        title: 'أهلًا بعودتك إلى وازن',
+                        subtitle: 'ادخل لحسابك وكمل متابعة يومك الصحي من نفس المكان.',
+                        chips: const [],
                       ),
                       const SizedBox(height: 18),
 
@@ -337,7 +321,7 @@ class _LoginPageState extends State<LoginPage> {
                                 keyboardType: TextInputType.emailAddress,
                                 textDirection: TextDirection.ltr,
                                 decoration: OnboardingKit.inputDecoration(
-                                  label: 'البريد الإلكتروني',
+                                  label: 'بريد حساب وازن',
                                   icon: Icons.email_outlined,
                                   hint: 'example@mail.com',
                                 ),
@@ -350,7 +334,7 @@ class _LoginPageState extends State<LoginPage> {
                                 textDirection: TextDirection.ltr,
                                 obscureText: _obsc,
                                 decoration: OnboardingKit.inputDecoration(
-                                  label: 'كلمة المرور',
+                                  label: 'كلمة مرور وازن',
                                   icon: Icons.lock_outline,
                                   suffixIcon: IconButton(
                                     onPressed: _busy ? null : () => setState(() => _obsc = !_obsc),
@@ -389,7 +373,7 @@ class _LoginPageState extends State<LoginPage> {
                                           height: 22,
                                           child: CircularProgressIndicator(strokeWidth: 2),
                                         )
-                                      : const Text('دخول'),
+                                      : const Text('دخول إلى وازن'),
                                 ),
                               ),
 
@@ -399,7 +383,7 @@ class _LoginPageState extends State<LoginPage> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Text(
-                                    'ما عندك حساب؟',
+                                    'جديد في وازن؟',
                                     style: (tt.bodyMedium ?? const TextStyle()).copyWith(
                                       color: Colors.black.withOpacity(0.65),
                                       fontWeight: FontWeight.w600,
@@ -415,7 +399,7 @@ class _LoginPageState extends State<LoginPage> {
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
-                                    child: const Text('أنشئ حسابًا'),
+                                    child: const Text('ابدأ حسابك'),
                                   ),
                                 ],
                               ),
@@ -427,7 +411,7 @@ class _LoginPageState extends State<LoginPage> {
                       const SizedBox(height: 14),
 
                       Text(
-                        'بالاطلاع والمتابعة، أنت توافق على سياسة الخصوصية',
+                        'بياناتك الصحية خاصة — وبمتابعتك توافق على سياسة الخصوصية',
                         textAlign: TextAlign.center,
                         style: (tt.bodySmall ?? const TextStyle()).copyWith(
                           color: Colors.black.withOpacity(0.45),
@@ -446,6 +430,98 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
+
+
+class _HeroChipData {
+  final IconData icon;
+  final String label;
+  const _HeroChipData(this.icon, this.label);
+}
+
+class _AuthHero extends StatelessWidget {
+  const _AuthHero({
+    required this.title,
+    required this.subtitle,
+    required this.chips,
+  });
+
+  final String title;
+  final String subtitle;
+  final List<_HeroChipData> chips;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(34),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            Colors.white.withOpacity(0.66),
+            Colors.white.withOpacity(0.34),
+          ],
+        ),
+        border: Border.all(color: Colors.white.withOpacity(0.42)),
+        boxShadow: [
+          BoxShadow(
+            color: OnboardingKit.primary.withOpacity(0.10),
+            blurRadius: 30,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const _WazenHeroMark(),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: (tt.headlineSmall ?? const TextStyle()).copyWith(
+              fontWeight: FontWeight.w900,
+              height: 1.15,
+              color: Colors.black.withOpacity(0.86),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: (tt.bodyMedium ?? const TextStyle()).copyWith(
+              color: OnboardingKit.textMuted,
+              fontWeight: FontWeight.w700,
+              height: 1.55,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WazenHeroMark extends StatelessWidget {
+  const _WazenHeroMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/images/app_logo.png',
+      width: 112,
+      height: 92,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      errorBuilder: (_, __, ___) => const Icon(
+        Icons.fitness_center_rounded,
+        color: OnboardingKit.primary,
+        size: 42,
+      ),
+    );
+  }
+}
 
 enum _NoticeType { success, error, warning, info }
 

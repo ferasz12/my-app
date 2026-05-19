@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import '../../core/auth/roles_service.dart'; // AppRole, RolesService
 import '../announcement/announcement_editor_page.dart';
 import '../../settings/contact_page.dart';
+import '../../models/community_models.dart';
 
 /// لوحة موحّدة للمالك/الأدمن/الدعم
 /// - تبويب واحد: إدارة المستخدمين
@@ -43,7 +44,7 @@ class _AdminSupportDashboardPageState extends State<AdminSupportDashboardPage> {
         }
 
         return DefaultTabController(
-          length: 1,
+          length: 2,
           child: Stack(
             children: [
               _HealthBackground(),
@@ -67,6 +68,7 @@ class _AdminSupportDashboardPageState extends State<AdminSupportDashboardPage> {
                 body: TabBarView(
                   physics: NeverScrollableScrollPhysics(),
                   children: [
+                    _ReportsTab(role: role),
                     _UsersTab(role: role),
                   ],
                 ),
@@ -189,6 +191,7 @@ class _GlassTabBar extends StatelessWidget {
             dividerColor: Colors.transparent,
             labelStyle: const TextStyle(fontWeight: FontWeight.w700),
             tabs: const [
+              Tab(icon: Icon(Icons.flag_rounded), text: 'البلاغات'),
               Tab(icon: Icon(Icons.people_alt_rounded), text: 'المستخدمون'),
             ],
           ),
@@ -228,7 +231,7 @@ class _AdminHeaderTitle extends StatelessWidget {
             children: [
               Text(title, style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
               const SizedBox(height: 2),
-              Text('إدارة المستخدمين والإعلان العام', style: tt.bodySmall),
+              Text('بلاغات المجتمع، إدارة المستخدمين والإعلان العام', style: tt.bodySmall),
             ],
           ),
         ),
@@ -240,6 +243,623 @@ class _AdminHeaderTitle extends StatelessWidget {
               : (role == AppRole.admin ? _PillTone.secondary : _PillTone.neutral),
         ),
       ],
+    );
+  }
+}
+
+
+/// ============================
+/// تبويب (بلاغات المجتمع)
+/// ============================
+class _ReportsTab extends StatefulWidget {
+  const _ReportsTab({required this.role});
+  final AppRole role;
+
+  @override
+  State<_ReportsTab> createState() => _ReportsTabState();
+}
+
+class _ReportsTabState extends State<_ReportsTab> {
+  final _db = FirebaseFirestore.instance;
+  String _filter = 'open';
+
+  Stream<List<CommunityReport>> _reportsStream() {
+    return _db
+        .collection('communityReports')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs.map(CommunityReport.fromDoc).toList(growable: false));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<CommunityReport>>(
+      stream: _reportsStream(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Text('تعذر تحميل البلاغات: ${snap.error}'),
+            ),
+          );
+        }
+
+        final all = snap.data ?? const <CommunityReport>[];
+        final openCount = all.where((r) => r.status == 'open').length;
+        final hiddenCount = all.where((r) => r.status == 'post_hidden').length;
+        final bannedCount = all.where((r) => r.status == 'author_banned').length;
+        final resolvedCount = all.where((r) => r.status == 'resolved' || r.status == 'rejected').length;
+
+        final filtered = _filter == 'all'
+            ? all
+            : all.where((r) {
+                if (_filter == 'resolved') return r.status == 'resolved' || r.status == 'rejected';
+                return r.status == _filter;
+              }).toList(growable: false);
+
+        return RefreshIndicator(
+          onRefresh: () async {
+            await _db.collection('communityReports').limit(1).get();
+          },
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+            itemCount: filtered.isEmpty ? 3 : filtered.length + 2,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return _GlassCard(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.health_and_safety_rounded),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'مركز بلاغات مجتمع وازن',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                          _Pill(icon: Icons.flag_rounded, label: '$openCount جديد', tone: _PillTone.danger),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _ReportStatsRow(
+                        total: all.length,
+                        open: openCount,
+                        hidden: hiddenCount,
+                        banned: bannedCount,
+                        resolved: resolvedCount,
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              if (index == 1) {
+                return _GlassCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _ReportFilterChip(label: 'الجديدة', value: 'open', selected: _filter, onSelected: _setFilter),
+                        _ReportFilterChip(label: 'الكل', value: 'all', selected: _filter, onSelected: _setFilter),
+                        _ReportFilterChip(label: 'مخفية', value: 'post_hidden', selected: _filter, onSelected: _setFilter),
+                        _ReportFilterChip(label: 'محظور', value: 'author_banned', selected: _filter, onSelected: _setFilter),
+                        _ReportFilterChip(label: 'معالجة/مرفوضة', value: 'resolved', selected: _filter, onSelected: _setFilter),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              if (filtered.isEmpty) {
+                return const _GlassCard(
+                  padding: EdgeInsets.all(18),
+                  child: Center(child: Text('لا توجد بلاغات في هذا القسم')),
+                );
+              }
+
+              final report = filtered[index - 2];
+              return _ReportCard(report: report, onOpen: () => _openReportSheet(report));
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  void _setFilter(String value) => setState(() => _filter = value);
+
+  Future<void> _openReportSheet(CommunityReport report) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.86,
+          minChildSize: 0.55,
+          maxChildSize: 0.95,
+          builder: (context, controller) {
+            final tt = Theme.of(context).textTheme;
+            final cs = Theme.of(context).colorScheme;
+            return ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+              children: [
+                Text('تفاصيل البلاغ', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 12),
+                _GlassCard(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _Pill(icon: Icons.flag_rounded, label: report.reasonLabelAr, tone: _PillTone.danger),
+                          _Pill(icon: Icons.pending_actions_rounded, label: report.statusLabelAr, tone: report.isOpen ? _PillTone.danger : _PillTone.primary),
+                          _Pill(icon: Icons.category_rounded, label: report.postCategory.labelAr, tone: _PillTone.neutral),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _ReportInfoLine(icon: Icons.person_search_rounded, label: 'المبلّغ', value: '${report.reporterName} • ${report.reporterUid}'),
+                      _ReportInfoLine(icon: Icons.person_rounded, label: 'صاحب المنشور', value: '${report.postAuthorName} • ${report.postAuthorUid}'),
+                      _ReportInfoLine(icon: Icons.schedule_rounded, label: 'وقت البلاغ', value: _formatDate(context, report.createdAt)),
+                      if (report.reviewedAt != null)
+                        _ReportInfoLine(icon: Icons.done_all_rounded, label: 'آخر معالجة', value: _formatDate(context, report.reviewedAt!)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _GlassCard(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('محتوى المنشور', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 8),
+                      SelectableText(report.postContent.isEmpty ? 'لا يوجد نص محفوظ للمنشور' : report.postContent),
+                      if (report.details.trim().isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        Divider(color: cs.outlineVariant.withOpacity(0.7)),
+                        const SizedBox(height: 8),
+                        Text('تفاصيل المبلّغ', style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 6),
+                        SelectableText(report.details),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _GlassCard(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('إجراءات الدعم', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () => _hidePost(report, closeContext: sheetContext),
+                            icon: const Icon(Icons.visibility_off_rounded),
+                            label: const Text('إخفاء المنشور'),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: () => _suspendCommunity(report, days: 7, closeContext: sheetContext),
+                            icon: const Icon(Icons.pause_circle_outline_rounded),
+                            label: const Text('تعليق المجتمع 7 أيام'),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: () => _suspendCommunity(report, days: 30, closeContext: sheetContext),
+                            icon: const Icon(Icons.event_busy_rounded),
+                            label: const Text('تعليق المجتمع 30 يوم'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _banAuthor(report, closeContext: sheetContext),
+                            icon: Icon(Icons.block_rounded, color: cs.error),
+                            label: const Text('حظر دائم'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _markReport(report, 'resolved', closeContext: sheetContext),
+                            icon: const Icon(Icons.task_alt_rounded),
+                            label: const Text('معالجة بدون إجراء'),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => _markReport(report, 'rejected', closeContext: sheetContext),
+                            icon: const Icon(Icons.close_rounded),
+                            label: const Text('رفض البلاغ'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'الإخفاء لا يحذف الداتا نهائيًا؛ فقط يضع isDeleted=true حتى يختفي من المجتمع وتبقى نسخة البلاغ للدعم.',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _hidePost(CommunityReport report, {required BuildContext closeContext}) async {
+    final moderatorUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final batch = _db.batch();
+    batch.set(_db.collection('communityPosts').doc(report.postId), {
+      'isDeleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': moderatorUid,
+      'deleteReason': 'community_report:${report.id}',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    batch.set(_db.collection('communityReports').doc(report.id), {
+      'status': 'post_hidden',
+      'reviewedBy': moderatorUid,
+      'reviewedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await batch.commit();
+    await _notifyReportHandled(
+      report,
+      type: 'community_report_post_hidden',
+      authorTitle: 'تم إخفاء منشورك في مجتمع وازن',
+      authorBody: 'تمت مراجعة منشورك وإخفاؤه بسبب بلاغ وصل إلى الدعم.',
+      reporterTitle: 'تمت معالجة بلاغك',
+      reporterBody: 'راجع الدعم البلاغ وتم إخفاء المنشور المخالف.',
+    );
+    if (!mounted) return;
+    Navigator.pop(closeContext);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إخفاء المنشور ومعالجة البلاغ')));
+  }
+
+  Future<void> _suspendCommunity(CommunityReport report, {required int days, required BuildContext closeContext}) async {
+    if (report.postAuthorUid.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يوجد UID لصاحب المنشور')));
+      return;
+    }
+    final moderatorUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final until = DateTime.now().add(Duration(days: days));
+    final batch = _db.batch();
+    batch.set(_db.collection('users').doc(report.postAuthorUid), {
+      'communitySuspendedUntil': Timestamp.fromDate(until),
+      'communitySuspendedReason': 'بلاغ مجتمع: ${report.reasonLabelAr}',
+      'communitySuspendedBy': moderatorUid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    batch.set(_db.collection('communityReports').doc(report.id), {
+      'status': 'author_suspended',
+      'reviewedBy': moderatorUid,
+      'reviewedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'resolutionNote': 'تم تعليق المجتمع $days يوم',
+    }, SetOptions(merge: true));
+    await batch.commit();
+    await _notifyReportHandled(
+      report,
+      type: 'community_report_author_suspended',
+      authorTitle: 'تم تعليق النشر في مجتمع وازن',
+      authorBody: 'تم تعليق النشر في المجتمع لمدة $days يوم بسبب مخالفة قواعد المجتمع.',
+      reporterTitle: 'تمت معالجة بلاغك',
+      reporterBody: 'راجع الدعم البلاغ وتم اتخاذ إجراء على صاحب المنشور.',
+    );
+    if (!mounted) return;
+    Navigator.pop(closeContext);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم تعليق نشره في المجتمع $days يوم')));
+  }
+
+  Future<void> _banAuthor(CommunityReport report, {required BuildContext closeContext}) async {
+    if (report.postAuthorUid.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يوجد UID لصاحب المنشور')));
+      return;
+    }
+    final moderatorUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final batch = _db.batch();
+    batch.set(_db.collection('users').doc(report.postAuthorUid), {
+      'isBanned': true,
+      'banReason': 'بلاغ مجتمع: ${report.reasonLabelAr}',
+      'bannedAt': FieldValue.serverTimestamp(),
+      'bannedBy': moderatorUid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    batch.set(_db.collection('communityReports').doc(report.id), {
+      'status': 'author_banned',
+      'reviewedBy': moderatorUid,
+      'reviewedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await batch.commit();
+    await _notifyReportHandled(
+      report,
+      type: 'community_report_author_banned',
+      authorTitle: 'تم حظر حسابك من وازن',
+      authorBody: 'تم حظر الحساب بعد مراجعة بلاغ مجتمع وازن.',
+      reporterTitle: 'تمت معالجة بلاغك',
+      reporterBody: 'راجع الدعم البلاغ وتم اتخاذ إجراء حظر على صاحب المنشور.',
+    );
+    if (!mounted) return;
+    Navigator.pop(closeContext);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حظر صاحب المنشور')));
+  }
+
+  Future<void> _markReport(CommunityReport report, String status, {required BuildContext closeContext}) async {
+    final moderatorUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    await _db.collection('communityReports').doc(report.id).set({
+      'status': status,
+      'reviewedBy': moderatorUid,
+      'reviewedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await _sendCommunityInboxNotification(
+      toUid: report.reporterUid,
+      type: status == 'rejected'
+          ? 'community_report_rejected'
+          : 'community_report_resolved',
+      title: status == 'rejected' ? 'تمت مراجعة بلاغك' : 'تمت معالجة بلاغك',
+      body: status == 'rejected'
+          ? 'راجع الدعم البلاغ ولم يتم اتخاذ إجراء إضافي.'
+          : 'راجع الدعم البلاغ وتمت معالجته.',
+      postId: report.postId,
+      reportId: report.id,
+    );
+    if (!mounted) return;
+    Navigator.pop(closeContext);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث حالة البلاغ')));
+  }
+
+  Future<void> _notifyReportHandled(
+    CommunityReport report, {
+    required String type,
+    required String authorTitle,
+    required String authorBody,
+    required String reporterTitle,
+    required String reporterBody,
+  }) async {
+    await _sendCommunityInboxNotification(
+      toUid: report.postAuthorUid,
+      type: type,
+      title: authorTitle,
+      body: authorBody,
+      postId: report.postId,
+      reportId: report.id,
+      priority: 'high',
+    );
+    await _sendCommunityInboxNotification(
+      toUid: report.reporterUid,
+      type: '${type}_reporter',
+      title: reporterTitle,
+      body: reporterBody,
+      postId: report.postId,
+      reportId: report.id,
+    );
+  }
+
+  Future<void> _sendCommunityInboxNotification({
+    required String toUid,
+    required String type,
+    required String title,
+    required String body,
+    required String postId,
+    required String reportId,
+    String priority = 'normal',
+  }) async {
+    try {
+      final target = toUid.trim();
+      if (target.isEmpty) return;
+      final moderatorUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (moderatorUid.isNotEmpty && moderatorUid == target) return;
+      await _db
+          .collection('notifications')
+          .doc(target)
+          .collection('inbox')
+          .add({
+        'title': title,
+        'body': body,
+        'notificationType': type,
+        'type': type,
+        'source': 'community_support',
+        'active': true,
+        'read': false,
+        'priority': priority,
+        'senderUid': moderatorUid,
+        'senderName': 'دعم وازن',
+        'targetUid': target,
+        'postId': postId,
+        'reportId': reportId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'scheduledAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      // لا نخلي تعطل الإشعار يمنع إجراء الدعم.
+    }
+  }
+
+  String _formatDate(BuildContext context, DateTime date) {
+    final loc = MaterialLocalizations.of(context);
+    final d = loc.formatShortDate(date);
+    final t = loc.formatTimeOfDay(TimeOfDay.fromDateTime(date), alwaysUse24HourFormat: true);
+    return '$d • $t';
+  }
+}
+
+class _ReportFilterChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  const _ReportFilterChip({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8),
+      child: FilterChip(
+        selected: selected == value,
+        label: Text(label),
+        onSelected: (_) => onSelected(value),
+      ),
+    );
+  }
+}
+
+class _ReportStatsRow extends StatelessWidget {
+  final int total;
+  final int open;
+  final int hidden;
+  final int banned;
+  final int resolved;
+
+  const _ReportStatsRow({
+    required this.total,
+    required this.open,
+    required this.hidden,
+    required this.banned,
+    required this.resolved,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final isWide = c.maxWidth >= 720;
+        final children = [
+          _MetricTile(icon: Icons.all_inbox_rounded, title: 'الإجمالي', value: '$total', tone: _PillTone.neutral),
+          _MetricTile(icon: Icons.flag_rounded, title: 'جديدة', value: '$open', tone: _PillTone.danger),
+          _MetricTile(icon: Icons.visibility_off_rounded, title: 'مخفية', value: '$hidden', tone: _PillTone.primary),
+          _MetricTile(icon: Icons.block_rounded, title: 'حظر', value: '$banned', tone: _PillTone.secondary),
+          _MetricTile(icon: Icons.done_all_rounded, title: 'منتهية', value: '$resolved', tone: _PillTone.neutral),
+        ];
+        if (isWide) {
+          return Row(
+            children: [
+              for (int i = 0; i < children.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(child: children[i]),
+              ],
+            ],
+          );
+        }
+        return Column(
+          children: [
+            Row(children: [Expanded(child: children[0]), const SizedBox(width: 8), Expanded(child: children[1])]),
+            const SizedBox(height: 8),
+            Row(children: [Expanded(child: children[2]), const SizedBox(width: 8), Expanded(child: children[3])]),
+            const SizedBox(height: 8),
+            children[4],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ReportCard extends StatelessWidget {
+  final CommunityReport report;
+  final VoidCallback onOpen;
+
+  const _ReportCard({required this.report, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    final isOpen = report.status == 'open';
+    return _GlassCard(
+      padding: const EdgeInsets.all(12),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Avatar(photoUrl: report.postAuthorPhotoUrl, fallbackText: report.postAuthorName),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(report.postAuthorName, maxLines: 1, overflow: TextOverflow.ellipsis, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 3),
+                      Text('بواسطة: ${report.reporterName}', style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+                _Pill(icon: isOpen ? Icons.flag_rounded : Icons.task_alt_rounded, label: report.statusLabelAr, tone: isOpen ? _PillTone.danger : _PillTone.primary),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(report.postContent.isEmpty ? 'لا يوجد نص محفوظ للمنشور' : report.postContent, maxLines: 3, overflow: TextOverflow.ellipsis, style: tt.bodyMedium?.copyWith(height: 1.35)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _Pill(icon: Icons.report_problem_rounded, label: report.reasonLabelAr, tone: _PillTone.danger),
+                _Pill(icon: Icons.category_rounded, label: report.postCategory.labelAr, tone: _PillTone.neutral),
+                _Pill(icon: Icons.open_in_new_rounded, label: 'استعراض', tone: _PillTone.primary),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportInfoLine extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _ReportInfoLine({required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: cs.primary),
+          const SizedBox(width: 8),
+          SizedBox(width: 92, child: Text(label, style: tt.bodySmall?.copyWith(fontWeight: FontWeight.w900))),
+          Expanded(child: SelectableText(value, style: tt.bodySmall)),
+        ],
+      ),
     );
   }
 }
@@ -379,7 +999,7 @@ class _UsersTabState extends State<_UsersTab> {
         // ===== قائمة المستخدمين =====
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _db.collection('users').limit(120).snapshots(),
+            stream: _db.collection('users').snapshots(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());

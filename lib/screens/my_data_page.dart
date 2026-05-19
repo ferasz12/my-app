@@ -786,19 +786,19 @@ class _MyDataPageState extends State<MyDataPage> {
                                       title: 'بروتين',
                                       grams: proteinG,
                                       kcal: proteinG * 4,
-                                      emoji: '🥩',
+                                      emoji: '',
                                     ),
                                     _MacroCardView.compact(
                                       title: 'كارب',
                                       grams: carbsG,
                                       kcal: carbsG * 4,
-                                      emoji: '🍞',
+                                      emoji: '',
                                     ),
                                     _MacroCardView.compact(
                                       title: 'دهون',
                                       grams: fatG,
                                       kcal: fatG * 9,
-                                      emoji: '🥑',
+                                      emoji: '',
                                     ),
                                   ],
                                 ),
@@ -1011,7 +1011,6 @@ class _MyDataPageState extends State<MyDataPage> {
             decoration: InputDecoration(
               labelText: label,
               suffixText: unit,
-              prefixIcon: Icon(icon, size: 20),
               filled: true,
               fillColor: cs.surface,
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
@@ -1072,16 +1071,6 @@ class _MyDataPageState extends State<MyDataPage> {
                   const SizedBox(height: 14),
                   Row(
                     children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: cs.primary.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(Icons.tune_rounded, color: cs.primary),
-                      ),
-                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1176,7 +1165,7 @@ class _MyDataPageState extends State<MyDataPage> {
                   macroField(
                     controller: kcalCtrl,
                     label: 'السعرات اليومية',
-                    unit: 'kcal',
+                    unit: 'سعرة',
                     icon: Icons.local_fire_department_rounded,
                     onChanged: (_) => syncUI(setModalState),
                   ),
@@ -1219,25 +1208,23 @@ class _MyDataPageState extends State<MyDataPage> {
                     runSpacing: 8,
                     alignment: WrapAlignment.end,
                     children: [
-                      OutlinedButton.icon(
+                      OutlinedButton(
                         onPressed: () => balanceCarbs(setModalState),
-                        icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
-                        label: const Text('وازن الكارب'),
+                        child: const Text('وازن الكارب'),
                       ),
-                      OutlinedButton.icon(
+                      OutlinedButton(
                         onPressed: () {
                           kcalCtrl.text = macroKcal.isFinite ? macroKcal.round().toString() : '0';
                           setModalState(() {});
                         },
-                        icon: const Icon(Icons.calculate_rounded, size: 18),
-                        label: const Text('اجعل السعرات = الماكروز'),
+                        child: const Text('اجعل السعرات = الماكروز'),
                       ),
                     ],
                   ),
                   const SizedBox(height: 14),
                   SizedBox(
                     height: 54,
-                    child: FilledButton.icon(
+                    child: FilledButton(
                       onPressed: saving
                           ? null
                           : () async {
@@ -1277,14 +1264,13 @@ class _MyDataPageState extends State<MyDataPage> {
                               if (mounted) await _refreshMacrosFromPrefs(force: true);
                               if (Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
                             },
-                      icon: saving
+                      child: saving
                           ? const SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.check_rounded),
-                      label: const Text('اعتماد التخصيص'),
+                          : const Text('اعتماد التخصيص'),
                     ),
                   ),
                 ],
@@ -1421,27 +1407,31 @@ class _Section extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: cs.primary.withOpacity(0.11),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(icon ?? Icons.widgets_rounded, color: cs.primary, size: 20),
-                ),
-                const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    title,
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-                    textAlign: TextAlign.right,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(0.55),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                        textAlign: TextAlign.right,
+                      ),
+                    ],
                   ),
                 ),
                 if (action != null) action!,
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             child,
           ],
         ),
@@ -1496,8 +1486,6 @@ class _ProfileSummaryCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18),
-          const SizedBox(width: 6),
           Flexible(
             child: Text(
               label,
@@ -1550,11 +1538,11 @@ class _ProfileSummaryCard extends StatelessWidget {
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
           colors: [
-            cs.primaryContainer.withOpacity(0.98),
-            cs.surfaceContainerHighest,
+            cs.primaryContainer.withOpacity(0.55),
+            cs.surfaceContainerHighest.withOpacity(0.96),
             cs.surface,
           ],
-          stops: const [0.0, 0.58, 1.0],
+          stops: const [0.0, 0.52, 1.0],
         ),
         border: Border.all(color: cs.outlineVariant.withOpacity(0.38)),
       ),
@@ -1608,8 +1596,6 @@ class _ProfileSummaryCard extends StatelessWidget {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.eco_rounded, size: 16, color: cs.primary),
-                                  const SizedBox(width: 6),
                                   Text(
                                     'بطاقة وازن الصحية',
                                     style: theme.textTheme.labelLarge?.copyWith(
@@ -1700,16 +1686,6 @@ class _ProfileSummaryCard extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: cs.primary.withOpacity(0.13),
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          child: Icon(Icons.flag_rounded, color: cs.primary, size: 21),
-                        ),
-                        const SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1784,16 +1760,6 @@ class _ProfileSummaryCard extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: cs.tertiary.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          child: Icon(Icons.favorite_rounded, color: cs.tertiary, size: 21),
-                        ),
-                        const SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1926,24 +1892,23 @@ class _ProfileStatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.34),
+        color: cs.surface.withOpacity(0.58),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.18)),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 34,
-            height: 34,
+            width: 28,
+            height: 3,
             decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
+              color: cs.primary.withOpacity(0.38),
+              borderRadius: BorderRadius.circular(999),
             ),
-            child: Icon(icon, color: cs.primary, size: 18),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Text(
             label,
             maxLines: 1,
@@ -1987,11 +1952,13 @@ class _CaloriesCardSimple extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                  color: cs.onSecondaryContainer.withOpacity(0.08),
-                  shape: BoxShape.circle),
-              child: const Text('🔥', style: TextStyle(fontSize: 16))),
+            width: 32,
+            height: 4,
+            decoration: BoxDecoration(
+              color: cs.primary.withOpacity(0.45),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
           const SizedBox(width: 8),
           Text('السعرات',
               style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
@@ -2010,7 +1977,7 @@ class _CaloriesCardSimple extends StatelessWidget {
                 const SizedBox(width: 4),
                 Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text('kcal', style: theme.textTheme.labelLarge)),
+                    child: Text('سعرة', style: theme.textTheme.labelLarge)),
               ],
             ),
           ),
@@ -2075,14 +2042,14 @@ class _MacroCardView extends StatelessWidget {
       ),
       child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         Container(
-          padding: const EdgeInsets.all(6),
+          width: 4,
+          height: 42,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.45),
-            shape: BoxShape.circle,
+            color: cs.primary.withOpacity(0.42),
+            borderRadius: BorderRadius.circular(999),
           ),
-          child: Text(emoji, style: const TextStyle(fontSize: 16)),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2156,7 +2123,7 @@ class _KcalChip extends StatelessWidget {
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Text(
-          '${value.toStringAsFixed(0)} كال',
+          '${value.toStringAsFixed(0)} سعرة',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
@@ -2198,12 +2165,6 @@ class _PlanActionsBar extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                isCustom ? Icons.edit_rounded : Icons.auto_awesome_rounded,
-                color: cs.primary,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   isCustom ? 'الخطة الحالية: تخصيص يدوي' : 'الخطة الحالية: تلقائية حسب الهدف',
@@ -2216,18 +2177,16 @@ class _PlanActionsBar extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: FilledButton.tonalIcon(
+                child: FilledButton.tonal(
                   onPressed: onCustom,
-                  icon: const Icon(Icons.tune_rounded, size: 18),
-                  label: const Text('تخصيص'),
+                  child: const Text('تخصيص'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
+                child: OutlinedButton(
                   onPressed: onTargets,
-                  icon: const Icon(Icons.flag_rounded, size: 18),
-                  label: const Text('الأهداف'),
+                  child: const Text('الأهداف'),
                 ),
               ),
             ],
@@ -2278,13 +2237,12 @@ class _GoalPill extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 4,
+              height: 42,
               decoration: BoxDecoration(
-                color: accent.withOpacity(0.14),
-                shape: BoxShape.circle,
+                color: accent.withOpacity(0.50),
+                borderRadius: BorderRadius.circular(999),
               ),
-              child: Icon(icon, color: accent, size: 22),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -2374,8 +2332,6 @@ class BodyFatCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: cs.outlineVariant)),
       child: Row(children: [
-        Icon(Icons.monitor_heart_rounded, color: cs.primary, size: 20),
-        const SizedBox(width: 10),
         Expanded(
             child: Text('نسبة دهون تقديرية: $est', maxLines: 2)),
       ]),
@@ -2573,8 +2529,6 @@ class _HealthCardSheet extends StatelessWidget {
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(Icons.eco_rounded, color: Colors.white.withOpacity(0.92), size: 18),
-                                        const SizedBox(width: 6),
                                         Text(
                                           'بطاقة وازن الصحية',
                                           style: theme.textTheme.labelLarge?.copyWith(
@@ -2613,7 +2567,7 @@ class _HealthCardSheet extends StatelessWidget {
                                 child: _HealthHeroMetric(
                                   label: 'السعرات',
                                   value: calories.toStringAsFixed(0),
-                                  unit: 'كال',
+                                  unit: 'سعرة',
                                   icon: Icons.local_fire_department_rounded,
                                 ),
                               ),
@@ -2688,7 +2642,7 @@ class _HealthCardSheet extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                '${calories.toStringAsFixed(0)} كال',
+                                '${calories.toStringAsFixed(0)} سعرة',
                                 style: theme.textTheme.headlineSmall?.copyWith(
                                   fontWeight: FontWeight.w900,
                                   height: 1.0,
@@ -2705,9 +2659,9 @@ class _HealthCardSheet extends StatelessWidget {
                     columns: 3,
                     gutter: 10,
                     children: [
-                      _MacroCardView.compact(title: 'بروتين', grams: protein, kcal: protein * 4, emoji: '🥩'),
-                      _MacroCardView.compact(title: 'كارب', grams: carbs, kcal: carbs * 4, emoji: '🍞'),
-                      _MacroCardView.compact(title: 'دهون', grams: fat, kcal: fat * 9, emoji: '🥑'),
+                      _MacroCardView.compact(title: 'بروتين', grams: protein, kcal: protein * 4, emoji: ''),
+                      _MacroCardView.compact(title: 'كارب', grams: carbs, kcal: carbs * 4, emoji: ''),
+                      _MacroCardView.compact(title: 'دهون', grams: fat, kcal: fat * 9, emoji: ''),
                     ],
                   ),
                 ],
@@ -2823,25 +2777,29 @@ class _HealthPremiumSection extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: cs.primary.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(icon, color: cs.primary, size: 20),
-                ),
-                const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    title,
-                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(0.50),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        title,
+                        style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             child,
           ],
         ),
@@ -2877,8 +2835,6 @@ class _HealthHeroMetric extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.white.withOpacity(0.88), size: 20),
-          const SizedBox(height: 8),
           Text(
             label,
             style: theme.textTheme.labelMedium?.copyWith(
@@ -2944,8 +2900,6 @@ class _HealthGlassPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: foreground.withOpacity(0.92)),
-          const SizedBox(width: 5),
           Text(
             label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
@@ -2985,15 +2939,14 @@ class _HealthGoalTile extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 4,
+            height: 40,
             decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(14),
+              color: cs.primary.withOpacity(0.45),
+              borderRadius: BorderRadius.circular(999),
             ),
-            child: Icon(icon, color: cs.primary, size: 20),
           ),
-          const SizedBox(width: 9),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3141,7 +3094,6 @@ class _EditBasicsSheetState extends State<_EditBasicsSheet> {
         helperStyle: theme.textTheme.bodySmall?.copyWith(
           color: cs.onSurface.withOpacity(0.65),
         ),
-        prefixIcon: Icon(icon),
         filled: true,
         fillColor: cs.surfaceContainerHighest.withOpacity(0.68),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
@@ -3297,8 +3249,6 @@ class _EditBasicsSheetState extends State<_EditBasicsSheet> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.lock_clock_rounded, color: cs.tertiary),
-                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'تعديل الوزن مقفل مؤقتًا للحفاظ على دقة التتبع. تقدر تعدله بعد $daysLeft يوم.',
@@ -3319,19 +3269,18 @@ class _EditBasicsSheetState extends State<_EditBasicsSheet> {
             const SizedBox(height: 16),
             SizedBox(
               height: 52,
-              child: FilledButton.icon(
+              child: FilledButton(
                 onPressed: _saving ? null : _submit,
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
-                icon: _saving
+                child: _saving
                     ? const SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.check_rounded),
-                label: const Text('حفظ التعديلات'),
+                    : const Text('حفظ التعديلات'),
               ),
             ),
             const SizedBox(height: 8),
@@ -3479,11 +3428,7 @@ class _TargetsSheetState extends State<_TargetsSheet> {
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: const [
-            Icon(Icons.settings_suggest_rounded),
-            SizedBox(width: 8),
-            Text('ضبط الأهداف والماكروز', style: TextStyle(fontWeight: FontWeight.w800))
-          ]),
+          const Text('ضبط الأهداف والماكروز', style: TextStyle(fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
 
           // ===== خطة السعرات/الماكروز =====
@@ -3498,8 +3443,6 @@ class _TargetsSheetState extends State<_TargetsSheet> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.local_fire_department_rounded, color: cs.primary),
-                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'خطة السعرات والماكروز',
@@ -3559,7 +3502,7 @@ class _TargetsSheetState extends State<_TargetsSheet> {
                     ),
                   ] else ...[
                     const SizedBox(height: 8),
-                    _NumField(label: 'السعرات (kcal)', controller: kcalCtrl),
+                    _NumField(label: 'السعرات', controller: kcalCtrl),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -3586,14 +3529,21 @@ class _TargetsSheetState extends State<_TargetsSheet> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('${kcal.toStringAsFixed(0)} kcal', style: const TextStyle(fontWeight: FontWeight.w900)),
+                              Text('${kcal.toStringAsFixed(0)} سعرة', style: const TextStyle(fontWeight: FontWeight.w900)),
                               const SizedBox(height: 4),
                               Text('P ${pro.toStringAsFixed(0)}g  •  C ${carb.toStringAsFixed(0)}g  •  F ${fat.toStringAsFixed(0)}g',
                                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
                             ],
                           ),
                         ),
-                        Icon(Icons.check_circle_rounded, color: cs.primary),
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: cs.primary.withOpacity(0.16),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -3628,7 +3578,7 @@ class _TargetsSheetState extends State<_TargetsSheet> {
               step: 0.5,
               onChanged: (v) => setState(() => sleepH = v)),
           const SizedBox(height: 12),
-          FilledButton.icon(
+          FilledButton(
               onPressed: () async {
                 if (custom) {
                   final ok = _readCustomFields();
@@ -3666,8 +3616,7 @@ class _TargetsSheetState extends State<_TargetsSheet> {
                 }
                 if (context.mounted) Navigator.pop(context);
               },
-              icon: const Icon(Icons.check_rounded),
-              label: const Text('حفظ')),
+              child: const Text('حفظ')),
         ]),
       ),
     );
@@ -3748,7 +3697,7 @@ class _PlanChipCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(subtitle, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
             const SizedBox(height: 10),
-            Text('${kcal.toStringAsFixed(0)} kcal', style: const TextStyle(fontWeight: FontWeight.w900)),
+            Text('${kcal.toStringAsFixed(0)} سعرة', style: const TextStyle(fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
             Text('P ${protein.toStringAsFixed(0)}g • C ${carbs.toStringAsFixed(0)}g • F ${fat.toStringAsFixed(0)}g',
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),

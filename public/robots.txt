@@ -2,8 +2,5 @@ User-agent: *
 Allow: /
 Disallow: /admin/
 Disallow: /support/
-Disallow: /pay/admin/
-Disallow: /pay/sales/
-Disallow: /pay/result/
 
 Sitemap: https://wazenfapp.web.app/sitemap.xml

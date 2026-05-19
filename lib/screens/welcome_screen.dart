@@ -60,7 +60,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   void _snack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          elevation: 0,
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.transparent,
+          margin: const EdgeInsets.fromLTRB(14, 0, 14, 18),
+          content: _WelcomeNotice(message: msg),
+        ),
+      );
   }
 
   Future<void> _removeRecent(String uid) async {
@@ -81,7 +91,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         // لا نقدر نمرر الإيميل في هذا المسار بدون تعديل LoginPage route، لكن عندك /login موجود.
       }
       if ((acc.email).trim().isNotEmpty) {
-        _snack('تم تعبئة البريد — أدخل كلمة المرور لإكمال الدخول');
+        _snack('جهزنا بريد حساب وازن. اكتب كلمة المرور وكمل دخولك.');
       }
       return;
     }
@@ -127,7 +137,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         await AuthService.signInWithApple(context: context);
       } else {
         // مزود غير معروف: نفتح صفحة تسجيل الدخول العامة
-        error = 'هذا النوع من الحسابات يحتاج تسجيل دخول يدوي من صفحة الدخول.';
+        error = 'هذا الحساب يحتاج دخول يدوي من صفحة وازن.';
       }
     } on FirebaseAuthException catch (e) {
       error = _mapSwitchError(e);
@@ -141,7 +151,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         _removeRecent(acc.uid);
       }
     } catch (e) {
-      error = 'حدث خطأ غير متوقع: $e';
+      error = 'صار خلل بسيط أثناء تبديل الحساب. جرّب مرة ثانية.';
     } finally {
       try {
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -166,28 +176,28 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     switch (code) {
       // ✅ حالات شائعة عند محاولة الدخول بحساب لم يعد صالحاً
       case 'user-not-found':
-        return 'هذا الحساب غير موجود (قد يكون محذوفًا).';
+        return 'هذا الحساب غير موجود في وازن أو تم حذفه.';
       case 'user-disabled':
-        return 'تم تعطيل هذا الحساب.';
+        return 'هذا الحساب متوقف حاليًا. تواصل مع دعم وازن.';
       case 'invalid-credential':
       case 'invalid-email':
-        return 'بيانات الدخول غير صالحة. جرّب تسجيل الدخول من جديد.';
+        return 'بيانات هذا الحساب لم تعد صالحة. سجل دخولك من جديد.';
 
       // ✅ حالات المزود/الطريقة
       case 'account-exists-with-different-credential':
-        return 'هذا البريد مسجّل بطريقة دخول مختلفة. جرّب الدخول بالطريقة السابقة.';
+        return 'هذا البريد مرتبط بطريقة دخول مختلفة. استخدم نفس الطريقة السابقة.';
       case 'operation-not-allowed':
-        return 'مزود تسجيل الدخول غير مفعّل.';
+        return 'طريقة الدخول هذه غير متاحة حاليًا في وازن.';
 
       // ✅ الشبكة/الإلغاء
       case 'network-request-failed':
-        return 'مشكلة في الاتصال. تأكد من الشبكة ثم حاول مرة أخرى.';
+        return 'ما وصلنا بسيرفرات وازن. تأكد من الشبكة ثم حاول.';
       case 'canceled':
       case 'popup-closed-by-user':
-        return 'تم الإلغاء.';
+        return 'تم إلغاء الدخول، تقدر تحاول في أي وقت.';
 
       default:
-        return e.message ?? 'تعذّر تبديل الحساب.';
+        return 'تعذر تبديل الحساب الآن. جرّب مرة ثانية.';
     }
   }
 
@@ -272,8 +282,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                 child: SizedBox(
                                   width: constraints.maxWidth - 40,
                                   child: _WelcomeCard(
-                                    title: 'وازن أكلك واحسب سعراتك',
-                                    subtitle: '',
+                                    title: 'ابدأ رحلتك في وازن',
+                                    subtitle: 'كل يوم أوضح: تابع أكلك، ماءك، وزنك، وتمارينك بتجربة عربية مرتبة تناسب أسلوبك.',
                                     titleStyle: (tt.headlineSmall ?? const TextStyle()).copyWith(
                                       fontWeight: FontWeight.w900,
                                       fontSize: compact ? 24 : 27,
@@ -356,6 +366,60 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 }
 
+
+class _WelcomeNotice extends StatelessWidget {
+  const _WelcomeNotice({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: scheme.primary.withOpacity(0.16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.14),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: scheme.primary.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Icon(Icons.spa_rounded, color: scheme.primary, size: 21),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: (tt.bodySmall ?? const TextStyle()).copyWith(
+                  height: 1.45,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ThemedWelcomeHero extends StatelessWidget {
   final String assetPath;
   final Color color;
@@ -372,84 +436,23 @@ class _ThemedWelcomeHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenW = MediaQuery.of(context).size.width;
-    final heroW = screenW.clamp(300.0, 420.0).toDouble();
+    final heroW = screenW.clamp(300.0, 430.0).toDouble();
 
     return SizedBox(
       height: height,
       width: heroW,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(34),
-                gradient: LinearGradient(
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                  colors: [
-                    Colors.white.withOpacity(isDark ? 0.05 : 0.18),
-                    color.withOpacity(isDark ? 0.10 : 0.08),
-                    Colors.white.withOpacity(isDark ? 0.03 : 0.10),
-                  ],
-                ),
-                border: Border.all(color: Colors.white.withOpacity(isDark ? 0.07 : 0.18)),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withOpacity(isDark ? 0.16 : 0.20),
-                    blurRadius: 34,
-                    spreadRadius: -8,
-                    offset: const Offset(0, 20),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            top: height * 0.12,
-            child: Opacity(
-              opacity: isDark ? 0.10 : 0.14,
-              child: Transform.scale(
-                scale: 1.55,
-                child: _tintedAsset(width: heroW * 0.72, height: height * 0.42, opacity: 1),
-              ),
-            ),
-          ),
-          Center(
-            child: _tintedAsset(width: heroW * 0.82, height: height * 0.58, opacity: 0.98),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tintedAsset({required double width, required double height, required double opacity}) {
-    return Opacity(
-      opacity: opacity,
-      child: ColorFiltered(
-        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      child: Center(
         child: Image.asset(
           assetPath,
-          width: width,
-          height: height,
+          width: heroW * 0.42,
+          height: height * 0.62,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
-          errorBuilder: (_, __, ___) {
-            // fallback بدون أي كراش لو اختلف اسم الصورة عندك
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.fitness_center_rounded, size: 42, color: color),
-                const SizedBox(width: 12),
-                Icon(Icons.directions_run_rounded, size: 42, color: color),
-                const SizedBox(width: 12),
-                Icon(Icons.self_improvement_rounded, size: 42, color: color),
-                const SizedBox(width: 12),
-                Icon(Icons.sports_handball_rounded, size: 42, color: color),
-              ],
-            );
-          },
+          errorBuilder: (_, __, ___) => Icon(
+            Icons.fitness_center_rounded,
+            color: color,
+            size: 54,
+          ),
         ),
       ),
     );
@@ -474,67 +477,6 @@ class _SoftGlowCircle extends StatelessWidget {
             colors: [color, color.withOpacity(0.0)],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _WelcomeFeatureStrip extends StatelessWidget {
-  const _WelcomeFeatureStrip({required this.primary, required this.mutedColor});
-
-  final Color primary;
-  final Color mutedColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _WelcomeFeatureChip(icon: Icons.local_fire_department_rounded, label: 'سعرات', primary: primary, mutedColor: mutedColor),
-        _WelcomeFeatureChip(icon: Icons.restaurant_rounded, label: 'وجبات', primary: primary, mutedColor: mutedColor),
-        _WelcomeFeatureChip(icon: Icons.fitness_center_rounded, label: 'تمارين', primary: primary, mutedColor: mutedColor),
-      ],
-    );
-  }
-}
-
-class _WelcomeFeatureChip extends StatelessWidget {
-  const _WelcomeFeatureChip({
-    required this.icon,
-    required this.label,
-    required this.primary,
-    required this.mutedColor,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color primary;
-  final Color mutedColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.30),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.30)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: mutedColor,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -622,6 +564,7 @@ class _WelcomeCard extends StatelessWidget {
             const SizedBox(height: 10),
             Text(subtitle, textAlign: TextAlign.center, style: subtitleStyle),
           ],
+          const SizedBox(height: 16),
 
           // ===== الحسابات السابقة =====
           if (loadingRecent) ...[
@@ -677,7 +620,7 @@ class _WelcomeCard extends StatelessWidget {
                   fontSize: 17,
                 ),
               ),
-              child: const Text('تسجيل الدخول'),
+              child: const Text('عندي حساب في وازن'),
             ),
           ),
 
@@ -761,7 +704,7 @@ class _RecentAccountsSection extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'الحسابات السابقة',
+                  'حسابات وازن على هذا الجهاز',
                   style: (tt.titleSmall ?? const TextStyle()).copyWith(
                     fontWeight: FontWeight.w900,
                   ),
@@ -770,7 +713,7 @@ class _RecentAccountsSection extends StatelessWidget {
               if (hasMore)
                 TextButton(
                   onPressed: () => _openAll(context),
-                  child: const Text('عرض المزيد'),
+                  child: const Text('كل الحسابات'),
                 ),
             ],
           ),
@@ -1010,7 +953,7 @@ class _PrivacyLine extends StatelessWidget {
       alignment: WrapAlignment.center,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text('بالاطلاع والمتابعة، أنت توافق على ', style: textStyle),
+        Text('بياناتك الصحية خاصة — وبالمتابعة توافق على ', style: textStyle),
         InkWell(
           onTap: onTap,
           child: Text('سياسة الخصوصية', style: linkStyle),

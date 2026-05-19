@@ -23,6 +23,21 @@ service cloud.firestore {
       ];
     }
 
+    // نفس حسابات المالك/الدعم المستخدمة في لوحات الويب.
+    // مهم: Cloud Function قد تقول إن الحساب owner، لكن قواعد Firestore لا تعرف ذلك
+    // إلا من UID أو custom claims أو users/{uid}.role أو هذا fallback بالإيميل.
+    function ownerEmail() {
+      return isSignedIn()
+        && (request.auth.token.email is string)
+        && request.auth.token.email.lower() in [
+          "froosp1635@gmail.com"
+        ];
+    }
+
+    function staffEmailRole() {
+      return ownerEmail() ? "owner" : null;
+    }
+
     function rolePath(uid) {
       return /databases/$(database)/documents/users/$(uid);
     }
@@ -48,8 +63,12 @@ service cloud.firestore {
     // 3) users/{uid}.role من قاعدة البيانات
     // 4) user افتراضيًا
     function callerRole() {
-      return isHardOwner() ? "owner"
+      return (isHardOwner() || ownerEmail()) ? "owner"
         : (
+            staffEmailRole() != null && validRole(staffEmailRole())
+          )
+          ? staffEmailRole()
+          : (
             tokenRole() != null && validRole(tokenRole())
           )
           ? tokenRole()
@@ -489,11 +508,48 @@ service cloud.firestore {
     }
 
     // ==================================================
-    // notifications
+    // notifications - رسائل المستخدمين والإدارة
     // ==================================================
-    match /notifications/{uid}/inbox/{nid} {
-      allow read, update, delete: if isDocOwner(uid) || isStaff();
-      allow create: if isDocOwner(uid) || isStaff();
+    match /notifications/{uid} {
+      // مهم: بعض صفحات الويب تقرأ/تكتب مستند notifications/{uid} نفسه
+      // وليس فقط subcollection inbox، لذلك أضفنا صلاحية للمستند الأب.
+      allow read, create, update, delete: if isDocOwner(uid) || isStaff();
+
+      match /inbox/{nid} {
+        // المستخدم يقرأ صندوقه، وفريق وازن يرسل/يدير الإشعارات.
+        allow read, update, delete: if isDocOwner(uid) || isStaff();
+        allow create: if isDocOwner(uid) || isStaff();
+      }
+    }
+
+    // قنوات إشعارات الإدارة/الدعم/المالك المستخدمة في لوحة الدعم واستدعاء الإدارة.
+    // هذه لا تفتح للعامة؛ فقط owner/admin/support.
+    match /adminNotifications/{targetId} {
+      allow read, create, update, delete: if isStaff();
+      match /inbox/{nid} {
+        allow read, create, update, delete: if isStaff();
+      }
+    }
+
+    match /staffNotifications/{targetId} {
+      allow read, create, update, delete: if isStaff();
+      match /inbox/{nid} {
+        allow read, create, update, delete: if isStaff();
+      }
+    }
+
+    match /supportNotifications/{targetId} {
+      allow read, create, update, delete: if isStaff();
+      match /inbox/{nid} {
+        allow read, create, update, delete: if isStaff();
+      }
+    }
+
+    match /ownerNotifications/{targetId} {
+      allow read, create, update, delete: if isStaff();
+      match /inbox/{nid} {
+        allow read, create, update, delete: if isStaff();
+      }
     }
 
     match /app_broadcasts/{broadcastId} {
@@ -600,6 +656,158 @@ service cloud.firestore {
         );
       allow read, update, delete: if isStaff()
         || (isSignedIn() && (resource.data.uid == request.auth.uid || resource.data.userId == request.auth.uid));
+    }
+
+
+
+    // ==================================================
+    // appReviews - تقييمات صفحة روابط وازن العامة
+    // ==================================================
+    function publicReviewCreateOk() {
+      return request.resource.data.keys().hasOnly([
+          "displayName",
+          "rating",
+          "message",
+          "public",
+          "source",
+          "createdAt",
+          "updatedAt"
+        ])
+        && (request.resource.data.displayName is string)
+        && request.resource.data.displayName.size() >= 2
+        && request.resource.data.displayName.size() <= 60
+        && (request.resource.data.rating is int)
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && (request.resource.data.message is string)
+        && request.resource.data.message.size() >= 3
+        && request.resource.data.message.size() <= 600
+        && request.resource.data.public == true
+        && request.resource.data.source == "public_reviews_page"
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /appReviews/{reviewId} {
+      // الصفحة العامة تحتاج قراءة التقييمات لحساب المتوسط وعرض التعليقات.
+      allow read: if true;
+
+      // أي زائر يقدر ينشر تقييم واحد كمستند جديد من صفحة /reviews بدون تسجيل دخول.
+      allow create: if publicReviewCreateOk();
+
+      // إدارة وازن تقدر تخفي/تعدل/تحذف التقييمات المسيئة أو السبام عند الحاجة.
+      allow update, delete: if isStaff();
+    }
+
+    // ==================================================
+    // influencerApplications + settings - نظام المؤثرين
+    // ==================================================
+    match /influencerSettings/{docId} {
+      // صفحة المؤثرين العامة تقرأ إعدادات عامة مثل مواعيد الصرف والحالة.
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    match /influencerApplications/{uid} {
+      // المؤثر يقرأ طلبه فقط، وفريق وازن يقرأ كل الطلبات من لوحة الإدارة.
+      allow read: if isStaff() || isDocOwner(uid);
+
+      // المؤثر ينشئ طلبه/يعدله على مستنده فقط، وفريق وازن يدير الطلبات من لوحة الإدارة.
+      allow create: if isDocOwner(uid) || isStaff();
+      allow update: if isDocOwner(uid) || isStaff();
+
+      // الحذف النهائي من لوحة إدارة المؤثرين.
+      allow delete: if isStaff();
+    }
+
+    // ==================================================
+    // supportPresence - إحصائيات اتصال الدعم
+    // ==================================================
+    match /supportPresence/{uid} {
+      // تظهر فقط للمالك/الأدمن/الدعم داخل لوحة الدعم.
+      allow read: if isStaff();
+
+      // كل موظف دعم يحدث حالة اتصاله الخاصة فقط، والمالك/الأدمن يستطيعان الإدارة.
+      allow create: if isStaff() && (uid == request.auth.uid || isAdminOrOwner());
+      allow update: if isStaff() && (uid == request.auth.uid || isAdminOrOwner());
+      allow delete: if isAdminOrOwner();
+    }
+
+    // ==================================================
+    // Admin Web Push + Staff Call - توكنات واستدعاءات الإدارة
+    // ==================================================
+    match /adminPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /adminWebPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /staffPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /staffWebPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /supportPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /supportWebPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /ownerPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /ownerWebPushTokens/{tokenId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /webPushTokens/{tokenId} {
+      // توكنات الويب الخاصة بالإدارة فقط، ليست للمستخدمين العامين.
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /adminDevices/{deviceId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /staffDevices/{deviceId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /supportDevices/{deviceId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /adminStaffCalls/{callId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /staffCalls/{callId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /supportCalls/{callId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /ownerCalls/{callId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    // ==================================================
+    // admin_audit_logs - سجل عمليات الإدارة والحذف والمنح
+    // ==================================================
+    match /admin_audit_logs/{logId} {
+      allow create: if isStaff();
+      allow read: if isOwner();
+      allow update, delete: if isOwner();
     }
 
     // ==================================================

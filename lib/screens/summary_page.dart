@@ -520,23 +520,42 @@ class _SummaryPageState extends State<SummaryPage> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final w = size.width;
-    final scale = (w / 375).clamp(0.92, 1.12);
+    final scale = (w / 375).clamp(0.92, 1.12).toDouble();
 
-    final base16 = TextStyle(fontSize: 16 * scale);
-    final base18 = TextStyle(fontSize: 18 * scale, fontWeight: FontWeight.w600);
-    final base14Muted = TextStyle(fontSize: 14 * scale, color: Colors.grey[700]);
-    final titleStyle = TextStyle(fontSize: 20 * scale, fontWeight: FontWeight.bold);
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final base16 = TextStyle(
+      fontSize: 15.5 * scale,
+      height: 1.45,
+      fontWeight: FontWeight.w600,
+      color: cs.onSurface.withOpacity(isDark ? 0.86 : 0.78),
+    );
+    final base14Muted = TextStyle(
+      fontSize: 13.5 * scale,
+      height: 1.45,
+      color: cs.onSurface.withOpacity(isDark ? 0.64 : 0.56),
+      fontWeight: FontWeight.w500,
+    );
+    final titleStyle = TextStyle(
+      fontSize: 22 * scale,
+      height: 1.18,
+      fontWeight: FontWeight.w900,
+      color: cs.onSurface,
+    );
 
     final diff = (adjustedCalories - maintenanceCalories).round();
     final isDeficit = diff < 0;
     final diffLabel = isDeficit ? 'عجز' : (diff > 0 ? 'فائض' : 'محافظة');
-
-    final cs = Theme.of(context).colorScheme;
+    final totalMacros = protein + fat + carbs;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('ملخصك الصحي'),
+        title: const Text(
+          'ملخصك الصحي',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
@@ -544,13 +563,13 @@ class _SummaryPageState extends State<SummaryPage> {
         flexibleSpace: ClipRect(
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Container(color: cs.surface.withOpacity(0.55)),
+            child: Container(color: cs.surface.withOpacity(isDark ? 0.58 : 0.70)),
           ),
         ),
         actions: [
           IconButton(
             tooltip: 'تعديل الهدف',
-            icon: const Icon(Icons.track_changes),
+            icon: const Icon(Icons.tune_rounded),
             onPressed: () {
               // ✅ من داخل الأونبوردنغ: الأفضل يرجّعك للصفحة السابقة لتعديل الهدف.
               if (Navigator.canPop(context)) {
@@ -562,16 +581,36 @@ class _SummaryPageState extends State<SummaryPage> {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        minimum: EdgeInsets.fromLTRB(16, 8, 16, 16 * (scale > 1 ? scale : 1)),
-        child: SizedBox(
-          height: 52,
-          child: ElevatedButton.icon(
-            onPressed: (_loading || _finishing) ? null : _finishAndStart,
-            icon: _finishing
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.rocket_launch),
-            label: Text(_finishing ? 'جارٍ الإنهاء…' : 'ابدأ استخدام التطبيق'),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: cs.surface.withOpacity(isDark ? 0.84 : 0.92),
+          border: Border(top: BorderSide(color: cs.primary.withOpacity(0.08))),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.22 : 0.07),
+              blurRadius: 24,
+              offset: const Offset(0, -10),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          minimum: EdgeInsets.fromLTRB(16, 10, 16, 16 * (scale > 1 ? scale : 1)),
+          child: SizedBox(
+            height: 54,
+            child: ElevatedButton.icon(
+              onPressed: (_loading || _finishing) ? null : _finishAndStart,
+              icon: _finishing
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.rocket_launch_rounded),
+              label: Text(_finishing ? 'جارٍ الإنهاء…' : 'ابدأ استخدام التطبيق'),
+              style: ElevatedButton.styleFrom(
+                elevation: 0,
+                backgroundColor: cs.primary,
+                foregroundColor: cs.onPrimary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                textStyle: TextStyle(fontSize: 15.5 * scale, fontWeight: FontWeight.w900),
+              ),
+            ),
           ),
         ),
       ),
@@ -580,171 +619,289 @@ class _SummaryPageState extends State<SummaryPage> {
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : Directionality(
-                textDirection: TextDirection.ltr,
+                textDirection: TextDirection.rtl,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 88, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 92, 16, 22),
                   children: [
-                  // رأس صفحة أنيق
-                  _SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.favorite, size: 26),
-                            const SizedBox(width: 8),
-                            Text('مرحبا! هذا ملخصك الصحي', style: titleStyle),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _Chip(label: goal.isEmpty ? 'هدف غير محدد' : goal),
-                            _Chip(label: _activityLabel(activityFactor)),
-                            _Chip(
-                              label: diff == 0 ? 'سعرات محافظة' : '$diffLabel ${diff.abs()} ك.س',
-                              tone: isDeficit ? ChipTone.warning : (diff > 0 ? ChipTone.success : ChipTone.neutral),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(_motivation(goal), style: base14Muted),
-                      ],
+                    _SummaryHeroCard(
+                      titleStyle: titleStyle,
+                      mutedStyle: base14Muted,
+                      goal: goal.isEmpty ? 'هدف غير محدد' : goal,
+                      activityLabel: _activityLabel(activityFactor),
+                      caloriesLabel: diff == 0 ? 'سعرات محافظة' : '$diffLabel ${diff.abs()}',
+                      isDeficit: isDeficit,
+                      isSurplus: diff > 0,
+                      motivation: _motivation(goal),
                     ),
-                  ),
 
-                  // السعرات الأساسية والهدف + آخر قيمة محفوظة
-                  _SectionCard(
-                    title: 'السعرات اليومية',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (lastSavedCalories != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Text(
-                              'آخر قيمة محفوظة: ${lastSavedCalories!.toStringAsFixed(0)}'
-                              '${lastUpdatedDate != null ? ' (آخر تحديث: $lastUpdatedDate)' : ''}',
-                              style: base14Muted,
+                    _SectionCard(
+                      title: 'السعرات اليومية',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (lastSavedCalories != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _SoftInfoBanner(
+                                icon: Icons.verified_rounded,
+                                text: 'آخر قيمة محفوظة: ${lastSavedCalories!.toStringAsFixed(0)}'
+                                    '${lastUpdatedDate != null ? ' — آخر تحديث: $lastUpdatedDate' : ''}',
+                              ),
                             ),
-                          ),
-                        Row(
-                          children: [
-                            Expanded(child: _KpiBox(title: 'المحافظة', value: maintenanceCalories.toStringAsFixed(0), unit: 'ك.س')),
-                            const SizedBox(width: 12),
-                            Expanded(child: _KpiBox(title: 'الهدف', value: adjustedCalories.toStringAsFixed(0), unit: 'ك.س')),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        LinearProgressIndicator(
-                          value: (maintenanceCalories == 0 ? 0 : (adjustedCalories / maintenanceCalories)).clamp(0.0, 2.0).toDouble(),
-                          minHeight: 10,
-                          backgroundColor: Colors.grey[300],
-                        ),
-                        const SizedBox(height: 6),
-                        Text('مقارنة الهدف بالمحافظة', style: base14Muted),
-                      ],
-                    ),
-                  ),
-
-                  // اختيار خطة السعرات/الماكروز
-                  _SectionCard(
-                    title: 'اختر الخطة المناسبة لك',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'اختر أحد الخيارات (يتغير معها توزيع الماكروز تلقائيًا).',
-                          style: base14Muted,
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: planOptions.map((o) {
-                            final selected = macroMode != MacroPlanEngine.modeCustom && o.id == macroPlanId;
-                            return _PlanCard(
-                              option: o,
-                              selected: selected,
-                              onTap: _savingPlan ? null : () => _applyPlan(o),
-                            );
-                          }).toList(),
-                        ),
-                        if (macroMode == MacroPlanEngine.modeCustom) ...[
-                          const SizedBox(height: 10),
                           Row(
                             children: [
-                              const Icon(Icons.tune_rounded, size: 18),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'مفعّل حاليًا: تخصيص يدوي (يمكن تغييره من صفحة "بياناتي").',
-                                  style: base14Muted,
-                                ),
-                              ),
+                              Expanded(child: _KpiBox(title: 'المحافظة', value: maintenanceCalories.toStringAsFixed(0))),
+                              const SizedBox(width: 12),
+                              Expanded(child: _KpiBox(title: 'هدفك اليومي', value: adjustedCalories.toStringAsFixed(0))),
                             ],
                           ),
-                        ]
-                      ],
+                          const SizedBox(height: 14),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: LinearProgressIndicator(
+                              value: (maintenanceCalories == 0 ? 0 : (adjustedCalories / maintenanceCalories)).clamp(0.0, 1.0).toDouble(),
+                              minHeight: 10,
+                              backgroundColor: cs.primary.withOpacity(0.09),
+                              valueColor: AlwaysStoppedAnimation<Color>(cs.primary),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text('مقارنة هدفك اليومي بسعرات المحافظة.', style: base14Muted),
+                        ],
+                      ),
                     ),
-                  ),
 
-                  // تفاصيل الحساب
-                  _SectionCard(
-                    title: 'طريقة الحساب',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('BMR: ${bmr.toStringAsFixed(0)}  |  عامل النشاط: ${activityFactor.toStringAsFixed(3)} (${_activityLabel(activityFactor)})', style: base16),
-                        const SizedBox(height: 6),
-                        Text('المحافظة = BMR × عامل النشاط = ${maintenanceCalories.toStringAsFixed(0)}', style: base14Muted),
-                        Text('الهدف بعد التعديل = ${adjustedCalories.toStringAsFixed(0)}', style: base14Muted),
-                        const SizedBox(height: 6),
-                        ExpansionTile(
-                          title: const Text('التحليل والشرح'),
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4),
-                              child: Text(
-                                analysisText.isEmpty
-                                    ? 'نستخدم معادلات قياسية لحساب معدل الأيض الأساسي (BMR) ثم نضربه بعامل نشاطك اليومي للوصول لسعرات المحافظة. بعدها نعدّل للأعلى/الأسفل حسب الهدف.'
-                                    : analysisText,
-                                style: base14Muted.copyWith(height: 1.4),
-                                textAlign: TextAlign.start,
-                              ),
+                    _SectionCard(
+                      title: 'اختر الخطة المناسبة لك',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('اختر الخطة الأقرب لأسلوبك، ووازن يحدث توزيع الماكروز تلقائيًا.', style: base14Muted),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: planOptions.map((o) {
+                              final selected = macroMode != MacroPlanEngine.modeCustom && o.id == macroPlanId;
+                              return _PlanCard(
+                                option: o,
+                                selected: selected,
+                                onTap: _savingPlan ? null : () => _applyPlan(o),
+                              );
+                            }).toList(),
+                          ),
+                          if (macroMode == MacroPlanEngine.modeCustom) ...[
+                            const SizedBox(height: 12),
+                            _SoftInfoBanner(
+                              icon: Icons.tune_rounded,
+                              text: 'مفعّل حاليًا: تخصيص يدوي. تقدر تغيّره من صفحة بياناتي.',
                             ),
                           ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
 
-                  // الماكروز (نفس القيم/المعادلات)
-                  _SectionCard(
-                    title: 'توزيع الماكروز',
-                    child: Column(
-                      children: [
-                        _MacroRow(label: 'البروتين', grams: protein, emoji: '🍗', total: (protein + fat + carbs)),
-                        const SizedBox(height: 8),
-                        _MacroRow(label: 'الدهون', grams: fat, emoji: '🥑', total: (protein + fat + carbs)),
-                        const SizedBox(height: 8),
-                        _MacroRow(label: 'الكربوهيدرات', grams: carbs, emoji: '🍚', total: (protein + fat + carbs)),
-                      ],
+                    _SectionCard(
+                      title: 'طريقة الحساب',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _FormulaLine(
+                            title: 'معدل الحرق الأساسي',
+                            value: bmr.toStringAsFixed(0),
+                            helper: 'BMR',
+                          ),
+                          const SizedBox(height: 10),
+                          _FormulaLine(
+                            title: 'عامل النشاط',
+                            value: activityFactor.toStringAsFixed(3),
+                            helper: _activityLabel(activityFactor),
+                          ),
+                          const SizedBox(height: 10),
+                          _FormulaLine(
+                            title: 'سعرات المحافظة',
+                            value: maintenanceCalories.toStringAsFixed(0),
+                            helper: 'BMR × عامل النشاط',
+                          ),
+                          const SizedBox(height: 10),
+                          _FormulaLine(
+                            title: 'هدفك بعد التعديل',
+                            value: adjustedCalories.toStringAsFixed(0),
+                            helper: goal,
+                          ),
+                          const SizedBox(height: 8),
+                          Theme(
+                            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                            child: ExpansionTile(
+                              tilePadding: EdgeInsets.zero,
+                              childrenPadding: const EdgeInsets.fromLTRB(0, 0, 0, 4),
+                              title: Text(
+                                'التحليل والشرح',
+                                style: base16.copyWith(fontWeight: FontWeight.w900),
+                              ),
+                              children: [
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Text(
+                                    analysisText.isEmpty
+                                        ? 'نستخدم معادلات قياسية لحساب معدل الأيض الأساسي، ثم نضربه بعامل نشاطك اليومي للوصول لسعرات المحافظة. بعدها نعدّلها حسب هدفك.'
+                                        : analysisText,
+                                    style: base14Muted,
+                                    textAlign: TextAlign.start,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(height: 24),
-                ],
-              ),
+                    _SectionCard(
+                      title: 'توزيع الماكروز',
+                      child: Column(
+                        children: [
+                          _MacroRow(
+                            label: 'البروتين',
+                            grams: protein,
+                            emoji: '🥩',
+                            total: totalMacros,
+                            color: const Color(0xFF2563EB),
+                          ),
+                          const SizedBox(height: 12),
+                          _MacroRow(
+                            label: 'الكربوهيدرات',
+                            grams: carbs,
+                            emoji: '🍞',
+                            total: totalMacros,
+                            color: const Color(0xFFF97316),
+                          ),
+                          const SizedBox(height: 12),
+                          _MacroRow(
+                            label: 'الدهون',
+                            grams: fat,
+                            emoji: '🥑',
+                            total: totalMacros,
+                            color: const Color(0xFF22C55E),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+                  ],
                 ),
+              ),
       ),
     );
   }
 }
-
 enum ChipTone { neutral, success, warning }
+
+class _SummaryHeroCard extends StatelessWidget {
+  final TextStyle titleStyle;
+  final TextStyle mutedStyle;
+  final String goal;
+  final String activityLabel;
+  final String caloriesLabel;
+  final bool isDeficit;
+  final bool isSurplus;
+  final String motivation;
+
+  const _SummaryHeroCard({
+    required this.titleStyle,
+    required this.mutedStyle,
+    required this.goal,
+    required this.activityLabel,
+    required this.caloriesLabel,
+    required this.isDeficit,
+    required this.isSurplus,
+    required this.motivation,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            cs.primary.withOpacity(isDark ? 0.22 : 0.13),
+            cs.surface.withOpacity(isDark ? 0.82 : 0.92),
+            cs.secondaryContainer.withOpacity(isDark ? 0.14 : 0.20),
+          ],
+        ),
+        border: Border.all(color: cs.primary.withOpacity(isDark ? 0.16 : 0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: cs.primary.withOpacity(isDark ? 0.18 : 0.12),
+            blurRadius: 30,
+            spreadRadius: -8,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: cs.primary.withOpacity(0.14)),
+                ),
+                child: Icon(Icons.monitor_heart_rounded, color: cs.primary, size: 26),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('خطة وازن جاهزة لك', style: titleStyle),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'راجع هدفك اليومي وتوزيع الماكروز قبل ما تبدأ رحلتك.',
+            style: mutedStyle,
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _Chip(label: goal, tone: ChipTone.success),
+              _Chip(label: activityLabel),
+              _Chip(
+                label: caloriesLabel,
+                tone: isDeficit ? ChipTone.warning : (isSurplus ? ChipTone.success : ChipTone.neutral),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: cs.surface.withOpacity(isDark ? 0.54 : 0.70),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: cs.primary.withOpacity(0.08)),
+            ),
+            child: Text(motivation, style: mutedStyle.copyWith(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SectionCard extends StatelessWidget {
   final String? title;
@@ -754,40 +911,138 @@ class _SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: cs.outlineVariant.withOpacity(0.65)),
-        color: cs.surface.withOpacity(0.78),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: cs.primary.withOpacity(isDark ? 0.13 : 0.09)),
+        color: cs.surface.withOpacity(isDark ? 0.72 : 0.86),
         boxShadow: [
           BoxShadow(
-            color: cs.shadow.withOpacity(0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
+            color: Colors.black.withOpacity(isDark ? 0.18 : 0.055),
+            blurRadius: 24,
+            spreadRadius: -8,
+            offset: const Offset(0, 14),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(28),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (title != null) ...[
-            Text(title!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            const Divider(height: 1),
-            const SizedBox(height: 12),
-          ],
-          child,
-        ],
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (title != null) ...[
+                  Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: cs.primary,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          title!,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                child,
+              ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SoftInfoBanner extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _SoftInfoBanner({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: cs.primary.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withOpacity(0.10)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: cs.primary, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: cs.onSurface.withOpacity(0.70),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FormulaLine extends StatelessWidget {
+  final String title;
+  final String value;
+  final String helper;
+  const _FormulaLine({required this.title, required this.value, required this.helper});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant.withOpacity(0.30),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.42)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.w900, color: cs.onSurface)),
+                const SizedBox(height: 4),
+                Text(helper, style: TextStyle(fontSize: 12.5, color: cs.onSurface.withOpacity(0.56), height: 1.35)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            value,
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: cs.primary),
+          ),
+        ],
       ),
     );
   }
@@ -802,25 +1057,43 @@ class _KpiBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.blueGrey.shade100),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            cs.primary.withOpacity(0.095),
+            cs.surface.withOpacity(0.86),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.primary.withOpacity(0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 14, color: Colors.black54)),
-          const SizedBox(height: 6),
+          Text(
+            title,
+            style: TextStyle(fontSize: 13, color: cs.onSurface.withOpacity(0.58), fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: cs.onSurface),
+                ),
+              ),
               if (unit != null) ...[
                 const SizedBox(width: 4),
-                Text(unit!, style: const TextStyle(fontSize: 14, color: Colors.black45)),
+                Text(unit!, style: TextStyle(fontSize: 13, color: cs.onSurface.withOpacity(0.44), fontWeight: FontWeight.w700)),
               ],
             ],
           ),
@@ -844,19 +1117,29 @@ class _PlanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final bg = selected ? cs.primary.withOpacity(0.10) : cs.surface;
-    final border = selected ? cs.primary : cs.outlineVariant.withOpacity(0.6);
+    final bg = selected ? cs.primary.withOpacity(0.10) : cs.surface.withOpacity(0.70);
+    final border = selected ? cs.primary.withOpacity(0.70) : cs.outlineVariant.withOpacity(0.45);
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
+      borderRadius: BorderRadius.circular(22),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
         width: 185,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(13),
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: border),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: border, width: selected ? 1.4 : 1),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: cs.primary.withOpacity(0.12),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : const [],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -867,30 +1150,30 @@ class _PlanCard extends StatelessWidget {
                   child: Text(
                     option.title,
                     style: TextStyle(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w900,
                       color: selected ? cs.primary : cs.onSurface,
                     ),
                   ),
                 ),
                 Icon(
-                  selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
                   color: selected ? cs.primary : cs.outline,
-                  size: 18,
+                  size: 20,
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(option.subtitle, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
-            const SizedBox(height: 10),
+            const SizedBox(height: 7),
+            Text(option.subtitle, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, height: 1.35)),
+            const SizedBox(height: 12),
             Text(
-              '${option.calories.toStringAsFixed(0)} ك.س',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              option.calories.toStringAsFixed(0),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: cs.onSurface),
             ),
-            const SizedBox(height: 8),
-            _miniRow('🍗', 'P', option.proteinG),
-            const SizedBox(height: 4),
-            _miniRow('🍚', 'C', option.carbsG),
-            const SizedBox(height: 4),
+            const SizedBox(height: 9),
+            _miniRow('🥩', 'P', option.proteinG),
+            const SizedBox(height: 5),
+            _miniRow('🍞', 'C', option.carbsG),
+            const SizedBox(height: 5),
             _miniRow('🥑', 'F', option.fatG),
           ],
         ),
@@ -903,9 +1186,9 @@ class _PlanCard extends StatelessWidget {
       children: [
         Text(emoji, style: const TextStyle(fontSize: 14)),
         const SizedBox(width: 6),
-        Text(tag, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+        Text(tag, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
         const Spacer(),
-        Text('${grams.toStringAsFixed(0)}g', style: const TextStyle(fontSize: 12)),
+        Text('${grams.toStringAsFixed(0)} جم', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
       ],
     );
   }
@@ -916,32 +1199,65 @@ class _MacroRow extends StatelessWidget {
   final double grams;
   final double? total;
   final String emoji;
+  final Color color;
 
-  const _MacroRow({required this.label, required this.grams, required this.emoji, this.total});
+  const _MacroRow({
+    required this.label,
+    required this.grams,
+    required this.emoji,
+    required this.color,
+    this.total,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final ratio = (total == null || total == 0) ? 0.0 : (grams / total!).clamp(0.0, 1.0);
-    return Column(
-      children: [
-        Row(
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 18)),
-            const SizedBox(width: 8),
-            Expanded(child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
-            Text('${grams.toStringAsFixed(0)} جم', style: const TextStyle(fontSize: 15, color: Colors.black87)),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: ratio,
-            minHeight: 10,
-            backgroundColor: Colors.grey[300],
+    final cs = Theme.of(context).colorScheme;
+    final ratio = (total == null || total == 0) ? 0.0 : (grams / total!).clamp(0.0, 1.0).toDouble();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.075),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.10)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.11),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Center(child: Text(emoji, style: const TextStyle(fontSize: 19))),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: cs.onSurface),
+                ),
+              ),
+              Text(
+                '${grams.toStringAsFixed(0)} جم',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: cs.onSurface.withOpacity(0.82)),
+              ),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 10,
+              backgroundColor: color.withOpacity(0.13),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -953,28 +1269,34 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     Color bg;
     Color fg;
+    BorderSide border;
     switch (tone) {
       case ChipTone.success:
-        bg = const Color(0xFFE9F7EF);
-        fg = const Color(0xFF1E7E34);
+        bg = cs.primary.withOpacity(0.10);
+        fg = cs.primary;
+        border = BorderSide(color: cs.primary.withOpacity(0.18));
         break;
       case ChipTone.warning:
         bg = const Color(0xFFFFF4E5);
         fg = const Color(0xFF8A5A12);
+        border = BorderSide(color: fg.withOpacity(0.12));
         break;
       default:
-        bg = const Color(0xFFEFF3F8);
-        fg = const Color(0xFF2F3A4A);
+        bg = cs.surface.withOpacity(0.72);
+        fg = cs.onSurface.withOpacity(0.70);
+        border = BorderSide(color: cs.outlineVariant.withOpacity(0.38));
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.fromBorderSide(border),
       ),
-      child: Text(label, style: TextStyle(color: fg, fontSize: 13, fontWeight: FontWeight.w600)),
+      child: Text(label, style: TextStyle(color: fg, fontSize: 12.5, fontWeight: FontWeight.w900, height: 1.1)),
     );
   }
 }
@@ -985,15 +1307,17 @@ class _Chip extends StatelessWidget {
 class _OnbDecorations {
   static BoxDecoration background(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          cs.primary.withOpacity(0.10),
-          cs.secondary.withOpacity(0.06),
+          cs.primary.withOpacity(isDark ? 0.20 : 0.105),
+          cs.secondaryContainer.withOpacity(isDark ? 0.10 : 0.20),
           cs.surface,
         ],
+        stops: const [0.0, 0.42, 1.0],
       ),
     );
   }
