@@ -58,6 +58,46 @@ class AppRepository {
     required int burned,
   }) async {}
 
+  /// مزامنة بيانات Apple Health / Google Fit اليومية بدون تعطيل الواجهة.
+  /// تُحفظ داخل users/{uid}/days/{ymd}.healthMetrics حتى يستفيد منها
+  /// المدرب الذكي والمزامنة السحابية لاحقًا بدون كسر شكل activity القديم.
+  static Future<void> writeHealthMetrics({
+    required String ymd,
+    required Map<String, dynamic> metrics,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _touchUserMetaInBackground();
+
+    final now = Timestamp.now();
+    final cleaned = <String, dynamic>{};
+    for (final entry in metrics.entries) {
+      final key = entry.key.trim();
+      if (key.isEmpty) continue;
+      final value = entry.value;
+      if (value == null) continue;
+      if (value is num && !value.isFinite) continue;
+      cleaned[key] = value;
+    }
+
+    if (cleaned.isEmpty) return;
+
+    await _dayDoc(ymd).set({
+      'healthMetrics': {
+        ...cleaned,
+        'updatedAt': now,
+      },
+      // مرآة مختصرة في activity حتى الصفحات القديمة تستفيد من الخطوات والمحروق.
+      'activity': {
+        if (cleaned['steps'] is num) 'steps': (cleaned['steps'] as num).toInt(),
+        if (cleaned['activeEnergyKcal'] is num) 'burned': (cleaned['activeEnergyKcal'] as num).round(),
+        'updatedAt': now,
+      },
+      'updatedAt': now,
+    }, SetOptions(merge: true));
+  }
+
   static Future<void> writeWaterLiters({
     required String ymd,
     required double liters,

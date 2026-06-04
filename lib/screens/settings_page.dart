@@ -30,6 +30,7 @@ import 'package:my_app/settings/changelog_page.dart';
 
 // ✅ صفحة الاشتراك
 import 'package:my_app/settings/subscription_page.dart';
+import 'package:my_app/settings/sync_page.dart';
 
 
 class SettingsPage extends StatelessWidget {
@@ -532,6 +533,13 @@ Future<void> _deleteUserFirestore(String uid) async {
                   title: 'اشتراكي',
                   subtitle: 'إدارة الاشتراك ومسح الباركود',
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SubscriptionPage())),
+                ),
+                _tile(
+                  context: context,
+                  icon: Icons.cloud_sync_rounded,
+                  title: 'المزامنة السحابية',
+                  subtitle: 'للمشتركين فقط: مزامنة الكل أو أقسام محددة',
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsCloudSyncPage())),
                 ),
               ],
             ),

@@ -307,6 +307,13 @@ int _pendingLocalToday = 0;
   // نشاط Apple/Google Health
   int steps = 0;
   int burned = 0;
+  double sleepHours = 0.0;
+  double exerciseMinutes = 0.0;
+  double distanceKm = 0.0;
+  double restingHeartRate = 0.0;
+  double heartRateAvg = 0.0;
+  double basalBurned = 0.0;
+  int flightsClimbed = 0;
 
   // health ^13.x
   final Health health = Health();
@@ -748,12 +755,61 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
 // ====== Apple/Google Health (اختياري) ======
   Future<void> fetchHealthData() async {
-    final List<HealthDataType> types = <HealthDataType>[
-      HealthDataType.STEPS,
-      HealthDataType.ACTIVE_ENERGY_BURNED,
-    ];
     final DateTime now = DateTime.now();
-    final DateTime start = DateTime(now.year, now.month, now.day);
+    final DateTime todayStart = DateTime(now.year, now.month, now.day);
+    // النوم غالبًا يبدأ قبل منتصف الليل؛ نقرأ من مساء أمس حتى الآن.
+    final DateTime sleepStart = todayStart.subtract(const Duration(hours: 6));
+
+    HealthDataType? typeByName(String name) {
+      for (final type in HealthDataType.values) {
+        if (type.name == name) return type;
+      }
+      return null;
+    }
+
+    List<HealthDataType> availableTypes(List<String> names) {
+      final seen = <HealthDataType>{};
+      final out = <HealthDataType>[];
+      for (final name in names) {
+        final type = typeByName(name);
+        if (type != null && seen.add(type)) out.add(type);
+      }
+      return out;
+    }
+
+    final generalTypes = availableTypes(const <String>[
+      'STEPS',
+      'ACTIVE_ENERGY_BURNED',
+      'BASAL_ENERGY_BURNED',
+      'DISTANCE_WALKING_RUNNING',
+      'FLIGHTS_CLIMBED',
+      'EXERCISE_TIME',
+      'APPLE_EXERCISE_TIME',
+      'APPLE_MOVE_TIME',
+      'HEART_RATE',
+      'RESTING_HEART_RATE',
+      'WALKING_HEART_RATE',
+      'HEART_RATE_VARIABILITY_SDNN',
+      'RESPIRATORY_RATE',
+      'BLOOD_OXYGEN',
+      'BODY_TEMPERATURE',
+      'WEIGHT',
+      'WATER',
+      'MINDFULNESS',
+    ]);
+
+    final sleepTypes = availableTypes(const <String>[
+      'SLEEP_ASLEEP',
+      'SLEEP_IN_BED',
+      'SLEEP_AWAKE',
+      'SLEEP_DEEP',
+      'SLEEP_REM',
+      'SLEEP_LIGHT',
+      'SLEEP_CORE',
+    ]);
+
+    final allTypes = <HealthDataType>{...generalTypes, ...sleepTypes}.toList();
+    if (allTypes.isEmpty) return;
 
     try {
       try {
@@ -761,19 +817,36 @@ Future<void> _maybeAwardDailyBonusesNow() async {
         if (cfg is Future) await cfg;
       } catch (_) {}
 
-      final bool granted = await health.requestAuthorization(types);
+      final bool granted = await health.requestAuthorization(allTypes);
       if (!granted) return;
 
-      final List<HealthDataPoint> healthData =
-          await health.getHealthDataFromTypes(
-        types: types,
-        startTime: start,
-        endTime: now,
-      );
+      final List<HealthDataPoint> healthData = <HealthDataPoint>[];
 
-      // بعض إصدارات حزمة health ترجع value كـ NumericHealthValue بدل num،
-      // لذلك نحولها بشكل آمن بدون كسر المنطق.
-      double _asDouble(dynamic v) {
+      if (generalTypes.isNotEmpty) {
+        try {
+          healthData.addAll(await health.getHealthDataFromTypes(
+            types: generalTypes,
+            startTime: todayStart,
+            endTime: now,
+          ));
+        } catch (e) {
+          debugPrint('fetchHealthData general types error: $e');
+        }
+      }
+
+      if (sleepTypes.isNotEmpty) {
+        try {
+          healthData.addAll(await health.getHealthDataFromTypes(
+            types: sleepTypes,
+            startTime: sleepStart,
+            endTime: now,
+          ));
+        } catch (e) {
+          debugPrint('fetchHealthData sleep types error: $e');
+        }
+      }
+
+      double asDouble(dynamic v) {
         if (v == null) return 0.0;
         if (v is num) return v.toDouble();
 
@@ -789,7 +862,6 @@ Future<void> _maybeAwardDailyBonusesNow() async {
           if (vv is num) return vv.toDouble();
         } catch (_) {}
 
-        // آخر محاولة عبر toJson()
         try {
           final m = (v as dynamic).toJson();
           if (m is Map) {
@@ -803,37 +875,169 @@ Future<void> _maybeAwardDailyBonusesNow() async {
         return 0.0;
       }
 
-      int totalSteps = 0;
-      double totalBurned = 0.0;
+      String typeNameOf(HealthDataPoint point) => point.type.name;
 
-      for (final HealthDataPoint point in healthData) {
-        if (point.type == HealthDataType.STEPS) {
-          totalSteps += _asDouble(point.value).toInt();
-        } else if (point.type == HealthDataType.ACTIVE_ENERGY_BURNED) {
-          totalBurned += _asDouble(point.value);
+      double durationMinutes(HealthDataPoint point, DateTime windowStart, DateTime windowEnd) {
+        final from = point.dateFrom.isBefore(windowStart) ? windowStart : point.dateFrom;
+        final to = point.dateTo.isAfter(windowEnd) ? windowEnd : point.dateTo;
+        if (!to.isAfter(from)) return 0.0;
+        return to.difference(from).inSeconds / 60.0;
+      }
+
+      int totalSteps = 0;
+      double totalActiveBurned = 0.0;
+      double totalBasalBurned = 0.0;
+      double totalDistanceMeters = 0.0;
+      double totalExerciseMin = 0.0;
+      int totalFlights = 0;
+      double asleepMin = 0.0;
+      double inBedMin = 0.0;
+      double awakeSleepMin = 0.0;
+      final heartValues = <double>[];
+      final restingValues = <double>[];
+      final walkingHeartValues = <double>[];
+      final hrvValues = <double>[];
+      final respiratoryValues = <double>[];
+      final bloodOxygenValues = <double>[];
+      final bodyTempValues = <double>[];
+      double latestWeightKg = 0.0;
+      double healthWaterLiters = 0.0;
+      double mindfulnessMin = 0.0;
+
+      for (final point in healthData) {
+        final typeName = typeNameOf(point);
+        final value = asDouble(point.value);
+
+        switch (typeName) {
+          case 'STEPS':
+            totalSteps += value.toInt();
+            break;
+          case 'ACTIVE_ENERGY_BURNED':
+            totalActiveBurned += value;
+            break;
+          case 'BASAL_ENERGY_BURNED':
+            totalBasalBurned += value;
+            break;
+          case 'DISTANCE_WALKING_RUNNING':
+            totalDistanceMeters += value;
+            break;
+          case 'FLIGHTS_CLIMBED':
+            totalFlights += value.toInt();
+            break;
+          case 'EXERCISE_TIME':
+          case 'APPLE_EXERCISE_TIME':
+          case 'APPLE_MOVE_TIME':
+            totalExerciseMin += value > 0 ? value : durationMinutes(point, todayStart, now);
+            break;
+          case 'HEART_RATE':
+            if (value > 0) heartValues.add(value);
+            break;
+          case 'RESTING_HEART_RATE':
+            if (value > 0) restingValues.add(value);
+            break;
+          case 'WALKING_HEART_RATE':
+            if (value > 0) walkingHeartValues.add(value);
+            break;
+          case 'HEART_RATE_VARIABILITY_SDNN':
+            if (value > 0) hrvValues.add(value);
+            break;
+          case 'RESPIRATORY_RATE':
+            if (value > 0) respiratoryValues.add(value);
+            break;
+          case 'BLOOD_OXYGEN':
+            if (value > 0) bloodOxygenValues.add(value);
+            break;
+          case 'BODY_TEMPERATURE':
+            if (value > 0) bodyTempValues.add(value);
+            break;
+          case 'WEIGHT':
+            if (value > 0) latestWeightKg = value;
+            break;
+          case 'WATER':
+            if (value > 0) healthWaterLiters += value;
+            break;
+          case 'MINDFULNESS':
+            mindfulnessMin += value > 0 ? value : durationMinutes(point, todayStart, now);
+            break;
+          case 'SLEEP_ASLEEP':
+          case 'SLEEP_DEEP':
+          case 'SLEEP_REM':
+          case 'SLEEP_LIGHT':
+          case 'SLEEP_CORE':
+            asleepMin += durationMinutes(point, sleepStart, now);
+            break;
+          case 'SLEEP_IN_BED':
+            inBedMin += durationMinutes(point, sleepStart, now);
+            break;
+          case 'SLEEP_AWAKE':
+            awakeSleepMin += durationMinutes(point, sleepStart, now);
+            break;
         }
       }
+
+      double average(List<double> values) {
+        if (values.isEmpty) return 0.0;
+        return values.reduce((a, b) => a + b) / values.length;
+      }
+
+      final computedSleepHours = (asleepMin > 0 ? asleepMin : (inBedMin - awakeSleepMin).clamp(0.0, double.infinity)) / 60.0;
+      final computedExerciseMinutes = totalExerciseMin.clamp(0.0, 1440.0);
+      final computedDistanceKm = totalDistanceMeters > 0 ? totalDistanceMeters / 1000.0 : 0.0;
+      final computedHeartAvg = average(heartValues);
+      final computedRestingHeart = average(restingValues);
 
       if (!mounted) return;
       setState(() {
         steps = totalSteps;
-        burned = totalBurned.toInt();
+        burned = totalActiveBurned.toInt();
+        sleepHours = computedSleepHours;
+        exerciseMinutes = computedExerciseMinutes;
+        distanceKm = computedDistanceKm;
+        restingHeartRate = computedRestingHeart;
+        heartRateAvg = computedHeartAvg;
+        basalBurned = totalBasalBurned;
+        flightsClimbed = totalFlights;
       });
 
       await _maybeCelebrateStepMilestone(totalSteps);
 
-      // خزن نشاط اليوم محليًا + فايرستور
       final prefs = await SharedPreferences.getInstance();
       final email = prefs.getString('currentEmail') ?? 'unknown_user';
       final ymd = DateTime.now().toIso8601String().split('T').first;
+      final healthMetrics = <String, dynamic>{
+        'steps': totalSteps,
+        'activeEnergyKcal': totalActiveBurned.round(),
+        'basalEnergyKcal': totalBasalBurned.round(),
+        'distanceKm': double.parse(computedDistanceKm.toStringAsFixed(3)),
+        'exerciseMinutes': double.parse(computedExerciseMinutes.toStringAsFixed(1)),
+        'flightsClimbed': totalFlights,
+        'sleepHours': double.parse(computedSleepHours.toStringAsFixed(2)),
+        'sleepAsleepMinutes': asleepMin.round(),
+        'sleepInBedMinutes': inBedMin.round(),
+        'sleepAwakeMinutes': awakeSleepMin.round(),
+        'heartRateAvg': computedHeartAvg > 0 ? double.parse(computedHeartAvg.toStringAsFixed(1)) : 0.0,
+        'restingHeartRate': computedRestingHeart > 0 ? double.parse(computedRestingHeart.toStringAsFixed(1)) : 0.0,
+        'walkingHeartRateAvg': walkingHeartValues.isNotEmpty ? double.parse(average(walkingHeartValues).toStringAsFixed(1)) : 0.0,
+        'heartRateVariabilitySdnn': hrvValues.isNotEmpty ? double.parse(average(hrvValues).toStringAsFixed(1)) : 0.0,
+        'respiratoryRate': respiratoryValues.isNotEmpty ? double.parse(average(respiratoryValues).toStringAsFixed(1)) : 0.0,
+        'bloodOxygen': bloodOxygenValues.isNotEmpty ? double.parse(average(bloodOxygenValues).toStringAsFixed(3)) : 0.0,
+        'bodyTemperature': bodyTempValues.isNotEmpty ? double.parse(average(bodyTempValues).toStringAsFixed(1)) : 0.0,
+        'latestWeightKg': latestWeightKg > 0 ? double.parse(latestWeightKg.toStringAsFixed(2)) : 0.0,
+        'healthWaterLiters': healthWaterLiters > 0 ? double.parse(healthWaterLiters.toStringAsFixed(2)) : 0.0,
+        'mindfulnessMinutes': mindfulnessMin > 0 ? double.parse(mindfulnessMin.toStringAsFixed(1)) : 0.0,
+        'source': 'apple_google_health',
+        'updatedAtLocal': DateTime.now().toIso8601String(),
+      };
+
       await prefs.setString(
         'activity_${ymd}_$email',
         jsonEncode({'steps': steps, 'burned': burned}),
       );
+      await prefs.setString('health_${ymd}_$email', jsonEncode(healthMetrics));
 
-      // 🔗 مرآة لفايرستور بدون تعطيل الواجهة
+      // 🔗 مزامنة حقيقية لبيانات العادات/الصحة في السحابة بدون تعطيل الواجهة.
       unawaited(
-        AppRepository.writeActivity(ymd: ymd, steps: steps, burned: burned)
+        AppRepository.writeHealthMetrics(ymd: ymd, metrics: healthMetrics)
             .catchError((_) {}),
       );
     } catch (e) {
@@ -3852,6 +4056,42 @@ IconButton(
                 icon: Icons.local_fire_department_outlined,
                 color: Colors.red,
               ),
+              if (sleepHours > 0) ...[
+                const SizedBox(height: 6),
+                _MiniStatCard(
+                  title: 'النوم',
+                  value: '${sleepHours.toStringAsFixed(1)} س',
+                  icon: Icons.nightlight_round,
+                  color: Colors.indigo,
+                ),
+              ],
+              if (exerciseMinutes > 0) ...[
+                const SizedBox(height: 6),
+                _MiniStatCard(
+                  title: 'التمرين',
+                  value: '${exerciseMinutes.toStringAsFixed(0)} د',
+                  icon: Icons.fitness_center_rounded,
+                  color: Colors.orange,
+                ),
+              ],
+              if (distanceKm > 0) ...[
+                const SizedBox(height: 6),
+                _MiniStatCard(
+                  title: 'المسافة',
+                  value: '${distanceKm.toStringAsFixed(2)} كم',
+                  icon: Icons.route_rounded,
+                  color: Colors.blue,
+                ),
+              ],
+              if (restingHeartRate > 0) ...[
+                const SizedBox(height: 6),
+                _MiniStatCard(
+                  title: 'نبض الراحة',
+                  value: '${restingHeartRate.toStringAsFixed(0)}',
+                  icon: Icons.favorite_rounded,
+                  color: Colors.pink,
+                ),
+              ],
               const SizedBox(height: 8),
               _WaterCompact(
                 liters: todayWaterLiters,

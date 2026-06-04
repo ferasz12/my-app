@@ -17,6 +17,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 
 import 'app/auth_gate.dart' show AuthGate;
@@ -165,7 +166,7 @@ Future<void> _printEnvDiagnostics() async {
 
 // تعطيل مؤقت لإشعارات iOS/Apple لاختبار سبب Watchdog/OneSignal crash.
 // هذا لا يؤثر على فتح التطبيق أو الاشتراكات أو التحليل؛ فقط يوقف الإشعارات على iPhone مؤقتًا.
-const bool kDisableApplePushForCrashTest = true;
+const bool kDisableApplePushForCrashTest = false;
 
 Future<void> _initNotificationsIfSupported() async {
   if (_isWindows) {
@@ -187,8 +188,9 @@ Future<void> _initNotificationsIfSupported() async {
   // ✅ مزامنة إعدادات الإشعارات من Firestore + جدولة العروض (عند فتح التطبيق)
   NotificationSyncService.instance.start();
 
-  // ✅ إشعارات مجتمع وازن: الردود، الإعجابات، تثبيت التعليقات، والبلاغات.
-  await CommunityInboxNotificationService.instance.start();
+  // ✅ إشعارات مجتمع وازن والرسائل أصبحت Push حقيقية عبر Cloud Functions + FCM.
+  // نخلي listener الداخلي للمزامنة فقط حتى لا تظهر إشعارات مكررة أثناء فتح التطبيق.
+  await CommunityInboxNotificationService.instance.start(showLocalNotifications: false);
 }
 
 Future<void> _initFcmIfSupported() async {
@@ -249,6 +251,12 @@ void main() {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+
+    // ✅ مهم جدًا: تسجيل معالج رسائل FCM الخلفية مبكرًا حتى تصل
+    // إشعارات المجتمع والرسائل عندما يكون التطبيق بالخلفية أو مغلقًا.
+    if (!_isWindows) {
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    }
 
     // 2. تفعيل App Check
     final recaptchaKey =

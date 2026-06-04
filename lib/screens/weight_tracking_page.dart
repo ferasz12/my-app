@@ -3500,12 +3500,35 @@ class _ActivityTabState extends State<_ActivityTab> {
           endTime: now,
         );
 
+        double asDouble(dynamic v) {
+          if (v == null) return 0.0;
+          if (v is num) return v.toDouble();
+          try {
+            final nv = (v as dynamic).numericValue;
+            if (nv is num) return nv.toDouble();
+          } catch (_) {}
+          try {
+            final vv = (v as dynamic).value;
+            if (vv is num) return vv.toDouble();
+          } catch (_) {}
+          try {
+            final m = (v as dynamic).toJson();
+            if (m is Map) {
+              final nv = m['numericValue'];
+              if (nv is num) return nv.toDouble();
+              final vv = m['value'];
+              if (vv is num) return vv.toDouble();
+            }
+          } catch (_) {}
+          return 0.0;
+        }
+
         int s = 0;
         double b = 0;
         for (final p in data) {
-          if (p.type == HealthDataType.STEPS) s += (p.value as num).toInt();
+          if (p.type == HealthDataType.STEPS) s += asDouble(p.value).toInt();
           if (p.type == HealthDataType.ACTIVE_ENERGY_BURNED) {
-            b += (p.value as num).toDouble();
+            b += asDouble(p.value);
           }
         }
         if (!mounted) return;

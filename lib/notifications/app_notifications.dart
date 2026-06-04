@@ -16,7 +16,7 @@ class AppNotifications {
   AppNotifications._();
   static final AppNotifications instance = AppNotifications._();
 
-  static const bool disableAppleLocalNotificationsForCrashTest = true;
+  static const bool disableAppleLocalNotificationsForCrashTest = false;
 
   bool get _appleNotificationsDisabled =>
       disableAppleLocalNotificationsForCrashTest && (Platform.isIOS || Platform.isMacOS);

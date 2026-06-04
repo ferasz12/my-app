@@ -146,8 +146,9 @@ class AskWazenReportBuilder {
       final waterStr = prefs.getString('water_total_${email}_$ymd');
       final waterLiters = waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
 
-      // نشاط اليوم (steps/burned)
+      // نشاط اليوم (steps/burned) + عادات Apple Health / Google Fit
       final activity = _jsonMap(prefs.getString('activity_${ymd}_$email'));
+      final health = _jsonMap(prefs.getString('health_${ymd}_$email'));
 
       final w = weightAt(ymd);
       final fasting = fastingFor(ymd);
@@ -168,8 +169,26 @@ class AskWazenReportBuilder {
         },
         'water_liters': waterLiters,
         'activity': {
-          'steps': _toI(activity['steps']),
-          'burned_kcal': _toI(activity['burned']),
+          'steps': _toI(health['steps'] ?? activity['steps']),
+          'burned_kcal': _toI(health['activeEnergyKcal'] ?? activity['burned']),
+          'basal_kcal': _toI(health['basalEnergyKcal']),
+          'distance_km': _toD(health['distanceKm']),
+          'exercise_minutes': _toD(health['exerciseMinutes']),
+          'flights_climbed': _toI(health['flightsClimbed']),
+        },
+        'health_habits': {
+          'sleep_hours': _toD(health['sleepHours']),
+          'sleep_asleep_minutes': _toI(health['sleepAsleepMinutes']),
+          'sleep_in_bed_minutes': _toI(health['sleepInBedMinutes']),
+          'resting_heart_rate': _toD(health['restingHeartRate']),
+          'heart_rate_avg': _toD(health['heartRateAvg']),
+          'walking_heart_rate_avg': _toD(health['walkingHeartRateAvg']),
+          'hrv_sdnn': _toD(health['heartRateVariabilitySdnn']),
+          'respiratory_rate': _toD(health['respiratoryRate']),
+          'blood_oxygen': _toD(health['bloodOxygen']),
+          'body_temperature': _toD(health['bodyTemperature']),
+          'mindfulness_minutes': _toD(health['mindfulnessMinutes']),
+          'health_water_liters': _toD(health['healthWaterLiters']),
         },
         'weight_kg': w,
         'fasting': fasting,
