@@ -1,12 +1,10 @@
 // lib/screens/calories_history_screen.dart
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../services/end_of_day_cloud_backup_service.dart';
 import '../services/tracker_store.dart';
 
 /// سجلّ السعرات (تصميم مُصغّر):
@@ -554,12 +552,8 @@ class _CaloriesDayDetailsPageState extends State<CaloriesDayDetailsPage> {
         entries: entriesToSave,
       );
 
-      // نرفع اليوم المعدّل للسحابة بالخلفية حتى يظهر بعد تغيير الجهاز/إعادة التثبيت.
-      unawaited(
-        DailyCloudBackupService.instance
-            .backupDay(widget.rawDate, reason: 'manual_history_edit', force: true)
-            .catchError((_) {}),
-      );
+      // لا مزامنة سحابية تلقائية هنا.
+      // إذا أراد المستخدم رفع هذا اليوم للسحابة يستخدم: الإعدادات > المزامنة السحابية.
 
       _changed = true;
       if (!mounted) return;

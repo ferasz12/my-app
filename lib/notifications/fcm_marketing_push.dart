@@ -129,9 +129,8 @@ class FcmMarketingPush {
         sound: true,
       );
 
-      // اشترك حسب آخر إعدادات محفوظة محليًا.
-      // إذا ما فيه prefs، الافتراضي تشغيل wazen_all و wazen_marketing.
-      await _applyLocalPrefsFallback();
+      // لا نشترك في Topics أثناء فتح التطبيق حتى لا تتراكم طلبات شبكة/Firestore بالخلفية.
+      // يتم تطبيق تفضيلات التسويق عند حفظ صفحة الإشعارات.
 
       _foregroundSub ??= FirebaseMessaging.onMessage.listen(_onMessageForeground);
 
@@ -163,8 +162,13 @@ class FcmMarketingPush {
 
       final u = FirebaseAuth.instance.currentUser;
       if (u != null && !u.isAnonymous) {
-        // لا نخلي فشل APNS/FCM يمنع init؛ نحاول بالخلفية.
-        unawaited(_saveTokenForUser(u.uid));
+        // لا نخلي فشل APNS/FCM يمنع init؛ نحاول بالخلفية وبعد مهلة بسيطة.
+        Future<void>.delayed(const Duration(seconds: 6), () {
+          final current = FirebaseAuth.instance.currentUser;
+          if (current != null && !current.isAnonymous && current.uid == u.uid) {
+            unawaited(_saveTokenForUser(u.uid));
+          }
+        });
       }
 
       _inited = true;
@@ -269,10 +273,10 @@ class FcmMarketingPush {
   Future<String?> _getTokenSafely({bool forceRefresh = false}) async {
     // في iOS لازم APNS token يكون جاهز قبل FCM token.
     if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) {
-      for (var i = 0; i < 8; i++) {
+      for (var i = 0; i < 3; i++) {
         final apns = await _messaging.getAPNSToken();
         if (apns != null && apns.trim().isNotEmpty) break;
-        await Future.delayed(Duration(milliseconds: 700 + (i * 350)));
+        await Future.delayed(Duration(milliseconds: 500 + (i * 250)));
       }
     }
 

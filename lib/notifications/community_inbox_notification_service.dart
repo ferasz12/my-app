@@ -33,9 +33,13 @@ class CommunityInboxNotificationService {
     _started = true;
     _showLocalNotifications = showLocalNotifications;
 
-    if (_showLocalNotifications) {
-      await _initLocalNotifications();
+    // إذا كانت الإشعارات المحلية غير مطلوبة، لا نفتح Firestore listener أصلاً.
+    // إشعارات المجتمع والرسائل تصل عبر FCM/Cloud Functions حتى والتطبيق مقفل.
+    if (!_showLocalNotifications) {
+      return;
     }
+
+    await _initLocalNotifications();
 
     _authSub = _auth.authStateChanges().listen((user) {
       _listenToInbox(user);

@@ -65,19 +65,10 @@ class DailyCloudBackupService with WidgetsBindingObserver {
   }
 
   void start() {
+    // تم تعطيل النسخ السحابي التلقائي بالخلفية.
+    // المزامنة الآن من زر الإعدادات فقط عبر CloudSyncService.
     if (_started) return;
     _started = true;
-    WidgetsBinding.instance.addObserver(this);
-
-    // فحص بعد فتح التطبيق بدون تعليق الواجهة.
-    unawaited(_backupMissedPreviousDays().catchError((_) {}));
-    unawaited(_backupTodayIfDue().catchError((_) {}));
-
-    // فحص خفيف كل دقيقة. لا يقرأ Firestore ولا يوقف الواجهة.
-    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      unawaited(_backupTodayIfDue().catchError((_) {}));
-      unawaited(_backupMissedPreviousDays().catchError((_) {}));
-    });
   }
 
   void dispose() {
@@ -87,28 +78,15 @@ class DailyCloudBackupService with WidgetsBindingObserver {
     _started = false;
   }
 
-  /// نستخدمها فقط كإشارة مستقبلية؛ لا تحفظ في السحابة أثناء اليوم.
+  /// لا نرفع أو نجهز مزامنة بالخلفية. الحفظ المحلي فقط، والمزامنة يدوية من الإعدادات.
   Future<void> markDirty() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = await _emailKey();
-    await prefs.setBool('eod_cloud_dirty_${email}_${_ymd(DateTime.now())}', true);
+    return;
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      unawaited(_backupMissedPreviousDays().catchError((_) {}));
-      unawaited(_backupTodayIfDue().catchError((_) {}));
-      return;
-    }
-
-    // إذا المستخدم خرج آخر الليل قبل 11:59، نعطيه فرصة يحفظ لقطة اليوم.
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      final now = DateTime.now();
-      if (now.hour >= 23 && now.minute >= 50) {
-        unawaited(backupDay(_ymd(now), reason: 'late_app_pause').catchError((_) {}));
-      }
-    }
+    // لا توجد مزامنة تلقائية عند تغيير حالة التطبيق.
+    return;
   }
 
   Future<void> _backupTodayIfDue() async {

@@ -55,13 +55,10 @@ import 'settings/subscription_page.dart';
 import 'app/app_nav.dart';
 import 'notifications/fcm_marketing_push.dart';
 import 'services/app_review_service.dart';
-import 'services/end_of_day_cloud_backup_service.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'fasting/fasting_notifications.dart';
 import 'notifications/app_notifications.dart';
-import 'notifications/community_inbox_notification_service.dart';
-import 'notifications/notification_sync_service.dart';
 import 'notifications/tz_config.dart';
 import 'shared/safe_prefs.dart';
 import 'shared/premium_gate.dart';
@@ -181,16 +178,10 @@ Future<void> _initNotificationsIfSupported() async {
 
   TzConfig.ensureInitialized();
 
-  await FastingNotifications.instance.init();
-  await AppNotifications.instance.init();
-  await AppNotifications.instance.restoreFromLocalPrefs();
-
-  // ✅ مزامنة إعدادات الإشعارات من Firestore + جدولة العروض (عند فتح التطبيق)
-  NotificationSyncService.instance.start();
-
-  // ✅ إشعارات مجتمع وازن والرسائل أصبحت Push حقيقية عبر Cloud Functions + FCM.
-  // نخلي listener الداخلي للمزامنة فقط حتى لا تظهر إشعارات مكررة أثناء فتح التطبيق.
-  await CommunityInboxNotificationService.instance.start(showLocalNotifications: false);
+  // تهيئة خفيفة فقط. لا نعيد جدولة كل الإشعارات ولا نستمع لـ Firestore عند فتح التطبيق،
+  // لأن إشعارات المجتمع والرسائل تصل عبر FCM/Cloud Functions حتى لا تعلق الصفحات.
+  await FastingNotifications.instance.init().timeout(const Duration(seconds: 3));
+  await AppNotifications.instance.init().timeout(const Duration(seconds: 3));
 }
 
 Future<void> _initFcmIfSupported() async {
@@ -225,11 +216,11 @@ Future<void> _safeStartupTask(
 Future<void> _startOptionalServicesAfterFirstFrame() async {
   // الخدمات الاختيارية لا يجب أن تضغط أول فتح للهوم.
   // نشغلها بتأخير بسيط وبشكل غير متسلسل حتى لو تعطلت خدمة لا توقف الباقي.
-  Future<void>.delayed(const Duration(seconds: 2), () {
+  Future<void>.delayed(const Duration(seconds: 20), () {
     unawaited(_safeStartupTask('FCM', _initFcmIfSupported));
   });
 
-  Future<void>.delayed(const Duration(seconds: 5), () {
+  Future<void>.delayed(const Duration(seconds: 30), () {
     unawaited(_safeStartupTask('Notifications', _initNotificationsIfSupported));
   });
 }
@@ -309,12 +300,7 @@ void main() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_startOptionalServicesAfterFirstFrame());
 
-      // النسخ السحابي وفحص التقييم لا يحتاجان أول ثواني من فتح التطبيق.
-      // تأخيرهما يقلل التعليق والكراش على iPhone بعد تسجيل الدخول.
-      Future<void>.delayed(const Duration(seconds: 18), () {
-        DailyCloudBackupService.instance.start();
-      });
-
+      // لا توجد مزامنة سحابية تلقائية بالخلفية. المزامنة الآن من زر الإعدادات فقط.
       Future<void>.delayed(const Duration(seconds: 10), () {
         final context = AppNav.key.currentContext;
         if (context != null) {
