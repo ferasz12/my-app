@@ -223,11 +223,15 @@ Future<void> _safeStartupTask(
 }
 
 Future<void> _startOptionalServicesAfterFirstFrame() async {
-  // شغّل FCM كخدمة مستقلة حتى لو تعطلت جدولة الإشعارات المحلية
-  // أو أخذت وقت طويل. هذا مهم حتى تُحفظ التوكنات وتشتغل Topics.
-  unawaited(_safeStartupTask('FCM', _initFcmIfSupported));
+  // الخدمات الاختيارية لا يجب أن تضغط أول فتح للهوم.
+  // نشغلها بتأخير بسيط وبشكل غير متسلسل حتى لو تعطلت خدمة لا توقف الباقي.
+  Future<void>.delayed(const Duration(seconds: 2), () {
+    unawaited(_safeStartupTask('FCM', _initFcmIfSupported));
+  });
 
-  await _safeStartupTask('Notifications', _initNotificationsIfSupported);
+  Future<void>.delayed(const Duration(seconds: 5), () {
+    unawaited(_safeStartupTask('Notifications', _initNotificationsIfSupported));
+  });
 }
 
 void main() {
@@ -304,9 +308,14 @@ void main() {
     // 4. شغّل الخدمات الاختيارية بعد ظهور أول واجهة حتى لا تسبب شاشة بيضاء عند الإقلاع.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_startOptionalServicesAfterFirstFrame());
-      DailyCloudBackupService.instance.start();
 
-      Future<void>.delayed(const Duration(seconds: 3), () {
+      // النسخ السحابي وفحص التقييم لا يحتاجان أول ثواني من فتح التطبيق.
+      // تأخيرهما يقلل التعليق والكراش على iPhone بعد تسجيل الدخول.
+      Future<void>.delayed(const Duration(seconds: 18), () {
+        DailyCloudBackupService.instance.start();
+      });
+
+      Future<void>.delayed(const Duration(seconds: 10), () {
         final context = AppNav.key.currentContext;
         if (context != null) {
           unawaited(AppReviewService.maybeShowPeriodicPrompt(context));

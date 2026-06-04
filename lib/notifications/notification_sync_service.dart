@@ -32,9 +32,7 @@ class NotificationSyncService {
     if (_started) return;
     _started = true;
 
-    // ✅ تهيئة إشعارات العروض عبر FCM (لا يؤثر على نظام الإشعارات المحلي القديم)
-    // ستعمل مع Firebase Messaging + Topics (wazen_all / wazen_marketing)
-    FcmMarketingPush.instance.init();
+    // FCM يبدأ من main بعد أول فريم. لا نعيد تهيئته هنا حتى لا تتكرر طلبات APNs/FCM وقت الدخول.
 
     // استمع لتغير حالة الدخول
     _authSub = FirebaseAuth.instance.authStateChanges().listen((u) {
@@ -84,7 +82,7 @@ class NotificationSyncService {
 
     // 2) الاستماع المباشر لأي تغيير في prefs
     final userRef = FirebaseFirestore.instance.collection('users').doc(u.uid);
-    _prefsSub = userRef.snapshots(includeMetadataChanges: true).listen((snap) async {
+    _prefsSub = userRef.snapshots().listen((snap) async {
       final data = snap.data();
       final prefsAny = data?['prefs'];
       if (prefsAny is Map) {
