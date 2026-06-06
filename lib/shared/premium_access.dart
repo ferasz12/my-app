@@ -101,10 +101,19 @@ class PremiumAccess {
           .collection('users')
           .doc(user.uid)
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(milliseconds: 1800));
+          .timeout(const Duration(milliseconds: 3500));
       return _computeStatus(user, remoteData: doc.data());
     } catch (_) {
-      return local;
+      try {
+        final cached = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(milliseconds: 500));
+        return _computeStatus(user, remoteData: cached.data());
+      } catch (_) {
+        return local;
+      }
     }
   }
 

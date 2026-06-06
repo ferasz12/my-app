@@ -21,10 +21,8 @@ import '../trainers/trainer_dashboard_screen.dart';
 import '../trainers/trainer_contact_gate.dart';
 
 // شارات/حساب
-import '../community/local_repos.dart'; // LocalAuthRepo().currentUser()
 import '../community/models.dart'; // AppUser
 import '../models/badge.dart'; // enum BadgeType
-import '../shared/user_badges_store.dart'; // مصدر الشارات
 
 // ✅ صفحات المالك والدعم داخل features
 import '../features/admin/owner_page.dart'; // OwnerPage
@@ -128,7 +126,6 @@ class GuidePageInner extends StatefulWidget {
 
 class _GuidePageState extends State<GuidePageInner> {
   final RolesService _roles = RolesService();
-  final UserBadgesStore _badges = UserBadgesStore(); // غيّرها لو عندك Singleton مختلف
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   AppUser? _me;
@@ -137,7 +134,7 @@ class _GuidePageState extends State<GuidePageInner> {
   bool _isOwner = false;
   bool _isAdmin = false;
   bool _isSupport = false;
-  bool _loading = true;
+  bool _loading = false;
 
   StreamSubscription<AppRole>? _roleSub;
   bool _routeOpening = false;
@@ -169,38 +166,50 @@ class _GuidePageState extends State<GuidePageInner> {
   }
 
   Future<void> _resolveEverything() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    // افتح الصفحة فورًا. لا ننتظر الدور/الشارة حتى لا تتأخر صفحة دليلك.
+    if (mounted && _loading) {
+      setState(() => _loading = false);
+    }
+
+    // بث الدور يبدأ مباشرة؛ عند وصوله تظهر لوحات المالك/الدعم بدون تعطيل الصفحة.
     try {
-      // 1) تحميل بيانات المستخدم/الشارة مرة واحدة
-      final me = await LocalAuthRepo().currentUser();
-      final badge = await _badges.getBadge(me.uid);
-
-      if (!mounted) return;
-      setState(() {
-        _me = me;
-        _myBadge = badge;
-      });
-
-      // 2) بثّ حي للدور — مهم عشان لما المالك يغير رتبة المستخدم تظهر مباشرة
       await _roleSub?.cancel();
       _roleSub = _roles.currentUserRoleStream().listen((role) {
         if (!mounted) return;
         setState(() {
           _isOwner = (role == AppRole.owner);
           _isAdmin = (role == AppRole.admin);
-          // ✅ الأدمن لازم يشوف لوحة الدعم/الإدارة مثل الدعم
           _isSupport = (role == AppRole.support || _isAdmin || _isOwner);
-          _loading = false;
         });
       });
-    } catch (e) {
+    } catch (_) {}
+
+    if (uid == null || uid.isEmpty) return;
+
+    // الاسم والشارة تحميل خفيف بالخلفية مع timeout؛ لا يعلق الصفحة إذا الشبكة بطيئة.
+    unawaited(_loadGuideIdentity(uid));
+  }
+
+  Future<void> _loadGuideIdentity(String uid) async {
+    try {
+      final snap = await _db
+          .collection('users')
+          .doc(uid)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(milliseconds: 1800));
+      final data = snap.data() ?? const <String, dynamic>{};
+      final me = AppUser.fromJson(data, uid: uid);
+      final badge = badgeFromString((data['badge'] ?? '').toString());
+
       if (!mounted) return;
       setState(() {
-        _isOwner = false;
-        _isAdmin = false;
-        _isSupport = false;
-        _myBadge = null;
-        _loading = false;
+        _me = me;
+        _myBadge = badge == BadgeType.none ? null : badge;
       });
+    } catch (_) {
+      // لا نعرض خطأ ولا نوقف الصفحة؛ فقط نخفي الشارات الإضافية مؤقتًا.
     }
   }
 

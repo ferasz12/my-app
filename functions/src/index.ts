@@ -6461,7 +6461,9 @@ type Entitlement = {
   provider: "app_store";
   productId?: string;
   status: "active" | "grace" | "billing_retry" | "expired" | "revoked" | "unknown";
+  active?: boolean;
   expiryMillis?: number;
+  startMillis?: number;
   originalTransactionId?: string;
   transactionId?: string;
   appAccountToken?: string;
@@ -6511,6 +6513,7 @@ function computeEntitlement(args: {
 
   const now = Date.now();
   const expiryMillis = tx?.expiresDate ? Number(tx.expiresDate) : undefined;
+  const startMillis = tx?.purchaseDate ? Number(tx.purchaseDate) : undefined;
   const revocationDate = tx?.revocationDate ? Number(tx.revocationDate) : undefined;
 
   const graceMillis = renewal?.gracePeriodExpiresDate
@@ -6537,7 +6540,9 @@ function computeEntitlement(args: {
     provider: "app_store",
     productId: tx?.productId,
     status,
+    active: status === "active" || status === "grace" || status === "billing_retry",
     expiryMillis,
+    startMillis,
     originalTransactionId: tx?.originalTransactionId,
     transactionId: tx?.transactionId,
     appAccountToken: tx?.appAccountToken,
@@ -6602,7 +6607,12 @@ async function verifyTransactionAndSync(uid: string, transactionId: string) {
 
       if (!ent) throw new Error("No subscription transactions found.");
 
-      const cleanedEnt = stripUndefinedDeep(ent);
+      const cleanedEnt = stripUndefinedDeep({
+        ...ent,
+        active: ent.status === "active" || ent.status === "grace" || ent.status === "billing_retry",
+        expiry: ent.expiryMillis ? new Date(ent.expiryMillis) : undefined,
+        start: ent.startMillis ? new Date(ent.startMillis) : undefined,
+      });
       await db.collection("users").doc(uid).set({subscription: cleanedEnt}, {merge: true});
       return ent;
    } catch (e) {

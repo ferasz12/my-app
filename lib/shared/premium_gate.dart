@@ -50,14 +50,25 @@ class PremiumAccess {
           .collection('users')
           .doc(user.uid)
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(milliseconds: 1800));
+          .timeout(const Duration(milliseconds: 3500));
       remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(snap.data());
     } catch (_) {
-      // لا نعلّق فتح الميزة بسبب الشبكة؛ يرجع الحكم المحلي فقط.
+      // إذا تعثر السيرفر، جرّب كاش Firestore بدل قفل ميزة على مشترك فعلي.
+      try {
+        final cached = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(milliseconds: 500));
+        remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(cached.data());
+      } catch (_) {}
     }
 
     final effective = _maxDate(localExpiry, remoteExpiry);
-    return effective != null && effective.isAfter(now);
+    if (effective != null && effective.isAfter(now)) return true;
+
+    // لا نطلق حكم قفل قاسي إذا حالة الاشتراك لم تجهز محليًا وكان الاتصال بطيئًا.
+    return false;
   }
 
   static Future<bool> ensureSubscribed(

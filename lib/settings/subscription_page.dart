@@ -307,12 +307,10 @@ class _SubscriptionEntitlementGateState extends State<SubscriptionEntitlementGat
             final subAny = data['subscription'];
             if (subAny is Map) {
               final sub = Map<String, dynamic>.from(subAny);
-              final source = (sub['source'] ?? '').toString().toUpperCase();
-              final isFallback = source.contains('FALLBACK') || source.contains('NO_APP_RECEIPT');
               final exp = SubscriptionEntitlementService.readExpiryFromUserDoc(data);
               final tooFarFuture = exp != null &&
                   exp.isAfter(DateTime.now().add(const Duration(days: 366 * 3))); // أكثر من 3 سنوات = غير منطقي
-              if (sub['active'] == true && (isFallback || tooFarFuture)) {
+              if (sub['active'] == true && tooFarFuture) {
                 // لا ننتظر هنا (build)، نخليها بالخلفية.
                 Future.microtask(() async {
                   try {
@@ -3168,10 +3166,7 @@ class SubscriptionEntitlementService {
     final subAny = data?['subscription'];
     final sub = (subAny is Map) ? Map<String, dynamic>.from(subAny) : null;
 
-    final source = (sub?['source'] ?? '').toString().toUpperCase();
-    if (source.contains('FALLBACK') || source.contains('NO_APP_RECEIPT')) return null;
-
-    final pid = sub?['productId'];
+    final pid = sub?['productId'] ?? data?['subscriptionProductId'] ?? data?['premiumProductId'];
     return (pid is String && pid.trim().isNotEmpty) ? pid.trim() : null;
   }
 
@@ -3179,42 +3174,104 @@ class SubscriptionEntitlementService {
     final subAny = data?['subscription'];
     final sub = (subAny is Map) ? Map<String, dynamic>.from(subAny) : null;
 
-    final source = (sub?['source'] ?? '').toString().toUpperCase();
-    if (source.contains('FALLBACK') || source.contains('NO_APP_RECEIPT')) return null;
+    // ✅ توافق خلفي: بعض النسخ/الدوال القديمة كتبت تاريخ الاشتراك بأسماء مختلفة.
+    // لا نرفض الاشتراك بسبب source مثل FALLBACK/NO_APP_RECEIPT هنا؛ لأن هذا كان يقفل
+    // ميزات مدفوعة على مستخدمين مشتركين فعليًا إذا تأخر تحقق Apple أو تغيّر شكل البيانات.
+    final subExpiry = _coerceAnyDate(<dynamic>[
+      sub?['expiry'],
+      sub?['expiryMillis'],
+      sub?['expiresDate'],
+      sub?['expiresAt'],
+      sub?['expirationDate'],
+      sub?['currentPeriodEnd'],
+      sub?['validUntil'],
+    ]);
 
-    return _coerceDate(sub?['expiry'], alt: sub?['expiryMillis']);
+    final legacyExpiry = _coerceAnyDate(<dynamic>[
+      data?['subscriptionExpiry'],
+      data?['premiumExpiry'],
+      data?['premiumUntil'],
+      data?['premiumExpiresAt'],
+      data?['subscriptionExpiresAt'],
+      data?['vipExpiry'],
+    ]);
+
+    final best = _maxDate(subExpiry, legacyExpiry);
+    if (best != null) return best;
+
+    // ✅ حماية للمشتركين عند وجود active/status بدون تاريخ بسبب تأخر مزامنة السيرفر.
+    final status = (sub?['status'] ?? data?['subscriptionStatus'] ?? '').toString().toLowerCase();
+    final activeLike = sub?['active'] == true ||
+        data?['isPremium'] == true ||
+        status == 'active' ||
+        status == 'grace' ||
+        status == 'billing_retry';
+    if (activeLike) return DateTime.now().add(const Duration(hours: 12));
+
+    return null;
   }
 
   static DateTime? _readSubscriptionStart(Map<String, dynamic>? data) {
     final subAny = data?['subscription'];
     final sub = (subAny is Map) ? Map<String, dynamic>.from(subAny) : null;
-
-    final source = (sub?['source'] ?? '').toString().toUpperCase();
-    if (source.contains('FALLBACK') || source.contains('NO_APP_RECEIPT')) return null;
-
-    return _coerceDate(sub?['start'], alt: sub?['startMillis']);
+    return _coerceAnyDate(<dynamic>[
+      sub?['start'],
+      sub?['startMillis'],
+      sub?['purchaseDate'],
+      sub?['originalPurchaseDate'],
+      data?['subscriptionStart'],
+      data?['premiumStart'],
+    ]);
   }
 
   static DateTime? _readOwnerGrantExpiry(Map<String, dynamic>? data) {
     final grantAny = data?['ownerGrant'];
     final grant = (grantAny is Map) ? Map<String, dynamic>.from(grantAny) : null;
-    return _coerceDate(grant?['expiry'], alt: grant?['expiryMillis']);
+    return _coerceAnyDate(<dynamic>[
+      grant?['expiry'],
+      grant?['expiryMillis'],
+      grant?['expiresAt'],
+      grant?['validUntil'],
+      data?['ownerGrantExpiry'],
+    ]);
   }
 
   static DateTime? _readOwnerGrantStart(Map<String, dynamic>? data) {
     final grantAny = data?['ownerGrant'];
     final grant = (grantAny is Map) ? Map<String, dynamic>.from(grantAny) : null;
-    return _coerceDate(grant?['start'], alt: grant?['startMillis']);
+    return _coerceAnyDate(<dynamic>[
+      grant?['start'],
+      grant?['startMillis'],
+      grant?['createdAt'],
+      data?['ownerGrantStart'],
+    ]);
   }
 
-  static DateTime? _coerceDate(dynamic value, {dynamic alt}) {
-    final candidates = <dynamic>[value, alt];
+  static DateTime? _coerceDate(dynamic value, {dynamic alt}) =>
+      _coerceAnyDate(<dynamic>[value, alt]);
+
+  static DateTime? _coerceAnyDate(List<dynamic> candidates) {
     for (final candidate in candidates) {
+      if (candidate == null) continue;
       if (candidate is Timestamp) return candidate.toDate();
-      if (candidate is int) return DateTime.fromMillisecondsSinceEpoch(candidate);
-      if (candidate is num) return DateTime.fromMillisecondsSinceEpoch(candidate.toInt());
+      if (candidate is DateTime) return candidate;
+      if (candidate is int) {
+        final ms = candidate < 10000000000 ? candidate * 1000 : candidate;
+        return DateTime.fromMillisecondsSinceEpoch(ms);
+      }
+      if (candidate is num) {
+        final raw = candidate.toInt();
+        final ms = raw < 10000000000 ? raw * 1000 : raw;
+        return DateTime.fromMillisecondsSinceEpoch(ms);
+      }
       if (candidate is String && candidate.trim().isNotEmpty) {
-        final d = DateTime.tryParse(candidate.trim());
+        final text = candidate.trim();
+        final asNum = int.tryParse(text);
+        if (asNum != null) {
+          final ms = asNum < 10000000000 ? asNum * 1000 : asNum;
+          return DateTime.fromMillisecondsSinceEpoch(ms);
+        }
+        final d = DateTime.tryParse(text);
         if (d != null) return d;
       }
     }
