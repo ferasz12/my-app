@@ -48,13 +48,6 @@ async function checkAndIncUsage(
   increment = true
 ): Promise<GateResult> {
   const ymd = ymdKey(timeZone);
-
-  // limit <= 0 يعني غير محدود. نستخدمه للتحليل النصي حتى لا تظهر رسالة
-  // "تم تجاوز الحد" ولا نضيف قراءة/كتابة Firestore غير ضرورية لكل تحليل.
-  if (!Number.isFinite(limit) || limit <= 0) {
-    return {allowed: true, current: 0, limit: 0, ymd};
-  }
-
   const ref = db.collection("users").doc(uid).collection("usage_limits").doc(ymd);
 
   let result: GateResult = {allowed: true, current: 0, limit, ymd};
@@ -145,30 +138,25 @@ function intFromEnv(name: string, fallback: number, min: number, max: number): n
 // Gemini
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
-// إعدادات إنتاج قابلة للرفع من Environment Variables بدون تعديل الكود.
-// ملاحظة: رفع هذه القيم يرفع قدرة Cloud Functions، لكن كوتا Gemini نفسها تُرفع من Google AI/Cloud.
+// إعدادات إنتاج مناسبة للكوتا الحالية في europe-west1.
+// كوتا المشروع الحالية تسمح تقريبًا بـ 20 vCPU و40GiB لكل خدمة في المنطقة، لذلك نثبت maxInstances عند 20.
+// بعد موافقة Google على رفع الكوتا، يمكن رفع هذه القيم ثم إعادة النشر.
 const WAZEN_REGION = "europe-west1";
 const WAZEN_VISION_MIN_INSTANCES = intFromEnv("WAZEN_VISION_MIN_INSTANCES", 1, 0, 20);
-const WAZEN_VISION_MAX_INSTANCES = intFromEnv("WAZEN_VISION_MAX_INSTANCES", 50, 1, 200);
-const WAZEN_VISION_CONCURRENCY = intFromEnv("WAZEN_VISION_CONCURRENCY", 60, 1, 200);
-const WAZEN_VISION_TIMEOUT_SECONDS = intFromEnv("WAZEN_VISION_TIMEOUT_SECONDS", 150, 60, 300);
-const WAZEN_VISION_MAX_OUTPUT_TOKENS = intFromEnv("WAZEN_VISION_MAX_OUTPUT_TOKENS", 7000, 3000, 12000);
+const WAZEN_VISION_MAX_INSTANCES = intFromEnv("WAZEN_VISION_MAX_INSTANCES", 20, 1, 20);
+const WAZEN_VISION_CONCURRENCY = intFromEnv("WAZEN_VISION_CONCURRENCY", 40, 1, 80);
+const WAZEN_VISION_TIMEOUT_SECONDS = intFromEnv("WAZEN_VISION_TIMEOUT_SECONDS", 120, 60, 300);
+const WAZEN_VISION_MAX_OUTPUT_TOKENS = intFromEnv("WAZEN_VISION_MAX_OUTPUT_TOKENS", 6500, 3000, 10000);
 const WAZEN_VISION_INSTANCE_HARD_INFLIGHT_LIMIT = intFromEnv(
   "WAZEN_VISION_INSTANCE_HARD_INFLIGHT_LIMIT",
   WAZEN_VISION_CONCURRENCY,
   4,
-  200
+  80
 );
-const WAZEN_TEXT_MAX_INSTANCES = intFromEnv("WAZEN_TEXT_MAX_INSTANCES", 50, 1, 200);
-const WAZEN_TEXT_CONCURRENCY = intFromEnv("WAZEN_TEXT_CONCURRENCY", 80, 1, 200);
-const WAZEN_COACH_MAX_INSTANCES = intFromEnv("WAZEN_COACH_MAX_INSTANCES", 40, 1, 200);
-const WAZEN_COACH_CONCURRENCY = intFromEnv("WAZEN_COACH_CONCURRENCY", 60, 1, 200);
-
-// حدود الاستخدام اليومية داخل التطبيق.
-// food_text = 0 يعني غير محدود، حتى لا تظهر للمستخدم رسالة تجاوز الحد في التحليل النصي.
-const WAZEN_FOOD_IMAGE_DAILY_LIMIT = intFromEnv("WAZEN_FOOD_IMAGE_DAILY_LIMIT", 300, 1, 1000000);
-const WAZEN_FOOD_TEXT_DAILY_LIMIT = intFromEnv("WAZEN_FOOD_TEXT_DAILY_LIMIT", 0, 0, 1000000);
-const WAZEN_CLUBS_DAILY_LIMIT = intFromEnv("WAZEN_CLUBS_DAILY_LIMIT", 5, 1, 1000000);
+const WAZEN_TEXT_MAX_INSTANCES = intFromEnv("WAZEN_TEXT_MAX_INSTANCES", 20, 1, 20);
+const WAZEN_TEXT_CONCURRENCY = intFromEnv("WAZEN_TEXT_CONCURRENCY", 40, 1, 80);
+const WAZEN_COACH_MAX_INSTANCES = intFromEnv("WAZEN_COACH_MAX_INSTANCES", 20, 1, 20);
+const WAZEN_COACH_CONCURRENCY = intFromEnv("WAZEN_COACH_CONCURRENCY", 30, 1, 80);
 
 
 // Web payments (Moyasar)
@@ -3552,7 +3540,7 @@ function guessTextPortionFromMention(mention: string, itemName = ""): TextPortio
   const combined = `${raw} ${itemName}`.trim();
 
   const kg = _findTextNumberNearUnit(text, /(?:kg|كيلو|كيلوجرام|كيلوغرام)/);
-  const g = _findTextNumberNearUnit(text, /(?:g|gm|gram|grams|غرام|غرامات|جرام|جرامات|جم|غ)/);
+  const g = _findTextNumberNearUnit(text, /(?:g|gm|gram|grams|غرام|غرامات|جرام|جرامات|قرام|قرامات|جم|غ)/);
   const gramsDirect = kg > 0 ? kg * 1000 : g;
   if (gramsDirect > 0) {
     return {
@@ -3714,7 +3702,7 @@ function _hasAnyArabicOrEnglish(text: string, words: string[]) {
 
 function _hasQuantitySignal(text: string) {
   const t = normalizeDigits(text);
-  return /(\d+(?:\.\d+)?\s*(?:g|gm|gram|grams|غرام|غرامات|جرام|جرامات|جم|غ|kg|كيلو|ml|مل|ملي|لتر|حبة|حبات|قطعة|قطع|شريحة|شرائح|كوب|ملاعق|ملعقة|علبة|صحن|نصف|ربع))/i.test(t) ||
+  return /(\d+(?:\.\d+)?\s*(?:g|gm|gram|grams|غرام|غرامات|جرام|جرامات|قرام|قرامات|جم|غ|kg|كيلو|ml|مل|ملي|لتر|حبة|حبات|قطعة|قطع|شريحة|شرائح|كوب|ملاعق|ملعقة|علبة|صحن|نصف|ربع))/i.test(t) ||
     /(كبير|صغير|وسط|متوسط|قليل|كثير|خفيف|حصة|سكوب|صدر|فخذ|جناح|ساندويتش|برجر|شاورما)/i.test(t);
 }
 
@@ -4117,13 +4105,85 @@ function estimateTextV2Macros(name: string, grams: number): TextV2MacroEstimate 
   };
 }
 
-function normalizeTextV2Item(raw: any, description: string): TextV2ItemOut | null {
+
+function findExplicitTextV2QuantityForItem(itemName: string, description: string): number | null {
+  const desc = normalizeDigits(String(description || ''));
+  const item = normalizeFoodTextForCompare(itemName);
+  if (!desc || !item) return null;
+
+  const qtyUnit = String.raw`(?:g|gm|gram|grams|غرام|غرامات|جرام|جرامات|قرام|قرامات|جم|غ)`;
+  const kgUnit = String.raw`(?:kg|كيلو|كيلوجرام|كيلوغرام)`;
+  const itemWords = item.split(/\s+/).filter((w) => w.length >= 2).slice(0, 4);
+
+  const makeScore = (segment: string) => {
+    const n = normalizeFoodTextForCompare(segment);
+    if (!n) return 0;
+    let score = 0;
+    for (const w of itemWords) if (n.includes(w)) score += 2;
+    if (n.includes(item)) score += 4;
+    return score;
+  };
+
+  const matches: Array<{grams: number; segment: string; score: number}> = [];
+  const rxBefore = new RegExp(String.raw`(\d+(?:\.\d+)?)\s*(${qtyUnit}|${kgUnit})\s*([^،,;\n\r\+]+)`, 'gi');
+  for (const m of desc.matchAll(rxBefore)) {
+    const unit = String(m[2] || '').toLowerCase();
+    const val = num(m[1]);
+    const grams = /kg|كيلو/i.test(unit) ? val * 1000 : val;
+    const segment = String(m[3] || '');
+    matches.push({grams, segment, score: makeScore(segment)});
+  }
+
+  const rxAfter = new RegExp(String.raw`([^،,;\n\r\+]+?)\s*(\d+(?:\.\d+)?)\s*(${qtyUnit}|${kgUnit})`, 'gi');
+  for (const m of desc.matchAll(rxAfter)) {
+    const unit = String(m[3] || '').toLowerCase();
+    const val = num(m[2]);
+    const grams = /kg|كيلو/i.test(unit) ? val * 1000 : val;
+    const segment = String(m[1] || '');
+    matches.push({grams, segment, score: makeScore(segment)});
+  }
+
+  const best = matches
+    .filter((x) => x.grams > 0 && x.grams <= 3000 && x.score > 0)
+    .sort((a, b) => b.score - a.score)[0];
+  return best ? Math.round(best.grams) : null;
+}
+
+function normalizeFoodTextForCompare(text: string) {
+  return normalizeArabicText(String(text || ''))
+    .replace(/\b(the|a|an|with|and|of)\b/gi, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function looksLikeCollapsedTextV2Item(name: string, description: string, itemCount: number) {
+  const n = normalizeFoodTextForCompare(name);
+  const d = normalizeFoodTextForCompare(description);
+  if (!n || !d) return false;
+  const isComposite = /(ساندويتش|سندويتش|sandwich|راب|wrap|برجر|burger|شاورما|shawarma|تاكو|taco|بيتزا|pizza|وجبه|وجبة|meal)/i.test(d);
+  if (!isComposite) return false;
+  if (itemCount > 1) return false;
+  return d.includes(n) || n.includes(d) || diceSimilarity(n, d) >= 0.72;
+}
+
+function normalizeTextV2Item(raw: any, description: string, itemCount = 1): TextV2ItemOut | null {
   const name = cleanTextV2Name(raw?.item || raw?.name_ar || raw?.name || raw?.ingredient || raw?.title || '');
   if (!name) return null;
 
+  // لو Gemini رجّع الجملة كاملة كعنصر واحد لساندويتش/راب، لا نقبلها كمكوّن.
+  // نخلي طبقة الإصلاح بالـ AI تعيد تفصيلها بدل ما نعطي المستخدم عنصر عام.
+  if (looksLikeCollapsedTextV2Item(name, description, itemCount)) return null;
+
   let grams = Math.round(num(raw?.grams ?? raw?.gram ?? raw?.estimated_weight_g ?? raw?.weight_g ?? raw?.quantity_g));
+  const explicitGrams = findExplicitTextV2QuantityForItem(name, description);
   let guessed = false;
-  if (!(grams > 0)) {
+  const originalGrams = grams;
+
+  if (explicitGrams && explicitGrams > 0) {
+    grams = explicitGrams;
+    guessed = false;
+  } else if (!(grams > 0) || grams > 2500) {
     grams = estimateTextV2Grams(name, description);
     guessed = true;
   }
@@ -4132,6 +4192,15 @@ function normalizeTextV2Item(raw: any, description: string): TextV2ItemOut | nul
   let protein = num(raw?.protein_g ?? raw?.protein ?? raw?.est?.protein_g);
   let carbs = num(raw?.carbs_g ?? raw?.carbs ?? raw?.carbohydrates_g ?? raw?.est?.carbs_g);
   let fat = num(raw?.fat_g ?? raw?.fat ?? raw?.est?.fat_g);
+
+  // إذا المستخدم كتب كمية صريحة وGemini رجّع ماكروز مبنية على وزن مختلف، نعيد تحجيم نفس تقدير Gemini.
+  if (explicitGrams && originalGrams > 0 && Math.abs(originalGrams - explicitGrams) / Math.max(originalGrams, explicitGrams) > 0.20) {
+    const ratio = explicitGrams / originalGrams;
+    if (calories > 0) calories *= ratio;
+    if (protein > 0) protein *= ratio;
+    if (carbs > 0) carbs *= ratio;
+    if (fat > 0) fat *= ratio;
+  }
 
   if (!(calories > 0) && !(protein > 0) && !(carbs > 0) && !(fat > 0)) {
     const est = estimateTextV2Macros(name, grams);
@@ -4142,7 +4211,10 @@ function normalizeTextV2Item(raw: any, description: string): TextV2ItemOut | nul
     guessed = true;
   }
 
-  const confidence = Math.max(0.45, Math.min(0.95, num(raw?.confidence ?? raw?.ingredient_confidence ?? 0.82)));
+  const impossible = grams > 2500 || calories > 7000 || protein > 500 || carbs > 900 || fat > 500;
+  if (impossible) return null;
+
+  const confidence = Math.max(0.50, Math.min(0.96, num(raw?.confidence ?? raw?.ingredient_confidence ?? 0.82)));
   return {
     name,
     grams,
@@ -4151,10 +4223,12 @@ function normalizeTextV2Item(raw: any, description: string): TextV2ItemOut | nul
     carbs: round1(carbs),
     fat: round1(fat),
     confidence: round1(confidence),
-    guessed,
+    guessed: guessed || !(explicitGrams && explicitGrams > 0),
   };
 }
 
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function makeTextV2NeedsAnswers(description: string, questions: TextClarificationQuestion[], gateUsed = 0) {
   return stripUndefinedDeep({
     ok: true,
@@ -4185,54 +4259,25 @@ function makeTextV2NeedsAnswers(description: string, questions: TextClarificatio
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function normalizeTextV2Response(raw: any, description: string, gateUsed: number) {
   let root = raw;
   if (Array.isArray(root)) root = root.find((x) => x && typeof x === 'object') || {};
   if (!root || typeof root !== 'object') root = {};
 
-  const rawQuestions = (Array.isArray(root.questions) ? root.questions : [])
-    .map((q: any) => normStr(q))
-    .filter((q: string) => q.length > 0)
-    .slice(0, 3);
-  if ((root.need_clarification === true || root.needs_clarification === true) && rawQuestions.length > 0) {
-    return makeTextV2NeedsAnswers(
-      description,
-      rawQuestions.map((q: string, index: number) => _makeQ(
-        `text_v2_model_question_${index + 1}`,
-        'text',
-        'توضيح مطلوب',
-        q,
-        'الوجبة',
-        'هذا التوضيح يغيّر حساب الماكروز.',
-        120 - index,
-        []
-      )),
-      gateUsed
-    );
-  }
-
+  // لا نعيد needs_user_answers من V2 نهائيًا. Gemini يحلل ويقدّر، والمستخدم يقدر يعدّل بعد النتيجة.
   const rawItems = Array.isArray(root.ingredients) ? root.ingredients :
     (Array.isArray(root.items) ? root.items :
       (Array.isArray(root.ingredients_breakdown) ? root.ingredients_breakdown : []));
 
   const items = rawItems
-    .map((x: any) => normalizeTextV2Item(x, description))
+    .map((x: any) => normalizeTextV2Item(x, description, rawItems.length))
     .filter((x: any) => x) as TextV2ItemOut[];
 
   if (!items.length) {
-    return makeTextV2NeedsAnswers(
-      description,
-      [_makeQ(
-        'text_v2_need_more_detail',
-        'text',
-        'تفاصيل الوجبة',
-        'اكتب مكونات الوجبة والكميات أو الأحجام بوضوح.',
-        'الوجبة',
-        'ما وصلنا مكونات كافية لحساب الماكروز بثقة.',
-        120,
-        []
-      )],
-      gateUsed
+    throw new HttpsError(
+      'internal',
+      'تعذر تفصيل مكونات الوجبة من رد الذكاء الاصطناعي. حاول كتابة الوجبة باسم أوضح.'
     );
   }
 
@@ -4245,29 +4290,9 @@ function normalizeTextV2Response(raw: any, description: string, gateUsed: number
   }, {calories: 0, protein: 0, carbs: 0, fat: 0});
 
   const rawMealName = cleanTextV2Name(root.meal_name || root.name_ar || root?.meal?.name_ar || root?.meal?.name || '');
-  const mealName = rawMealName && rawMealName.length <= 34 ? rawMealName :
+  const mealName = rawMealName && rawMealName.length <= 42 ? rawMealName :
     buildShortMealNameV2(description, items.map((x) => x.name));
-  const conf = items.length ? items.reduce((sum, x) => sum + x.confidence, 0) / items.length : 0.6;
-
-  const explicitQty = _hasQuantitySignal(description);
-  const lowConfidence = conf < 0.62;
-  const mostlyGuessed = items.length > 0 && items.filter((it) => it.guessed).length / items.length >= 0.7;
-  if ((lowConfidence || (mostlyGuessed && !explicitQty)) && !/تأكيدات المستخدم قبل التحليل/.test(description)) {
-    return makeTextV2NeedsAnswers(
-      description,
-      [_makeQ(
-        'text_v2_confirm_quantities',
-        'text',
-        'تأكيد الكميات',
-        'اكتب الكميات أو الأحجام بشكل أوضح، مثل: 150 جم دجاج + رز 130 جم + مشروب دايت.',
-        'الوجبة',
-        'التحليل الحالي اعتمد على تخمين عالي، ووازن ما يعرض ماكروز إلا بعد تأكيد كافٍ.',
-        115,
-        []
-      )],
-      gateUsed
-    );
-  }
+  const conf = items.length ? items.reduce((sum, x) => sum + x.confidence, 0) / items.length : 0.7;
 
   const breakdown = items.map((it) => ({
     name_ar: it.name,
@@ -4287,7 +4312,7 @@ function normalizeTextV2Response(raw: any, description: string, gateUsed: number
   return stripUndefinedDeep({
     ok: true,
     itemized: true,
-    source: 'gemini_text_v2_fast',
+    source: 'gemini_text_v2_ai_first',
     name_ar: mealName,
     name_en: '',
     calories_kcal: Math.round(totals.calories),
@@ -4296,9 +4321,11 @@ function normalizeTextV2Response(raw: any, description: string, gateUsed: number
     fat_g: round1(totals.fat),
     confidence: round1(conf),
     needs_confirmation: false,
+    needs_user_answers: false,
     ingredients: breakdown.map((b) => b.name_ar),
     ingredients_breakdown: breakdown,
     clarifications: [],
+    clarification_questions: [],
     meal: {name_ar: mealName, name_en: ''},
     items: items.map((it) => ({
       name_ar: it.name,
@@ -4319,11 +4346,36 @@ function normalizeTextV2Response(raw: any, description: string, gateUsed: number
       carbs_g: round1(totals.carbs),
       fat_g: round1(totals.fat),
     },
-    wazin_analysis: 'تم تحليل الوجبة بسرعة. تقدر تعدّل أي مكوّن إذا كانت الكمية مختلفة.',
-    _debug: {gateUsed, version: 'text_v2_fast_no_thinking'},
+    wazin_analysis: 'تم تحليل الوجبة بالذكاء الاصطناعي. تقدر تعدّل أي مكوّن إذا كانت الكمية مختلفة.',
+    _debug: {gateUsed, version: 'text_v2_ai_first_no_questions'},
   });
 }
 
+
+function textV2NeedsAiRepair(raw: any, description: string) {
+  const root = raw && typeof raw === 'object' ? raw : {};
+  const arr = Array.isArray(root.ingredients) ? root.ingredients :
+    (Array.isArray(root.items) ? root.items :
+      (Array.isArray(root.ingredients_breakdown) ? root.ingredients_breakdown : []));
+  if (!arr.length) return true;
+  const desc = normalizeFoodTextForCompare(description);
+  const isComposite = /(ساندويتش|سندويتش|sandwich|راب|wrap|برجر|burger|شاورما|shawarma|تاكو|taco|بيتزا|pizza)/i
+    .test(description);
+  if (isComposite && arr.length <= 1) return true;
+  const names = arr.map((x: any) => cleanTextV2Name(x?.item || x?.name_ar || x?.name || x?.ingredient || ''))
+    .filter((x: string) => x);
+  if (!names.length) return true;
+  if (names.length === 1) {
+    const n = normalizeFoodTextForCompare(names[0]);
+    if (desc && n && (desc.includes(n) || n.includes(desc) || diceSimilarity(n, desc) >= 0.72) && isComposite) {
+      return true;
+    }
+  }
+  const unique = new Set(names.map((x: string) => normalizeFoodTextForCompare(x))).size;
+  return unique <= 1 && names.length >= 2;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function callGeminiTextV2FastJson({
   description,
   partsHint,
@@ -4338,51 +4390,58 @@ async function callGeminiTextV2FastJson({
   const cleanModel = normalizeGeminiModelForUrl(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:generateContent`;
   const systemInstruction = [
-    'You are Wazin nutrition analyzer V2.',
-    'Return ONLY compact valid JSON, no markdown.',
+    'You are Wazin AI-first nutrition analyzer for Arabic users.',
+    'Return ONLY compact valid JSON. No markdown and no extra text.',
+    'Never ask follow-up questions in this endpoint. Always estimate a reasonable portion when quantity is missing.',
     'Use this exact JSON shape:',
-    '{"need_clarification":boolean,"questions":["Arabic question"],"meal_name":"short Arabic meal name","ingredients":[{"item":"Arabic ingredient","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}]}',
-    'Extract a short meal name, not the full user sentence and not quantities.',
-    'Split the meal into editable ingredients.',
-    'Strict safety rule: if the description is missing a detail that materially changes calories/macros, return need_clarification=true with questions and ingredients=[].',
-    'For restaurant food, do not calculate unless restaurant name, exact menu item, size, and drink sugar status are clear.',
-    'If grams are missing for a normal homemade food but the portion is obvious from count (e.g. two eggs, one sandwich), estimate conservatively with lower confidence.',
-    'Do not invent restaurant macros or exact items.',
+    '{"need_clarification":false,"questions":[],"meal_name":"short Arabic meal name","ingredients":[{"item":"Arabic ingredient","grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number,"confidence":number}]}',
+    'The ingredient list must be editable real ingredients, not a copy of the whole user sentence.',
+    'For sandwiches/wraps/burgers/shawarma/pizza: split into likely real components such as bread/tortilla, protein, cheese, vegetables, sauce. Do not return the whole sandwich as one ingredient.',
+    'For branded or restaurant items, use your nutrition knowledge and estimate reasonably if exact data is uncertain. Lower confidence instead of asking.',
+    'Respect explicit quantities exactly: grams, ml, cups, spoons, slices, pieces, cans, bottles, and counts.',
+    'If a user writes 20 grams rice, the rice ingredient must be 20 grams, not a default serving.',
+    'For each ingredient, calories and macros must match the grams of that ingredient.',
+    'Keep total realistic. Never output impossible portions such as 12000g unless explicitly written by user.',
+    'If a component is optional and not mentioned, include it only when it is a normal default for that food and mark confidence lower.',
   ].join('\n');
+
   const prompt = [
-    'حلّل وصف الوجبة لتطبيق وازن بدقة.',
-    'رجّع JSON مضغوط فقط بالمفاتيح المطلوبة.',
-    'اسم الوجبة مختصر بدون كميات. مثال: ساندويتش تونة وبيض.',
-    'كل عنصر لازم يحتوي grams/calories/protein_g/carbs_g/fat_g/confidence إذا كانت الوجبة مؤكدة.',
-    'إذا الطلب من مطعم والاسم/الحجم/المشروب غير واضح، لا تحسب الماكروز وارجع need_clarification=true.',
-    `المقاطع المتوقعة: ${JSON.stringify(partsHint)}`,
+    'حلّل وصف الوجبة لتطبيق وازن بالذكاء الاصطناعي فقط.',
+    'المطلوب: اسم وجبة مختصر + مكونات منفصلة حقيقية + ماكروز لكل مكون.',
+    'مهم جدًا: لا تنسخ جملة المستخدم كمكوّن. لا تسأل أسئلة. لا ترجع خيارات.',
+    'إذا كانت الوجبة ساندويتش/راب/برجر ففككها إلى خبز أو راب + بروتين + خضار + صوص/جبن إن كان منطقيًا.',
+    'إذا ذكر المستخدم كمية لأي مكوّن، التزم بها حرفيًا وأعد حساب الماكروز عليها.',
+    'أمثلة:',
+    'الوصف: 20 قرام رز => مكوّن واحد: رز مطبوخ grams=20 تقريبًا 26 kcal.',
+    'الوصف: ساندويتش تونة => خبز ساندويتش + تونة + خس/خضار + صوص خفيف إن كان منطقيًا، وليس عنصرًا واحدًا باسم ساندويتش تونة.',
+    'الوصف: زبادي يوناني و100 قرام تونة => زبادي يوناني + تونة grams=100.',
+    `مقاطع مساعدة من النص: ${JSON.stringify(partsHint)}`,
     `الوصف: ${description}`,
   ].join('\n');
 
-  const makeBody = (thinkingOff: boolean, maxOutputTokens: number) => ({
+  const makeBody = (extraPrompt = '', maxOutputTokens = 4500) => ({
     systemInstruction: {parts: [{text: systemInstruction}]},
-    contents: [{role: 'user', parts: [{text: prompt}]}],
+    contents: [{role: 'user', parts: [{text: extraPrompt || prompt}]}],
     generationConfig: {
-      temperature: 0.05,
+      temperature: 0.12,
       maxOutputTokens,
       responseMimeType: 'application/json',
-      ...(thinkingOff ? {thinkingConfig: {thinkingBudget: 0}} : {}),
     },
   });
 
-  const send = async (thinkingOff: boolean, maxOutputTokens: number) => {
+  const send = async (bodyPrompt = '', maxOutputTokens = 4500) => {
     const resp = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {'content-type': 'application/json', 'x-goog-api-key': apiKey},
-      body: JSON.stringify(makeBody(thinkingOff, maxOutputTokens)),
-    }, 25000);
+      body: JSON.stringify(makeBody(bodyPrompt, maxOutputTokens)),
+    }, 22000);
     const txt = await resp.text();
     return {resp, txt};
   };
 
-  let {resp, txt} = await send(true, 2200);
+  let {resp, txt} = await send('', 4500);
   if (!resp.ok && isGeminiConfigError(resp.status, txt)) {
-    ({resp, txt} = await send(false, 6000));
+    ({resp, txt} = await send('', 6500));
   }
 
   if (!resp.ok) {
@@ -4394,11 +4453,10 @@ async function callGeminiTextV2FastJson({
 
   let data = parseGeminiEnvelope(txt) || {};
   let outText = data?.candidates?.[0]?.content?.parts?.map((p: any) => String(p?.text || '')).join('') || '';
-  let finishReason = String(data?.candidates?.[0]?.finishReason || '').toUpperCase();
+  const finishReason = String(data?.candidates?.[0]?.finishReason || '').toUpperCase();
 
   if (finishReason === 'MAX_TOKENS' || looksIncompleteJsonText(outText)) {
-    ({resp, txt} = await send(true, 6000));
-    if (!resp.ok && isGeminiConfigError(resp.status, txt)) ({resp, txt} = await send(false, 8000));
+    ({resp, txt} = await send('', 7000));
     if (!resp.ok) {
       const e: any = new Error(`Gemini API ${resp.status}: ${txt.slice(0, 700)}`);
       e.status = resp.status;
@@ -4407,25 +4465,51 @@ async function callGeminiTextV2FastJson({
     }
     data = parseGeminiEnvelope(txt) || {};
     outText = data?.candidates?.[0]?.content?.parts?.map((p: any) => String(p?.text || '')).join('') || '';
-    finishReason = String(data?.candidates?.[0]?.finishReason || '').toUpperCase();
   }
 
-  const raw = tryExtractJson(outText);
+  let raw = tryExtractJson(outText);
   if (!raw) {
     const e: any = new Error(`Gemini text V2 returned invalid JSON: ${outText.slice(0, 300)}`);
     e.status = 422;
     e.code = 'invalid_json';
     throw e;
   }
+
+  if (textV2NeedsAiRepair(raw, description)) {
+    const repairPrompt = [
+      'أعد تفصيل الوجبة. النتيجة السابقة دمجت المكونات أو نسخت وصف المستخدم.',
+      'لا تسأل أسئلة ولا ترجع خيارات. رجّع JSON فقط بنفس الشكل.',
+      'فصل الوجبات المركبة إجباري: ساندويتش/راب/برجر/شاورما/بيتزا يجب أن تتحول إلى مكونات حقيقية قابلة للتعديل.',
+      'احترم أي كمية صريحة في وصف المستخدم.',
+      `الوصف الأصلي: ${description}`,
+      `المقاطع المساعدة: ${JSON.stringify(partsHint)}`,
+      `النتيجة السابقة: ${JSON.stringify(raw)}`,
+    ].join('\n');
+    try {
+      const repaired = await send(repairPrompt, 6500);
+      if (repaired.resp.ok) {
+        const repairedData = parseGeminiEnvelope(repaired.txt) || {};
+        const repairedText = repairedData?.candidates?.[0]?.content?.parts
+          ?.map((p: any) => String(p?.text || '')).join('') || '';
+        const repairedRaw = tryExtractJson(repairedText);
+        if (repairedRaw && !textV2NeedsAiRepair(repairedRaw, description)) raw = repairedRaw;
+      }
+    } catch (e: any) {
+      logger.warn('Gemini text V2 repair failed', {message: String(e?.message || e).slice(0, 160)});
+    }
+  }
+
   return raw;
 }
 
+
+// =============== تحليل نصّي V2 مستقر: نفس منطق التحليل القديم الناجح مع اسم V2 ===============
 export const analyzeMealTextV2 = onCall(
   {
     region: WAZEN_REGION,
     secrets: [GEMINI_API_KEY],
-    timeoutSeconds: 60,
-    memory: '512MiB',
+    timeoutSeconds: 90,
+    memory: "512MiB",
     cpu: 1,
     minInstances: 0,
     maxInstances: WAZEN_TEXT_MAX_INSTANCES,
@@ -4434,60 +4518,659 @@ export const analyzeMealTextV2 = onCall(
     cors: true,
   },
   async (req) => {
-    if (!req.auth?.uid) throw new HttpsError('unauthenticated', 'سجّل دخولك أولًا');
-    const description = normStr(req.data?.description || req.data?.text || req.data?.query);
-    if (description.length < 3) throw new HttpsError('invalid-argument', 'الوصف قصير جدًا');
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "سجّل دخولك أولًا");
+    const description = normStr(req.data?.description);
+    if (description.length < 3) throw new HttpsError("invalid-argument", "الوصف قصير جدًا");
 
     const clarificationAnswersRaw = Array.isArray(req.data?.clarificationAnswers) ?
       req.data.clarificationAnswers : [];
-    // لا نوقف التحليل النصي بأسئلة مسبقة؛ نحلل مباشرة ونقدّر الحصة عند غياب الكمية.
-    // الأسئلة التوضيحية تبقى فقط داخل Gemini إذا كان النص غامضًا جدًا فعلًا.
+    // تحليل مباشر: لا نعرض أسئلة مسبقة مزعجة مثل حجم المشروب إلا إذا ذكر المستخدم مشروبًا بوضوح
+    // وكان Gemini نفسه يرى أن الغموض جوهري. عند غياب الكمية نقدّر حصة واقعية ونخفض الثقة.
 
     const analysisDescription = buildClarifiedDescription(description, clarificationAnswersRaw);
 
-    const textGate = await checkAndIncUsage(req.auth.uid, 'food_text', WAZEN_FOOD_TEXT_DAILY_LIMIT, 'Asia/Riyadh', true);
-    if (!textGate.allowed) throw new HttpsError('resource-exhausted', gateMessage('food_text'));
+    // ✅ حد يومي لتحليل النص — لا يُحسب إلا بعد ما يجاوب المستخدم على أسئلة التوضيح.
+    const textGate = await checkAndIncUsage(req.auth.uid, "food_text", 20, "Asia/Riyadh", true);
+    if (!textGate.allowed) throw new HttpsError("resource-exhausted", gateMessage("food_text"));
 
     const geminiKey = GEMINI_API_KEY.value();
-    if (!geminiKey) throw new HttpsError('failed-precondition', 'GEMINI_API_KEY غير مضبوط في Secrets.');
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    if (!geminiKey) throw new HttpsError("failed-precondition", "GEMINI_API_KEY غير مضبوط في Secrets.");
 
-    const model = process.env.GEMINI_TEXT_MODEL || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-    const partsHint = splitFoodDescriptionCandidates(analysisDescription).slice(0, 8);
+    // ✅ حالات خاصة مباشرة: ماء / ثلج / قهوة سوداء / شاي غير محلى / مشروبات دايت (بدون أكل آخر)
+    const d0 = description.toLowerCase();
+    const hasOtherFoodTerms = [
+      "برجر", "burger", "ساندويتش", "sandwich", "بطاطس", "fries",
+      "بيتزا", "pizza", "شاورما", "shawarma", "رز", "rice",
+      "مكرونة", "pasta", "دجاج", "chicken", "لحم", "beef",
+    ];
+    const hasOtherFood = hasOtherFoodTerms.some((term) => d0.includes(term));
+    const directTop = directNutritionRuleForText(description, 330);
+    if (directTop && !hasOtherFood) {
+      const out: any = {
+        ok: true,
+        itemized: true,
+        source: directTop.source,
+        name_ar: description,
+        calories_kcal: Math.round(directTop.calories_kcal),
+        protein_g: round1(directTop.protein_g),
+        carbs_g: round1(directTop.carbs_g),
+        fat_g: round1(directTop.fat_g),
+        confidence: 0.97,
+        needs_confirmation: false,
+        ingredients: [description],
+        ingredients_breakdown: [
+          {
+            name_ar: description,
+            name_en: directTop.canonical_query || description,
+            grams: 330,
+            calories_kcal: Math.round(directTop.calories_kcal),
+            protein_g: round1(directTop.protein_g),
+            carbs_g: round1(directTop.carbs_g),
+            fat_g: round1(directTop.fat_g),
+            ingredient_confidence: 0.97,
+            grams_was_guessed: true,
+            needs_confirmation: false,
+            source: directTop.source,
+          },
+        ],
+        clarifications: [],
+        wazin_analysis: "خيار خفيف يا بطل، ونتيجته واضحة ومباشرة 👌",
+        _debug: {gateUsed: textGate.current},
+      };
+      return stripUndefinedDeep(out);
+    }
 
-    try {
-      const raw = await callGeminiTextV2FastJson({description: analysisDescription, partsHint, model, apiKey: geminiKey});
-      return normalizeTextV2Response(raw, analysisDescription, textGate.current);
-    } catch (err: any) {
-      logger.warn('analyzeMealTextV2 fast path failed; using deterministic fallback instead of zero result', {
-        status: err?.status,
-        code: err?.code,
-        message: String(err?.message || '').slice(0, 180),
+    type TextGeminiItem = {
+      name_ar: string;
+      name_en: string;
+      grams: number | null;
+      ml: number | null;
+      est: {
+        kcal: number;
+        protein_g: number;
+        carbs_g: number;
+        fat_g: number;
+      };
+      confidence: number;
+      needs_confirmation?: boolean;
+      question?: string;
+    };
+
+    type TextGeminiAnalysis = {
+      need_clarification: boolean;
+      questions: string[];
+      meal: {name_ar: string; name_en: string};
+      items: TextGeminiItem[];
+      total_macros: {
+        kcal: number;
+        protein_g: number;
+        carbs_g: number;
+        fat_g: number;
+      };
+      wazin_analysis: string;
+    };
+
+    const textResponseSchema: any = {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "need_clarification",
+        "questions",
+        "meal",
+        "items",
+        "total_macros",
+        "wazin_analysis",
+      ],
+      properties: {
+        need_clarification: {type: "boolean"},
+        questions: {
+          type: "array",
+          items: {type: "string"},
+          maxItems: 3,
+        },
+        meal: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name_ar", "name_en"],
+          properties: {
+            name_ar: {type: "string"},
+            name_en: {type: "string"},
+          },
+        },
+        items: {
+          type: "array",
+          maxItems: 12,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["name_ar", "name_en", "grams", "ml", "est", "confidence"],
+            properties: {
+              name_ar: {type: "string"},
+              name_en: {type: "string"},
+              grams: {anyOf: [{type: "number", minimum: 0}, {type: "null"}]},
+              ml: {anyOf: [{type: "number", minimum: 0}, {type: "null"}]},
+              est: {
+                type: "object",
+                additionalProperties: false,
+                required: ["kcal", "protein_g", "carbs_g", "fat_g"],
+                properties: {
+                  kcal: {type: "number", minimum: 0},
+                  protein_g: {type: "number", minimum: 0},
+                  carbs_g: {type: "number", minimum: 0},
+                  fat_g: {type: "number", minimum: 0},
+                },
+              },
+              confidence: {type: "number", minimum: 0, maximum: 1},
+              needs_confirmation: {type: "boolean"},
+              question: {type: "string"},
+            },
+          },
+        },
+        total_macros: {
+          type: "object",
+          additionalProperties: false,
+          required: ["kcal", "protein_g", "carbs_g", "fat_g"],
+          properties: {
+            kcal: {type: "number", minimum: 0},
+            protein_g: {type: "number", minimum: 0},
+            carbs_g: {type: "number", minimum: 0},
+            fat_g: {type: "number", minimum: 0},
+          },
+        },
+        wazin_analysis: {type: "string"},
+      },
+    };
+
+    const systemInstruction = [
+      "You are the highest-accuracy Nutrition & Dietetics Expert for the Arabic health app Wazin (وازن).",
+      "Your task is to analyze a user-written food description with maximum honesty and nutrition accuracy.",
+      "Return ONLY valid compact JSON. No markdown. No extra text.",
+      "Use Gemini reasoning only. Do NOT use any external database. Do NOT mention databases.",
+      "Respect explicit user quantities first, including grams, ml, liters, cups, spoons, pieces, slices, and counts.",
+      "For mixed dishes, split the meal into the main calorie contributors only.",
+      "Each item must have kcal, protein_g, carbs_g, and fat_g.",
+      "Never leave carbs missing. If carbs are effectively zero, return 0.",
+      "Never output all-zero macros for a normal edible food with a positive portion.",
+      "For rice, bread, pasta, noodles, potatoes, fries, dates, fruit, juice, desserts, oats, cereal, and baked goods, carbs_g should normally be greater than zero.",
+      "For chicken, meat, fish, tuna, eggs, yogurt, cheese, beans, lentils, and other protein foods, protein_g should normally be greater than zero.",
+      "If uncertain, choose a conservative realistic estimate and lower confidence instead of returning zero for a normal edible food.",
+      "Use realistic portion estimates when the user does not specify a quantity.",
+      "Keep total_macros exactly equal to the sum of all items after rounding.",
+      "Never ask follow-up questions in this endpoint. If the food is identifiable but quantity is missing, estimate a realistic serving and lower confidence.",
+      "wazin_analysis must be a short friendly Saudi-dialect tip.",
+    ].join("\n");
+
+    const buildPrompt = (desc: string) => {
+      const mentioned = splitFoodDescriptionCandidates(desc);
+      return [
+        "حلّل وصف الوجبة التالي لتطبيق وازن.",
+        "المطلوب:",
+        "1) تعرّف على الوجبة واسمها بالعربي والإنجليزي.",
+        "2) فكّكها إلى عناصر رئيسية مفيدة فقط.",
+        "3) قدّر الوزن أو الحجم لكل عنصر إذا لم يذكره المستخدم.",
+        "4) احسب لكل عنصر: السعرات، البروتين، الكارب، الدهون.",
+        "5) ثم احسب إجمالي الماكروز الكامل.",
+        "",
+        "قواعد مهمة:",
+        "- إذا ذكر المستخدم وزنًا أو عددًا أو حجمًا فاعتبره حقيقة.",
+        "- إذا ذكر المستخدم أكثر من طعام أو مشروب أو إضافة، فأخرجها كعناصر منفصلة ولا تدمجها في عنصر عام واحد.",
+        "- أمثلة يجب فصلها: ساندويتش + بطاطس + مشروب، أو توست + تونة + مايونيز + كولا دايت.",
+        "- إذا كانت الوجبة مركبة مثل ساندويتش أو شاورما أو برغر أو صحن رز مع دجاج، فككها إلى المكونات الرئيسية المفيدة غذائيًا.",
+        "- لا تُرجع أصفارًا لأطعمة عادية قابلة للأكل إلا إذا كانت فعلاً شبه صفرية مثل الماء، الثلج، القهوة السوداء، الشاي بدون سكر، أو مشروب دايت/زيرو.",
+        "- إذا ذكرت أرزًا أو خبزًا أو بطاطس أو تمرًا أو فاكهة أو عصيرًا أو حلى، يجب أن يكون الكارب محسوبًا بشكل منطقي.",
+        "- إذا ذكرت دجاجًا أو لحمًا أو سمكًا أو بيضًا أو تونة أو لبنًا أو جبنًا، يجب أن يكون البروتين محسوبًا بشكل منطقي.",
+        "- إذا لم تُذكر الجرامات، قدّر حصة واقعية من السياق ولا تطلب توضيحًا إلا عند وجود غموض جوهري.",
+        "- لا تبالغ في الدقة الوهمية، لكن لا تعط أرقامًا عشوائية.",
+        "- اجعل total_macros مساويًا لمجموع العناصر بالضبط بعد التقريب.",
+        "",
+        mentioned.length > 0 ? `عناصر/مقاطع واضحة في النص يجب المحافظة عليها قدر الإمكان: ${JSON.stringify(mentioned)}` : "",
+        "",
+        "الوصف:",
+        desc,
+      ].filter(Boolean).join("\n");
+    };
+
+    const normalizeTextAnalysis = (raw: any): TextGeminiAnalysis => {
+      const mealRaw = raw?.meal && typeof raw.meal === "object" ? raw.meal : {};
+      const mealNameAr = normStr(
+        raw?.meal_name_ar ||
+        raw?.name_ar ||
+        mealRaw?.name_ar ||
+        description
+      ) || description;
+      const mealNameEn = normStr(raw?.meal_name_en || raw?.name_en || mealRaw?.name_en || "");
+
+      const itemsRaw = Array.isArray(raw?.items) ? raw.items :
+        (Array.isArray(raw?.ingredients_breakdown) ? raw.ingredients_breakdown : []);
+      const items: TextGeminiItem[] = itemsRaw.map((it: any) => {
+        const est = it?.est && typeof it.est === "object" ? it.est : {};
+        const gramsVal = num(it?.grams ?? it?.g ?? it?.estimated_weight_g ?? it?.weight_g);
+        const mlVal = num(it?.ml ?? it?.milliliters ?? it?.volume_ml);
+        return {
+          name_ar: normStr(it?.name_ar || it?.name || it?.label || "عنصر"),
+          name_en: normStr(it?.name_en || it?.query_en || ""),
+          grams: gramsVal > 0 ? Math.round(gramsVal) : null,
+          ml: mlVal > 0 ? Math.round(mlVal) : null,
+          est: {
+            kcal: round1(num(est?.kcal ?? it?.calories_kcal ?? it?.calories ?? it?.kcal)),
+            protein_g: round1(num(est?.protein_g ?? it?.protein_g ?? it?.protein)),
+            carbs_g: round1(num(est?.carbs_g ?? it?.carbs_g ?? it?.carbs ?? it?.carb)),
+            fat_g: round1(num(est?.fat_g ?? it?.fat_g ?? it?.fat)),
+          },
+          confidence: clamp01(num(it?.confidence || 0.7)),
+          needs_confirmation: Boolean(it?.needs_confirmation ?? false),
+          question: normStr(it?.question || ""),
+        };
+      }).filter((it: TextGeminiItem) => it.name_ar || it.name_en);
+
+      const summed = items.reduce((acc, it) => {
+        acc.kcal += num(it.est.kcal);
+        acc.protein_g += num(it.est.protein_g);
+        acc.carbs_g += num(it.est.carbs_g);
+        acc.fat_g += num(it.est.fat_g);
+        return acc;
+      }, {kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0});
+
+      const totalRaw = raw?.total_macros && typeof raw.total_macros === "object" ? raw.total_macros : {};
+      const total = {
+        kcal: round1(num(totalRaw?.kcal)),
+        protein_g: round1(num(totalRaw?.protein_g)),
+        carbs_g: round1(num(totalRaw?.carbs_g)),
+        fat_g: round1(num(totalRaw?.fat_g)),
+      };
+
+      const totalMismatch =
+        Math.abs(total.kcal - summed.kcal) > 0.11 ||
+        Math.abs(total.protein_g - summed.protein_g) > 0.11 ||
+        Math.abs(total.carbs_g - summed.carbs_g) > 0.11 ||
+        Math.abs(total.fat_g - summed.fat_g) > 0.11;
+
+      return {
+        need_clarification: raw?.need_clarification === true || raw?.needClarification === true,
+        questions: (Array.isArray(raw?.questions) ? raw.questions : []).map((q: any) => normStr(q)).filter((q: string) => q).slice(0, 3),
+        meal: {
+          name_ar: mealNameAr,
+          name_en: mealNameEn,
+        },
+        items,
+        total_macros: totalMismatch || !(total.kcal > 0 || total.protein_g > 0 || total.carbs_g > 0 || total.fat_g > 0) ? {
+          kcal: round1(summed.kcal),
+          protein_g: round1(summed.protein_g),
+          carbs_g: round1(summed.carbs_g),
+          fat_g: round1(summed.fat_g),
+        } : total,
+        wazin_analysis: normStr(raw?.wazin_analysis || raw?.wazen_analysis || raw?.analysis || ""),
+      };
+    };
+
+    const isLikelyZeroCalorieText = (item: TextGeminiItem) => {
+      const s = `${normStr(item.name_ar)} ${normStr(item.name_en)}`.toLowerCase();
+      return /(water|ice|black coffee|americano|espresso|tea|unsweetened tea|diet soda|zero soda|cola zero|diet cola|cola diet)/i.test(s) ||
+        /(ماء|موية|ثلج|قهوة سوداء|امريكانو|اسبريسو|شاي بدون سكر|قهوة بدون سكر|دايت|زيرو|كولا دايت|بيبسي دايت|بدون سكر)/.test(s);
+    };
+
+    const isLikelyCarbFoodText = (sRaw: string) => {
+      const s = normalizeEnText(sRaw);
+      return /(rice|bread|toast|bun|pita|tortilla|wrap|pasta|noodle|potato|fries|wedge|chips|date|banana|apple|orange|mango|fruit|juice|cake|cookie|biscuit|dessert|oat|oats|cereal|corn|granola|cracker|croissant|pastry|donut|doughnut|pizza|burger|sandwich|shawarma)/i.test(s) ||
+        /(رز|أرز|خبز|توست|صامولي|بطاطس|بطاطا|مكرونة|معكرونة|نودلز|تمر|فواكه|فاكهة|تفاح|موز|برتقال|مانجو|عصير|كيك|بسكويت|حلى|شوفان|كرواسون|دونات|بيتزا|برغر|ساندويتش|شاورما)/.test(sRaw);
+    };
+
+    const isLikelyProteinFoodText = (sRaw: string) => {
+      const s = normalizeEnText(sRaw);
+      return /(chicken|beef|meat|fish|tuna|egg|eggs|shrimp|prawn|turkey|lamb|yogurt|greek yogurt|cheese|halloumi|labneh|bean|beans|lentil|protein)/i.test(s) ||
+        /(دجاج|لحم|سمك|تونة|بيض|روبيان|جمبري|تركي|غنم|زبادي|لبن|جبن|حلوم|لبنة|فاصوليا|عدس|بروتين)/.test(sRaw);
+    };
+
+    const estimateZeroSafeTextMacros = (item: TextGeminiItem) => {
+      const portion = num(item.grams) > 0 ? num(item.grams) : (num(item.ml) > 0 ? num(item.ml) : 0);
+      if (portion <= 0) return null;
+      const sRaw = `${normStr(item.name_ar)} ${normStr(item.name_en)}`.trim();
+      const s = normalizeEnText(sRaw);
+
+      if (isLikelyZeroCalorieText(item)) {
+        return {kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0};
+      }
+
+      const maybeDirect = directNutritionRuleForText(sRaw, portion);
+      if (maybeDirect) {
+        return {
+          kcal: round1(maybeDirect.calories_kcal),
+          protein_g: round1(maybeDirect.protein_g),
+          carbs_g: round1(maybeDirect.carbs_g),
+          fat_g: round1(maybeDirect.fat_g),
+        };
+      }
+
+      const per100 = (kcal: number, protein_g: number, carbs_g: number, fat_g: number) => {
+        const factor = portion / 100;
+        return {
+          kcal: round1(kcal * factor),
+          protein_g: round1(protein_g * factor),
+          carbs_g: round1(carbs_g * factor),
+          fat_g: round1(fat_g * factor),
+        };
+      };
+
+      if (/(rice)/i.test(s) || /(رز|أرز)/.test(sRaw)) return per100(130, 2.7, 28.2, 0.3);
+  if (/(vermicelli|thin noodles|noodle)/i.test(s) || /(شعيرية|شعيريه|نودلز)/.test(sRaw)) return per100(157, 5.8, 30.9, 0.9);
+      if (/(chicken breast|grilled chicken|chicken)/i.test(s) || /(صدر دجاج|دجاج مشوي|دجاج)/.test(sRaw)) return per100(165, 31, 0, 3.6);
+      if (/(potato wedge|wedges|fries|french fries)/i.test(s) || /(بطاطا ويدجز|بطاطس ويدجز|ويدجز|بطاطس مقلية|بطاطا مقلية|فرنش فرايز)/.test(sRaw)) return per100(150, 2.5, 23, 5);
+      if (/(potato)/i.test(s) || /(بطاطا|بطاطس)/.test(sRaw)) return per100(87, 2, 20.1, 0.1);
+      if (/(bread|toast|bun|pita|tortilla|wrap)/i.test(s) || /(خبز|توست|صامولي|خبز عربي|تورتيلا|راب)/.test(sRaw)) return per100(265, 9, 49, 3.2);
+      if (/(pasta|noodle)/i.test(s) || /(مكرونة|معكرونة|نودلز)/.test(sRaw)) return per100(157, 5.8, 30.9, 0.9);
+      if (/(egg)/i.test(s) || /(بيض)/.test(sRaw)) return per100(155, 13, 1.1, 11);
+      if (/(dates|date)/i.test(s) || /(تمر)/.test(sRaw)) return per100(277, 1.8, 75, 0.2);
+      if (/(banana)/i.test(s) || /(موز)/.test(sRaw)) return per100(89, 1.1, 22.8, 0.3);
+      if (/(apple)/i.test(s) || /(تفاح)/.test(sRaw)) return per100(52, 0.3, 14, 0.2);
+      if (/(orange)/i.test(s) || /(برتقال)/.test(sRaw)) return per100(47, 0.9, 11.8, 0.1);
+      if (/(mayonnaise|mayo)/i.test(s) || /(مايونيز)/.test(sRaw)) return per100(680, 1, 1, 75);
+      if (/(cheese)/i.test(s) || /(جبن|جبنة|حلوم)/.test(sRaw)) return per100(350, 22, 2, 28);
+      if (/(yogurt|greek yogurt)/i.test(s) || /(زبادي|لبن)/.test(sRaw)) return per100(63, 5.3, 7, 1.6);
+
+      return null;
+    };
+
+    const hasSuspiciousZeroTextMacros = (item: TextGeminiItem) => {
+      const portion = num(item.grams) > 0 ? num(item.grams) : (num(item.ml) > 0 ? num(item.ml) : 0);
+      const kcal = num(item.est.kcal);
+      const protein = num(item.est.protein_g);
+      const carbs = num(item.est.carbs_g);
+      const fat = num(item.est.fat_g);
+      const total = kcal + protein + carbs + fat;
+      const sRaw = `${normStr(item.name_ar)} ${normStr(item.name_en)}`.trim();
+
+      if (!sRaw || isLikelyZeroCalorieText(item)) return false;
+      if (portion <= 0 && total <= 0) return false;
+      if (portion >= 15 && total <= 0.01) return true;
+      if (portion >= 10 && isLikelyCarbFoodText(sRaw) && carbs <= 0.01) return true;
+      if (portion >= 20 && isLikelyProteinFoodText(sRaw) && protein <= 0.01) return true;
+      return false;
+    };
+
+    const finalizeTextAnalysis = (base: TextGeminiAnalysis) => {
+      const mentioned = splitFoodDescriptionCandidates(description);
+      const fixedItems: TextGeminiItem[] = base.items.map((rawItem) => {
+        const bestMention = chooseBestMentionForItem(
+          normStr(rawItem.name_ar || ""),
+          normStr(rawItem.name_en || ""),
+          mentioned,
+          description,
+        );
+        const portionGuess = guessTextPortionFromMention(
+          bestMention,
+          `${normStr(rawItem.name_ar || "")} ${normStr(rawItem.name_en || "")}`.trim(),
+        );
+
+        const item: TextGeminiItem = {
+          name_ar: normStr(rawItem.name_ar || rawItem.name_en || bestMention || "عنصر"),
+          name_en: normStr(rawItem.name_en || ""),
+          grams: num(rawItem.grams) > 0 ? Math.round(num(rawItem.grams)) : (portionGuess?.grams ?? null),
+          ml: num(rawItem.ml) > 0 ? Math.round(num(rawItem.ml)) : (portionGuess?.ml ?? null),
+          est: {
+            kcal: round1(num(rawItem.est?.kcal)),
+            protein_g: round1(num(rawItem.est?.protein_g)),
+            carbs_g: round1(num(rawItem.est?.carbs_g)),
+            fat_g: round1(num(rawItem.est?.fat_g)),
+          },
+          confidence: clamp01(num(rawItem.confidence || 0.7)),
+          needs_confirmation: Boolean(rawItem.needs_confirmation),
+          question: normStr(rawItem.question || ""),
+        };
+
+        if (["عنصر", "وجبة", "مكون"].includes(item.name_ar) && bestMention) {
+          item.name_ar = bestMention;
+        }
+
+        const heuristic = hasSuspiciousZeroTextMacros(item) ? estimateZeroSafeTextMacros(item) : null;
+        if (heuristic) {
+          item.est = {
+            kcal: round1(heuristic.kcal),
+            protein_g: round1(heuristic.protein_g),
+            carbs_g: round1(heuristic.carbs_g),
+            fat_g: round1(heuristic.fat_g),
+          };
+          item.confidence = Math.max(item.confidence || 0, 0.62);
+        }
+
+        const macroKcal = round1((num(item.est.protein_g) * 4) + (num(item.est.carbs_g) * 4) + (num(item.est.fat_g) * 9));
+        if (num(item.est.kcal) <= 0 && macroKcal > 0) {
+          item.est.kcal = macroKcal;
+        }
+
+        return item;
       });
 
-      // لا نرجّع ingredients: [] لأنها تظهر للمستخدم كأن التحليل النصي لا يعمل.
-      // نطلع عناصر من النص ونقدرها بقواعد محلية كحل سريع ومستقر، والـ legacy function يبقى موجود كنسخة أدق.
-      const fallbackIngredients = splitFoodDescriptionCandidates(analysisDescription)
-        .slice(0, 6)
-        .map((item: string) => {
-          const grams = estimateTextV2Grams(item, analysisDescription);
-          const est = estimateTextV2Macros(item, grams);
-          return {
-            item,
-            grams,
-            calories: est.calories,
-            protein_g: est.protein,
-            carbs_g: est.carbs,
-            fat_g: est.fat,
-            confidence: 0.55,
-          };
-        })
-        .filter((x: any) => normStr(x.item).length > 0);
+      // ✅ إصلاح مشكلة تكرار اسم أول عنصر: أحيانًا يرجع Gemini الماكروز صح،
+      // لكن يكرر اسم العنصر الأول لكل العناصر. هنا نعيد تسمية العناصر المكررة
+      // من المقاطع التي كتبها المستخدم بدون لمس الحسبة.
+      const usedItemNames = new Set<string>();
+      fixedItems.forEach((it, index) => {
+        const currentName = normStr(it.name_ar || it.name_en || "");
+        const currentKey = normFoodSignalText(currentName);
+        const generic = ["عنصر", "وجبة", "مكون", "أكل", "طعام", description]
+          .map((x) => normFoodSignalText(x))
+          .includes(currentKey);
+        const repeated = currentKey.length > 0 && usedItemNames.has(currentKey);
+        if ((generic || repeated) && mentioned.length > 0) {
+          const fallbackCandidate = mentioned.find((m) => {
+            const key = normFoodSignalText(m);
+            return key.length > 0 && !usedItemNames.has(key);
+          }) || mentioned[Math.min(index, mentioned.length - 1)];
+          if (fallbackCandidate) {
+            it.name_ar = fallbackCandidate;
+          }
+        }
+        const finalKey = normFoodSignalText(it.name_ar || it.name_en || `item_${index}`) || `item_${index}`;
+        usedItemNames.add(finalKey);
+      });
 
-      return normalizeTextV2Response({
-        need_clarification: false,
-        meal_name: buildShortMealNameV2(analysisDescription, fallbackIngredients.map((x: any) => x.item)),
-        ingredients: fallbackIngredients,
-      }, analysisDescription, textGate.current);
+      const totals = fixedItems.reduce((acc, it) => {
+        acc.kcal += num(it.est.kcal);
+        acc.protein_g += num(it.est.protein_g);
+        acc.carbs_g += num(it.est.carbs_g);
+        acc.fat_g += num(it.est.fat_g);
+        return acc;
+      }, {kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0});
+
+      const overallConf = fixedItems.length ?
+        clamp01(fixedItems.reduce((sum, it) => sum + num(it.confidence), 0) / fixedItems.length) :
+        0.6;
+
+      const clarifications = [
+        ...(base.need_clarification ? base.questions : []),
+        ...fixedItems.filter((it) => Boolean(it.needs_confirmation) && normStr(it.question)).map((it) => normStr(it.question)),
+      ].filter((q) => q).slice(0, 3).map((q) => ({
+        ingredient: "",
+        question: q,
+      }));
+
+      const mealNameAr = normStr(base.meal?.name_ar || description) || description;
+      const mealNameEn = normStr(base.meal?.name_en || "");
+      const wazinAnalysis = normStr(base.wazin_analysis) || defaultWazenAnalysis(mealNameAr, {
+        calories_kcal: round1(totals.kcal),
+        protein_g: round1(totals.protein_g),
+        carbs_g: round1(totals.carbs_g),
+        fat_g: round1(totals.fat_g),
+      });
+
+      const breakdown = fixedItems.map((it) => {
+        const mention = chooseBestMentionForItem(it.name_ar, it.name_en, mentioned, description);
+        const portionGuess = guessTextPortionFromMention(mention, `${it.name_ar} ${it.name_en}`.trim());
+        const qtyLabel =
+          num(it.grams) > 0 ? `${Math.round(num(it.grams))} غ` :
+          (num(it.ml) > 0 ? `${Math.round(num(it.ml))} مل` : (portionGuess?.quantity_label ?? "حصة تقديرية"));
+
+        return {
+          name_ar: it.name_ar,
+          name_en: it.name_en,
+          grams: it.grams ?? undefined,
+          ml: it.ml ?? undefined,
+          quantity_label: qtyLabel,
+          portion_desc_ar: qtyLabel,
+          calories_kcal: round1(it.est.kcal),
+          protein_g: round1(it.est.protein_g),
+          carbs_g: round1(it.est.carbs_g),
+          fat_g: round1(it.est.fat_g),
+          ingredient_confidence: round1(it.confidence),
+          grams_was_guessed: Boolean(portionGuess?.guessed) || !(num(it.grams) > 0 || num(it.ml) > 0),
+          needs_confirmation: Boolean(it.needs_confirmation),
+        };
+      });
+
+      const out: any = {
+        ok: true,
+        itemized: true,
+        source: "gemini_text_only_itemized",
+        name_ar: mealNameAr,
+        name_en: mealNameEn,
+        calories_kcal: Math.round(totals.kcal),
+        protein_g: round1(totals.protein_g),
+        carbs_g: round1(totals.carbs_g),
+        fat_g: round1(totals.fat_g),
+        confidence: overallConf,
+        needs_confirmation: clarifications.length > 0,
+        ingredients: breakdown.map((b) => b.name_ar),
+        ingredients_breakdown: breakdown,
+        clarifications,
+        meal: {
+          name_ar: mealNameAr,
+          name_en: mealNameEn,
+        },
+        items: fixedItems.map((it) => ({
+          name_ar: it.name_ar,
+          name_en: it.name_en,
+          grams: it.grams,
+          ml: it.ml,
+          est: it.est,
+          confidence: it.confidence,
+        })),
+        total_macros: {
+          kcal: Math.round(totals.kcal),
+          protein_g: round1(totals.protein_g),
+          carbs_g: round1(totals.carbs_g),
+          fat_g: round1(totals.fat_g),
+        },
+        wazin_analysis: wazinAnalysis,
+        _debug: {gateUsed: textGate.current},
+      };
+      return stripUndefinedDeep(out);
+    };
+
+    const runGeminiTextAnalysis = async (desc: string) => {
+      const outText = await geminiGenerateStructuredJsonWithRetry({
+        parts: [{text: buildPrompt(desc)}],
+        model,
+        apiKey: geminiKey,
+        systemInstruction,
+        responseSchema: textResponseSchema,
+        temperature: 0.15,
+        maxOutputTokens: 10000,
+        maxAttempts: 1,
+      });
+      const raw = tryExtractJson(outText);
+      if (!raw) throw new HttpsError("internal", "تعذر قراءة رد Gemini لتحليل النص.");
+      return normalizeTextAnalysis(raw);
+    };
+
+    const repairSuspiciousZerosWithGemini = async (base: TextGeminiAnalysis) => {
+      const suspicious = base.items.filter((item) => hasSuspiciousZeroTextMacros(item));
+      if (!suspicious.length) return base;
+
+      const repairPrompt = [
+        "أعد فحص تحليل الوجبة النصية التالية.",
+        "في النتيجة الحالية توجد عناصر تبدو أكلًا طبيعيًا لكنها تحمل ماكروز صفرية أو شبه صفرية بشكل غير منطقي.",
+        "استخدم Gemini reasoning فقط. لا تستخدم أي قاعدة بيانات. لا تترك الأكل الطبيعي بصفر إذا كانت له كمية موجبة.",
+        "إذا كان العنصر مثل رز أو خبز أو بطاطس أو تمر أو حلى فالكارب يجب أن يكون منطقيًا.",
+        "إذا كان العنصر مثل دجاج أو لحم أو سمك أو بيض فالبروتين يجب أن يكون منطقيًا.",
+        "إذا كنت غير متأكد، اختر تقديرًا محافظًا واقعيًا وخفّض الثقة بدل الصفر.",
+        "",
+        `الوصف الأصلي: ${analysisDescription}`,
+        `التحليل الحالي: ${JSON.stringify(stripUndefinedDeep(base))}`,
+        `العناصر المشكوك فيها: ${JSON.stringify(suspicious)}`,
+        "",
+        "أعد فقط JSON كامل بنفس الـ schema.",
+      ].join("\n");
+
+      try {
+        const repairedText = await geminiGenerateStructuredJsonWithRetry({
+          parts: [{text: repairPrompt}],
+          model,
+          apiKey: geminiKey,
+          systemInstruction,
+          responseSchema: textResponseSchema,
+          temperature: 0.1,
+          maxOutputTokens: 1100,
+          maxAttempts: 1,
+        });
+        const repairedRaw = tryExtractJson(repairedText);
+        if (!repairedRaw) return base;
+        return normalizeTextAnalysis(repairedRaw);
+      } catch (e: any) {
+        logger.warn("text gemini zero-repair failed", {
+          message: e?.message || String(e || ""),
+        });
+        return base;
+      }
+    };
+
+
+    const repairCollapsedItemsWithGemini = async (base: TextGeminiAnalysis) => {
+      const mentioned = splitFoodDescriptionCandidates(description);
+      const genericNames = ["عنصر", "وجبة", "مكون", "أكل", "طعام"];
+      const looksCollapsed =
+        (mentioned.length >= 2 && base.items.length <= 1) ||
+        base.items.some((it) => genericNames.includes(normStr(it.name_ar)));
+
+      if (!looksCollapsed) return base;
+
+      const repairPrompt = [
+        "أعد بناء تحليل الوجبة النصية التالية مع المحافظة على العناصر التي ذكرها المستخدم صراحة.",
+        "المشكلة الحالية أن النتيجة اختزلت الوجبة أكثر من اللازم أو دمجت عدة عناصر في عنصر عام واحد.",
+        "إذا ذكر المستخدم عدة أطعمة أو إضافات أو مشروبات، فأخرجها كعناصر منفصلة ما لم تكن مجرد وصف غير غذائي.",
+        "استخدم Gemini reasoning فقط. لا تستخدم أي قاعدة بيانات. أعد فقط JSON بنفس الـ schema.",
+        "",
+        `الوصف الأصلي: ${analysisDescription}`,
+        `العناصر/المقاطع المذكورة صراحة: ${JSON.stringify(mentioned)}`,
+        `التحليل الحالي: ${JSON.stringify(stripUndefinedDeep(base))}`,
+      ].join("\n");
+
+      try {
+        const repairedText = await geminiGenerateStructuredJsonWithRetry({
+          parts: [{text: repairPrompt}],
+          model,
+          apiKey: geminiKey,
+          systemInstruction,
+          responseSchema: textResponseSchema,
+          temperature: 0.1,
+          maxOutputTokens: 1100,
+          maxAttempts: 2,
+        });
+        const repairedRaw = tryExtractJson(repairedText);
+        if (!repairedRaw) return base;
+        return normalizeTextAnalysis(repairedRaw);
+      } catch (e: any) {
+        logger.warn("text gemini collapsed-items repair failed", {
+          message: e?.message || String(e || ""),
+        });
+        return base;
+      }
+    };
+
+    try {
+      let parsed = await runGeminiTextAnalysis(analysisDescription);
+      parsed = await repairCollapsedItemsWithGemini(parsed);
+      parsed = await repairSuspiciousZerosWithGemini(parsed);
+      const finalOut = finalizeTextAnalysis(parsed);
+      return finalOut;
+    } catch (err: any) {
+      const status = Number(err?.status ?? 0);
+      const low = String(err?.message ?? '').toLowerCase();
+      if (status === 429 || status === 503 || low.includes('resource exhausted') || low.includes('too many requests') || low.includes('unavailable')) {
+        logger.warn('analyzeMealText busy fallback', {status, message: String(err?.message || '').slice(0, 180)});
+        return makeBusyTextFallback(description, textGate.current);
+      }
+      throw err;
     }
   }
 );
@@ -4519,7 +5202,7 @@ export const analyzeMealText = onCall(
     const analysisDescription = buildClarifiedDescription(description, clarificationAnswersRaw);
 
     // ✅ حد يومي لتحليل النص — لا يُحسب إلا بعد ما يجاوب المستخدم على أسئلة التوضيح.
-    const textGate = await checkAndIncUsage(req.auth.uid, "food_text", WAZEN_FOOD_TEXT_DAILY_LIMIT, "Asia/Riyadh", true);
+    const textGate = await checkAndIncUsage(req.auth.uid, "food_text", 20, "Asia/Riyadh", true);
     if (!textGate.allowed) throw new HttpsError("resource-exhausted", gateMessage("food_text"));
 
     const geminiKey = GEMINI_API_KEY.value();
@@ -5184,14 +5867,14 @@ export const gateUsage = onCall(
     const timeZone = String(req.data?.timeZone || "Asia/Riyadh");
 
    const limits: Record<string, number> = {
-  food_image: WAZEN_FOOD_IMAGE_DAILY_LIMIT,
-  food_text: WAZEN_FOOD_TEXT_DAILY_LIMIT,
-  clubs_nearby: WAZEN_CLUBS_DAILY_LIMIT,
+  food_image: 20,
+  food_text: 20,
+  clubs_nearby: 2,
 };
 
 
     const limit = limits[action];
-    if (limit === undefined) throw new HttpsError("invalid-argument", "action غير معروف");
+    if (!limit) throw new HttpsError("invalid-argument", "action غير معروف");
 
     const gate = await checkAndIncUsage(uid, action, limit, timeZone, increment);
     if (!gate.allowed) throw new HttpsError("resource-exhausted", gateMessage(action));
@@ -5264,7 +5947,7 @@ export const analyzeFood = onRequest(
 
     try {
       const countUsage = String(req.headers["x-count-usage"] || "1") !== "0";
-      const imgGate = await checkAndIncUsage(uid, "food_image", WAZEN_FOOD_IMAGE_DAILY_LIMIT, "Asia/Riyadh", countUsage);
+      const imgGate = await checkAndIncUsage(uid, "food_image", 20, "Asia/Riyadh", countUsage);
       if (!imgGate.allowed) {
         res.status(429).json({error: "quota_exceeded", message: gateMessage("food_image")});
         return;
@@ -6158,12 +6841,7 @@ function buildCoachContextFromReport(report: any): string {
     const t = d?.target ?? {};
     const water = num(d?.water_liters);
     const act = d?.activity ?? {};
-    const health = d?.health_habits ?? {};
     const steps = num(act?.steps);
-    const exerciseMin = num(act?.exercise_minutes);
-    const distanceKm = num(act?.distance_km);
-    const sleepH = num(health?.sleep_hours);
-    const restingHr = num(health?.resting_heart_rate);
     const w = num(d?.weight_kg);
     const p = num(c?.protein);
     const kc = num(c?.calories);
@@ -6173,12 +6851,8 @@ function buildCoachContextFromReport(report: any): string {
     const kStr = tk ? `${kc.toFixed(0)}/${tk.toFixed(0)}kcal` : `${kc.toFixed(0)}kcal`;
     const waterStr = water ? `${water.toFixed(1)}L` : "-";
     const stepsStr = steps ? `${steps} خطوة` : "-";
-    const sleepStr = sleepH ? `${sleepH.toFixed(1)}س نوم` : "-";
-    const exerciseStr = exerciseMin ? `${exerciseMin.toFixed(0)}د تمرين` : "-";
-    const distanceStr = distanceKm ? `${distanceKm.toFixed(1)}كم` : "-";
-    const hrStr = restingHr ? `${restingHr.toFixed(0)} نبض راحة` : "-";
     const wStr = w ? `${w.toFixed(1)}kg` : "-";
-    return `${date}: سعرات ${kStr} | بروتين ${pStr} | ماء ${waterStr} | خطوات ${stepsStr} | نوم ${sleepStr} | تمرين ${exerciseStr} | مسافة ${distanceStr} | نبض ${hrStr} | وزن ${wStr}`;
+    return `${date}: سعرات ${kStr} | بروتين ${pStr} | ماء ${waterStr} | خطوات ${stepsStr} | وزن ${wStr}`;
  });
   if (last.length) {
     lines.push("\nآخر 7 أيام (مختصر):");
@@ -8075,8 +8749,6 @@ export const adminSendUserPushNotification = onRequest(
         title,
         body,
         deeplink,
-        // هذه الدالة ترسل FCM بنفسها، لذلك نمنع Trigger العام من إرسال نسخة ثانية.
-        sendPush: false,
         read: false,
         type: "admin_push",
         fromRole: admin.role,
@@ -8152,7 +8824,6 @@ export const adminSendUserPushNotification = onRequest(
     }
   }
 );
-
 
 // =============================================================
 // ✅ User Inbox / Community / Chat Push Notifications
@@ -8401,6 +9072,7 @@ export const onChatMessageCreatedNotifyRecipient = functionsV1
       notificationQueuedAt: FieldValue.serverTimestamp(),
     }, {merge: true});
   });
+
 
 export const adminRegisterWebPushToken = onRequest(
   {

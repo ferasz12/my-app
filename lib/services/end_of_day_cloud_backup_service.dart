@@ -65,19 +65,8 @@ class DailyCloudBackupService with WidgetsBindingObserver {
   }
 
   void start() {
-    if (_started) return;
-    _started = true;
-    WidgetsBinding.instance.addObserver(this);
-
-    // فحص بعد فتح التطبيق بدون تعليق الواجهة.
-    unawaited(_backupMissedPreviousDays().catchError((_) {}));
-    unawaited(_backupTodayIfDue().catchError((_) {}));
-
-    // فحص خفيف كل دقيقة. لا يقرأ Firestore ولا يوقف الواجهة.
-    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      unawaited(_backupTodayIfDue().catchError((_) {}));
-      unawaited(_backupMissedPreviousDays().catchError((_) {}));
-    });
+    // المزامنة السحابية مؤجلة حاليًا. لا يتم تشغيل أي مؤقتات أو رفع تلقائي.
+    return;
   }
 
   void dispose() {
@@ -89,9 +78,8 @@ class DailyCloudBackupService with WidgetsBindingObserver {
 
   /// نستخدمها فقط كإشارة مستقبلية؛ لا تحفظ في السحابة أثناء اليوم.
   Future<void> markDirty() async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = await _emailKey();
-    await prefs.setBool('eod_cloud_dirty_${email}_${_ymd(DateTime.now())}', true);
+    // المزامنة السحابية مؤجلة حاليًا؛ الحفظ يبقى محليًا فقط.
+    return;
   }
 
   @override
@@ -128,7 +116,8 @@ class DailyCloudBackupService with WidgetsBindingObserver {
   }
 
   Future<void> backupTodayNow({String reason = 'manual'}) async {
-    await backupDay(_ymd(DateTime.now()), reason: reason, force: true);
+    // المزامنة السحابية مؤجلة حاليًا.
+    return;
   }
 
   Future<void> backupDay(
@@ -136,6 +125,8 @@ class DailyCloudBackupService with WidgetsBindingObserver {
     String reason = 'scheduled',
     bool force = false,
   }) async {
+    // المزامنة السحابية مؤجلة حاليًا.
+    return;
     if (_backupInProgress) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;

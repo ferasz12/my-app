@@ -3531,26 +3531,46 @@ static SubscriptionEntitlement _readLocal(SharedPreferences prefs, String email)
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) return null;
 
-    // جرّب أسماء الدوال (حسب ما هو منشور عندك)
+    // جرّب أسماء الدوال (حسب ما هو منشور عندك).
+    // نقرأ نتيجة السيرفر مباشرة أيضًا حتى لا يفشل التفعيل إذا تأخر وصول Snapshot من Firestore ثواني بسيطة.
     final functionNames = <String>['verifyApplePurchase', 'verifyAppleReceipt'];
+    SubscriptionEntitlement? verifiedEntitlement;
 
     for (final name in functionNames) {
       try {
         final callable = _appleFunctions.httpsCallable(name);
-        await callable.call(<String, dynamic>{
+        final result = await callable.call(<String, dynamic>{
           'transactionId': transactionId.trim(),
         });
-        // إذا نجحت واحدة نوقف
+
+        final payload = result.data;
+        final root = (payload is Map) ? Map<String, dynamic>.from(payload as Map) : <String, dynamic>{};
+        final subAny = root['subscription'];
+        final sub = (subAny is Map) ? Map<String, dynamic>.from(subAny as Map) : <String, dynamic>{};
+        final expiry = _coerceDate(sub['expiry'], alt: sub['expiryMillis']);
+        final start = _coerceDate(sub['start'], alt: sub['startMillis']);
+        final pid = (sub['productId'] ?? '').toString().trim();
+
+        if (expiry != null) {
+          verifiedEntitlement = SubscriptionEntitlement(
+            start: start,
+            expiry: expiry,
+            productId: pid.isNotEmpty ? pid : null,
+          );
+        }
+
+        // إذا نجحت واحدة نوقف.
         break;
       } on FirebaseFunctionsException {
-        // جرّب الاسم الثاني
+        // جرّب الاسم الثاني.
         continue;
       } catch (_) {
         continue;
       }
     }
 
-    // بعد التحقق، السيرفر يحدّث users/{uid}.subscription
+    // بعد التحقق، السيرفر يحدّث users/{uid}.subscription.
+    // إذا قراءة Firestore تأخرت نرجع النتيجة الموثقة من السيرفر بدل رسالة فشل وهمية.
     try {
       final snap = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final data = snap.data();
@@ -3559,12 +3579,13 @@ static SubscriptionEntitlement _readLocal(SharedPreferences prefs, String email)
       final start = readStartFromUserDoc(data);
       final pid = readProductIdFromUserDoc(data);
 
-      if (expiry == null) {
-        return const SubscriptionEntitlement(start: null, expiry: null, productId: null);
+      if (expiry != null) {
+        return SubscriptionEntitlement(start: start, expiry: expiry, productId: pid);
       }
-      return SubscriptionEntitlement(start: start, expiry: expiry, productId: pid);
+
+      return verifiedEntitlement ?? const SubscriptionEntitlement(start: null, expiry: null, productId: null);
     } catch (_) {
-      return null;
+      return verifiedEntitlement;
     }
   }
 }

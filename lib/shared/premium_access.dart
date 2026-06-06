@@ -92,11 +92,19 @@ class PremiumAccess {
     if (user == null || user.isAnonymous) {
       return const PremiumStatus(isPremium: false, expiry: null);
     }
+
+    final local = await _computeStatus(user, remoteData: null);
+    if (local.isPremium) return local;
+
     try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(milliseconds: 1800));
       return _computeStatus(user, remoteData: doc.data());
     } catch (_) {
-      return _computeStatus(user, remoteData: null);
+      return local;
     }
   }
 

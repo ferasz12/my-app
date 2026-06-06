@@ -215,6 +215,88 @@ class HealthDataSyncService {
     return fetchRangeDirect(start: start, end: now, timeout: timeout);
   }
 
+  /// قراءة سريعة للهوم: خطوات + محروق فقط، بدون طلب النوم والمؤشرات الكثيرة.
+  static Future<HealthDataSyncResult> fetchTodayActivityQuick({
+    Duration timeout = const Duration(seconds: 5),
+    bool force = false,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = FirebaseAuth.instance.currentUser;
+    final email = prefs.getString('currentEmail') ?? user?.email ?? 'unknown_user';
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final ymd = _ymd(now);
+    final activityKey = 'activity_${ymd}_$email';
+    final lastKey = 'health_activity_last_fetch_${email}_$ymd';
+
+    if (!force) {
+      final lastRaw = prefs.getString(lastKey);
+      final last = lastRaw == null ? null : DateTime.tryParse(lastRaw);
+      if (last != null && now.difference(last) < const Duration(minutes: 3)) {
+        final act = _decodeMap(prefs.getString(activityKey));
+        if (act.isNotEmpty) {
+          final steps = _toD(act['steps']).round();
+          final burned = _toD(act['burned']).round();
+          return HealthDataSyncResult(
+            ymd: ymd,
+            steps: steps,
+            activeEnergyKcal: burned,
+            metrics: {
+              'date': ymd,
+              'updatedAtIso': act['updatedAtIso'] ?? now.toIso8601String(),
+              'source': 'apple_health_activity_quick_cache',
+              'activity': {
+                'steps': steps,
+                'activeEnergyKcal': burned,
+              },
+            },
+          );
+        }
+      }
+    }
+
+    await _configure();
+    final types = _typesByNames(const ['STEPS', 'ACTIVE_ENERGY_BURNED']);
+    final points = await _fetchGroupPoints(
+          groupName: 'activity_quick',
+          types: types,
+          start: start,
+          end: now,
+          timeout: timeout,
+        ) ??
+        <HealthDataPoint>[];
+
+    final metrics = _aggregate(points);
+    final activity = Map<String, dynamic>.from(metrics['activity'] as Map? ?? const {});
+    final steps = _toD(activity['steps']).round();
+    final activeEnergy = _toD(activity['activeEnergyKcal']).round();
+
+    final payload = <String, dynamic>{
+      ...metrics,
+      'date': ymd,
+      'updatedAtIso': DateTime.now().toIso8601String(),
+      'source': 'apple_health_activity_quick',
+      'pointsCount': points.length,
+    };
+
+    await prefs.setString(
+      activityKey,
+      jsonEncode({
+        'steps': steps,
+        'burned': activeEnergy,
+        'updatedAtIso': payload['updatedAtIso'],
+      }),
+    );
+    await prefs.setString(lastKey, now.toIso8601String());
+
+    return HealthDataSyncResult(
+      ymd: ymd,
+      steps: steps,
+      activeEnergyKcal: activeEnergy,
+      metrics: payload,
+    );
+  }
+
   static Future<HealthDataSyncResult> fetchRangeDirect({
     required DateTime start,
     required DateTime end,

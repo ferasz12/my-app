@@ -26,7 +26,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // ✅ المصدر الموحّد لاستهلاك اليوم (كما في الصفحة الرئيسية)
 import '../services/tracker_store.dart';
 import '../water/water_store.dart';
-import '../data/app_repository.dart';
 
 
 // ==== Global helpers for insights ====
@@ -1198,11 +1197,8 @@ final dir = await getApplicationDocumentsDirectory();
     final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
 
-    // بعد حذف التطبيق وإعادة تثبيته: رجّع السعرات والماء من Firestore إلى المحلي قبل بناء الرسوم.
-    await TrackerStore.syncFromCloud(limit: daysBack + 30);
-    await WaterStore.syncFromCloud(limit: daysBack + 30);
-    final remoteDays = await AppRepository.readDays(limit: daysBack + 30)
-        .timeout(const Duration(milliseconds: 900), onTimeout: () => <Map<String, dynamic>>[]);
+    // المزامنة السحابية مؤجلة؛ يبنى التقرير من البيانات المحلية فقط.
+    const remoteDays = <Map<String, dynamic>>[];
 
     // -------------------------
     // 1) الأوزان (حديث + قديم)
@@ -2787,17 +2783,8 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
   }
 
   Future<Map<String, double>> _readRemoteWeightsSafely() async {
-    if (_cloudWeightsRestored) return _cachedRemoteWeights;
-    try {
-      final remote = await AppRepository.readWeightLogs(limit: 370)
-          .timeout(const Duration(milliseconds: 1200));
-      _cachedRemoteWeights = remote;
-      _cloudWeightsRestored = true;
-      return remote;
-    } catch (_) {
-      _cloudWeightsRestored = true;
-      return _cachedRemoteWeights;
-    }
+    _cloudWeightsRestored = true;
+    return <String, double>{};
   }
 
   Future<void> _loadWeights() async {
@@ -4731,15 +4718,8 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
 
-    List<Map<String, dynamic>> remoteDays = _cachedRemoteDays;
-    if (!_cloudDailyRestoreDone) {
-      await TrackerStore.syncFromCloud(limit: 45);
-      await WaterStore.syncFromCloud(limit: 45);
-      remoteDays = await AppRepository.readDays(limit: 45)
-          .timeout(const Duration(milliseconds: 900), onTimeout: () => <Map<String, dynamic>>[]);
-      _cachedRemoteDays = remoteDays;
-      _cloudDailyRestoreDone = true;
-    }
+    const remoteDays = <Map<String, dynamic>>[];
+    _cloudDailyRestoreDone = true;
 
     // -------- بيانات أساسية (قراءة مرنة للمفاتيح) --------
     heightCm = _prefDouble(prefs, 'height_$email') ??

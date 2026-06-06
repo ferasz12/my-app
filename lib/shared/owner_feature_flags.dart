@@ -7,6 +7,9 @@ class OwnerFeatureFlagsService {
   static final OwnerFeatureFlagsService _instance = OwnerFeatureFlagsService._();
   factory OwnerFeatureFlagsService() => _instance;
 
+  Map<PremiumFeature, bool>? _cachedFlags;
+  DateTime? _cachedAt;
+
   static const String _collection = 'appConfig';
   static const String _docId = 'owner_controls';
 
@@ -36,9 +39,23 @@ class OwnerFeatureFlagsService {
     return _doc.snapshots().map((snap) => _decode(snap.data()));
   }
 
-  Future<Map<PremiumFeature, bool>> loadFlags() async {
-    final snap = await _doc.get();
-    return _decode(snap.data());
+  Future<Map<PremiumFeature, bool>> loadFlags({bool allowCached = true}) async {
+    final now = DateTime.now();
+    final cached = _cachedFlags;
+    final cachedAt = _cachedAt;
+    if (allowCached && cached != null && cachedAt != null && now.difference(cachedAt) < const Duration(minutes: 5)) {
+      return cached;
+    }
+
+    try {
+      final snap = await _doc.get().timeout(const Duration(milliseconds: 900));
+      final decoded = _decode(snap.data());
+      _cachedFlags = decoded;
+      _cachedAt = now;
+      return decoded;
+    } catch (_) {
+      return cached ?? defaults;
+    }
   }
 
   Future<bool> isEnabled(PremiumFeature feature) async {

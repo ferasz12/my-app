@@ -746,9 +746,9 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 // ====== Apple/Google Health (اختياري) ======
   Future<void> fetchHealthData({bool force = false}) async {
     try {
-      final result = await HealthDataSyncService.fetchTodayAndCache(
+      final result = await HealthDataSyncService.fetchTodayActivityQuick(
         force: force,
-        timeout: const Duration(seconds: 18),
+        timeout: const Duration(seconds: 5),
       );
 
       if (!mounted) return;
@@ -760,8 +760,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       await _maybeCelebrateStepMilestone(result.steps);
 
       // لا نكتب في Firestore هنا حتى لا يعلق التطبيق.
-      // كل بيانات Apple Health محفوظة محلياً في health_YYYY-MM-DD_email
-      // وترتفع للسحابة فقط عند ضغط زر المزامنة في الإعدادات.
+      // بيانات النشاط تُقرأ من تطبيق الصحة وتُحفظ محليًا فقط.
     } catch (e) {
       debugPrint('fetchHealthData error: $e');
     }

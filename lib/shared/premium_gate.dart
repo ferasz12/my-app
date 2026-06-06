@@ -42,16 +42,18 @@ class PremiumAccess {
 
     final now = DateTime.now();
     final localExpiry = await _readLocalExpiry(uid: user.uid, email: user.email);
+    if (localExpiry != null && localExpiry.isAfter(now)) return true;
 
     DateTime? remoteExpiry;
     try {
       final snap = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .get(const GetOptions(source: Source.serverAndCache));
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(milliseconds: 1800));
       remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(snap.data());
     } catch (_) {
-      // تجاهل
+      // لا نعلّق فتح الميزة بسبب الشبكة؛ يرجع الحكم المحلي فقط.
     }
 
     final effective = _maxDate(localExpiry, remoteExpiry);
@@ -285,7 +287,7 @@ class _PremiumGateState extends State<PremiumGate> {
             final checking = !active &&
                 (!_loadedLocal || !snap.hasData || (!remoteConfirmed && !_mayShowLockedUi));
             if (active) return widget.child;
-            if (checking) return _PremiumDecisionShell(feature: widget.feature);
+            if (checking) return widget.child;
 
             if (!widget.blurPreview) {
               return _PremiumLockedFullScreen(feature: widget.feature);
