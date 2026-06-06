@@ -32,6 +32,7 @@ enum PremiumFeature {
 
   theme,
   notifications,
+  cloudSync,
 }
 
 extension PremiumFeatureX on PremiumFeature {
@@ -62,6 +63,8 @@ extension PremiumFeatureX on PremiumFeature {
         return 'تغيير المظهر';
       case PremiumFeature.notifications:
         return 'تخصيص الإشعارات';
+      case PremiumFeature.cloudSync:
+        return 'المزامنة السحابية';
     }
   }
 
@@ -92,6 +95,8 @@ extension PremiumFeatureX on PremiumFeature {
         return 'خصص الألوان والمظهر بالطريقة اللي تعجبك.';
       case PremiumFeature.notifications:
         return 'تحكم كامل في تذكيرات وإشعارات وازن.';
+      case PremiumFeature.cloudSync:
+        return 'احفظ بياناتك في السحابة واسترجعها عند تبديل الحساب أو تغيير الجهاز.';
     }
   }
 
@@ -122,6 +127,8 @@ extension PremiumFeatureX on PremiumFeature {
         return Icons.palette_outlined;
       case PremiumFeature.notifications:
         return Icons.notifications_active_outlined;
+      case PremiumFeature.cloudSync:
+        return Icons.cloud_sync_outlined;
     }
   }
 }

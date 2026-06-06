@@ -48,6 +48,13 @@ async function checkAndIncUsage(
   increment = true
 ): Promise<GateResult> {
   const ymd = ymdKey(timeZone);
+
+  // limit <= 0 يعني غير محدود. نستخدمه للتحليل النصي حتى لا تظهر رسالة
+  // "تم تجاوز الحد" ولا نضيف قراءة/كتابة Firestore غير ضرورية لكل تحليل.
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return {allowed: true, current: 0, limit: 0, ymd};
+  }
+
   const ref = db.collection("users").doc(uid).collection("usage_limits").doc(ymd);
 
   let result: GateResult = {allowed: true, current: 0, limit, ymd};
@@ -138,25 +145,30 @@ function intFromEnv(name: string, fallback: number, min: number, max: number): n
 // Gemini
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
-// إعدادات إنتاج مناسبة للكوتا الحالية في europe-west1.
-// كوتا المشروع الحالية تسمح تقريبًا بـ 20 vCPU و40GiB لكل خدمة في المنطقة، لذلك نثبت maxInstances عند 20.
-// بعد موافقة Google على رفع الكوتا، يمكن رفع هذه القيم ثم إعادة النشر.
+// إعدادات إنتاج قابلة للرفع من Environment Variables بدون تعديل الكود.
+// ملاحظة: رفع هذه القيم يرفع قدرة Cloud Functions، لكن كوتا Gemini نفسها تُرفع من Google AI/Cloud.
 const WAZEN_REGION = "europe-west1";
 const WAZEN_VISION_MIN_INSTANCES = intFromEnv("WAZEN_VISION_MIN_INSTANCES", 1, 0, 20);
-const WAZEN_VISION_MAX_INSTANCES = intFromEnv("WAZEN_VISION_MAX_INSTANCES", 20, 1, 20);
-const WAZEN_VISION_CONCURRENCY = intFromEnv("WAZEN_VISION_CONCURRENCY", 40, 1, 80);
-const WAZEN_VISION_TIMEOUT_SECONDS = intFromEnv("WAZEN_VISION_TIMEOUT_SECONDS", 120, 60, 300);
-const WAZEN_VISION_MAX_OUTPUT_TOKENS = intFromEnv("WAZEN_VISION_MAX_OUTPUT_TOKENS", 6500, 3000, 10000);
+const WAZEN_VISION_MAX_INSTANCES = intFromEnv("WAZEN_VISION_MAX_INSTANCES", 50, 1, 200);
+const WAZEN_VISION_CONCURRENCY = intFromEnv("WAZEN_VISION_CONCURRENCY", 60, 1, 200);
+const WAZEN_VISION_TIMEOUT_SECONDS = intFromEnv("WAZEN_VISION_TIMEOUT_SECONDS", 150, 60, 300);
+const WAZEN_VISION_MAX_OUTPUT_TOKENS = intFromEnv("WAZEN_VISION_MAX_OUTPUT_TOKENS", 7000, 3000, 12000);
 const WAZEN_VISION_INSTANCE_HARD_INFLIGHT_LIMIT = intFromEnv(
   "WAZEN_VISION_INSTANCE_HARD_INFLIGHT_LIMIT",
   WAZEN_VISION_CONCURRENCY,
   4,
-  80
+  200
 );
-const WAZEN_TEXT_MAX_INSTANCES = intFromEnv("WAZEN_TEXT_MAX_INSTANCES", 20, 1, 20);
-const WAZEN_TEXT_CONCURRENCY = intFromEnv("WAZEN_TEXT_CONCURRENCY", 40, 1, 80);
-const WAZEN_COACH_MAX_INSTANCES = intFromEnv("WAZEN_COACH_MAX_INSTANCES", 20, 1, 20);
-const WAZEN_COACH_CONCURRENCY = intFromEnv("WAZEN_COACH_CONCURRENCY", 30, 1, 80);
+const WAZEN_TEXT_MAX_INSTANCES = intFromEnv("WAZEN_TEXT_MAX_INSTANCES", 50, 1, 200);
+const WAZEN_TEXT_CONCURRENCY = intFromEnv("WAZEN_TEXT_CONCURRENCY", 80, 1, 200);
+const WAZEN_COACH_MAX_INSTANCES = intFromEnv("WAZEN_COACH_MAX_INSTANCES", 40, 1, 200);
+const WAZEN_COACH_CONCURRENCY = intFromEnv("WAZEN_COACH_CONCURRENCY", 60, 1, 200);
+
+// حدود الاستخدام اليومية داخل التطبيق.
+// food_text = 0 يعني غير محدود، حتى لا تظهر للمستخدم رسالة تجاوز الحد في التحليل النصي.
+const WAZEN_FOOD_IMAGE_DAILY_LIMIT = intFromEnv("WAZEN_FOOD_IMAGE_DAILY_LIMIT", 300, 1, 1000000);
+const WAZEN_FOOD_TEXT_DAILY_LIMIT = intFromEnv("WAZEN_FOOD_TEXT_DAILY_LIMIT", 0, 0, 1000000);
+const WAZEN_CLUBS_DAILY_LIMIT = intFromEnv("WAZEN_CLUBS_DAILY_LIMIT", 5, 1, 1000000);
 
 
 // Web payments (Moyasar)
@@ -4433,7 +4445,7 @@ export const analyzeMealTextV2 = onCall(
 
     const analysisDescription = buildClarifiedDescription(description, clarificationAnswersRaw);
 
-    const textGate = await checkAndIncUsage(req.auth.uid, 'food_text', 20, 'Asia/Riyadh', true);
+    const textGate = await checkAndIncUsage(req.auth.uid, 'food_text', WAZEN_FOOD_TEXT_DAILY_LIMIT, 'Asia/Riyadh', true);
     if (!textGate.allowed) throw new HttpsError('resource-exhausted', gateMessage('food_text'));
 
     const geminiKey = GEMINI_API_KEY.value();
@@ -4507,7 +4519,7 @@ export const analyzeMealText = onCall(
     const analysisDescription = buildClarifiedDescription(description, clarificationAnswersRaw);
 
     // ✅ حد يومي لتحليل النص — لا يُحسب إلا بعد ما يجاوب المستخدم على أسئلة التوضيح.
-    const textGate = await checkAndIncUsage(req.auth.uid, "food_text", 20, "Asia/Riyadh", true);
+    const textGate = await checkAndIncUsage(req.auth.uid, "food_text", WAZEN_FOOD_TEXT_DAILY_LIMIT, "Asia/Riyadh", true);
     if (!textGate.allowed) throw new HttpsError("resource-exhausted", gateMessage("food_text"));
 
     const geminiKey = GEMINI_API_KEY.value();
@@ -5172,14 +5184,14 @@ export const gateUsage = onCall(
     const timeZone = String(req.data?.timeZone || "Asia/Riyadh");
 
    const limits: Record<string, number> = {
-  food_image: 20,
-  food_text: 20,
-  clubs_nearby: 2,
+  food_image: WAZEN_FOOD_IMAGE_DAILY_LIMIT,
+  food_text: WAZEN_FOOD_TEXT_DAILY_LIMIT,
+  clubs_nearby: WAZEN_CLUBS_DAILY_LIMIT,
 };
 
 
     const limit = limits[action];
-    if (!limit) throw new HttpsError("invalid-argument", "action غير معروف");
+    if (limit === undefined) throw new HttpsError("invalid-argument", "action غير معروف");
 
     const gate = await checkAndIncUsage(uid, action, limit, timeZone, increment);
     if (!gate.allowed) throw new HttpsError("resource-exhausted", gateMessage(action));
@@ -5252,7 +5264,7 @@ export const analyzeFood = onRequest(
 
     try {
       const countUsage = String(req.headers["x-count-usage"] || "1") !== "0";
-      const imgGate = await checkAndIncUsage(uid, "food_image", 20, "Asia/Riyadh", countUsage);
+      const imgGate = await checkAndIncUsage(uid, "food_image", WAZEN_FOOD_IMAGE_DAILY_LIMIT, "Asia/Riyadh", countUsage);
       if (!imgGate.allowed) {
         res.status(429).json({error: "quota_exceeded", message: gateMessage("food_image")});
         return;
@@ -6146,7 +6158,12 @@ function buildCoachContextFromReport(report: any): string {
     const t = d?.target ?? {};
     const water = num(d?.water_liters);
     const act = d?.activity ?? {};
+    const health = d?.health_habits ?? {};
     const steps = num(act?.steps);
+    const exerciseMin = num(act?.exercise_minutes);
+    const distanceKm = num(act?.distance_km);
+    const sleepH = num(health?.sleep_hours);
+    const restingHr = num(health?.resting_heart_rate);
     const w = num(d?.weight_kg);
     const p = num(c?.protein);
     const kc = num(c?.calories);
@@ -6156,8 +6173,12 @@ function buildCoachContextFromReport(report: any): string {
     const kStr = tk ? `${kc.toFixed(0)}/${tk.toFixed(0)}kcal` : `${kc.toFixed(0)}kcal`;
     const waterStr = water ? `${water.toFixed(1)}L` : "-";
     const stepsStr = steps ? `${steps} خطوة` : "-";
+    const sleepStr = sleepH ? `${sleepH.toFixed(1)}س نوم` : "-";
+    const exerciseStr = exerciseMin ? `${exerciseMin.toFixed(0)}د تمرين` : "-";
+    const distanceStr = distanceKm ? `${distanceKm.toFixed(1)}كم` : "-";
+    const hrStr = restingHr ? `${restingHr.toFixed(0)} نبض راحة` : "-";
     const wStr = w ? `${w.toFixed(1)}kg` : "-";
-    return `${date}: سعرات ${kStr} | بروتين ${pStr} | ماء ${waterStr} | خطوات ${stepsStr} | وزن ${wStr}`;
+    return `${date}: سعرات ${kStr} | بروتين ${pStr} | ماء ${waterStr} | خطوات ${stepsStr} | نوم ${sleepStr} | تمرين ${exerciseStr} | مسافة ${distanceStr} | نبض ${hrStr} | وزن ${wStr}`;
  });
   if (last.length) {
     lines.push("\nآخر 7 أيام (مختصر):");
@@ -8054,6 +8075,8 @@ export const adminSendUserPushNotification = onRequest(
         title,
         body,
         deeplink,
+        // هذه الدالة ترسل FCM بنفسها، لذلك نمنع Trigger العام من إرسال نسخة ثانية.
+        sendPush: false,
         read: false,
         type: "admin_push",
         fromRole: admin.role,
@@ -8129,6 +8152,255 @@ export const adminSendUserPushNotification = onRequest(
     }
   }
 );
+
+
+// =============================================================
+// ✅ User Inbox / Community / Chat Push Notifications
+// Path used by app: notifications/{uid}/inbox/{notificationId}
+// Any document created here now sends a real FCM push to the user's devices.
+// This keeps the Flutter app simple: community likes/comments/reports only write inbox docs,
+// and the server handles delivery when the app is closed.
+// =============================================================
+
+type WazenPushResult = {
+  tokenCount: number;
+  successCount: number;
+  failureCount: number;
+};
+
+function cleanFcmData(value: any, max = 600): string {
+  if (value === undefined || value === null) return "";
+  return cleanSmallText(value, max);
+}
+
+function buildWazenFcmData(raw: Record<string, any>): Record<string, string> {
+  const out: Record<string, string> = {};
+  Object.entries(raw).forEach(([key, value]) => {
+    const k = cleanSmallText(key, 80);
+    if (!k) return;
+    const v = cleanFcmData(value, 900);
+    if (v) out[k] = v;
+  });
+  out.click_action = "FLUTTER_NOTIFICATION_CLICK";
+  return out;
+}
+
+function defaultDeeplinkForNotification(data: any): string {
+  const explicit = cleanSmallText(data?.deeplink || data?.route, 180);
+  if (explicit) return explicit;
+  const type = cleanSmallText(data?.notificationType || data?.type, 80);
+  if (type === "chat_message" || cleanSmallText(data?.source, 80) === "chat") return "/chat";
+  if (type.startsWith("community_") || cleanSmallText(data?.source, 80) === "community") return "/community";
+  if (type.startsWith("subscription_")) return "/subscription";
+  return "/notifications";
+}
+
+async function deleteInvalidUserFcmTokens(uid: string, tokens: string[]) {
+  await Promise.allSettled(tokens.map(async (token) => {
+    await db.collection("users").doc(uid).collection("fcmTokens").doc(token).delete();
+  }));
+}
+
+async function sendWazenPushToUser(args: {
+  uid: string;
+  title: string;
+  body: string;
+  data: Record<string, any>;
+}): Promise<WazenPushResult> {
+  const uid = cleanSmallText(args.uid, 140);
+  const title = cleanSmallText(args.title || "وازن", 90) || "وازن";
+  const body = cleanSmallText(args.body || "لديك تحديث جديد في وازن.", 900) || "لديك تحديث جديد في وازن.";
+  if (!uid) return {tokenCount: 0, successCount: 0, failureCount: 0};
+
+  const tokens = await collectUserFcmTokens(uid);
+  if (!tokens.length) {
+    return {tokenCount: 0, successCount: 0, failureCount: 0};
+  }
+
+  const deeplink = defaultDeeplinkForNotification(args.data);
+  const messageData = buildWazenFcmData({
+    ...args.data,
+    uid,
+    title,
+    body,
+    deeplink,
+  });
+
+  const response = await getMessaging().sendEachForMulticast({
+    tokens,
+    notification: {title, body},
+    data: messageData,
+    android: {
+      priority: "high",
+      notification: {
+        channelId: "wazen_marketing_fcm_v2",
+        sound: "default",
+      },
+    },
+    apns: {
+      headers: {"apns-priority": "10"},
+      payload: {aps: {sound: "default", badge: 1}},
+    },
+  });
+
+  const invalidTokens: string[] = [];
+  response.responses.forEach((r, i) => {
+    const code = String((r.error as any)?.code || "");
+    if (!r.success && /registration-token-not-registered|invalid-registration-token/i.test(code)) {
+      invalidTokens.push(tokens[i]);
+    }
+  });
+  if (invalidTokens.length) await deleteInvalidUserFcmTokens(uid, invalidTokens);
+
+  return {
+    tokenCount: tokens.length,
+    successCount: response.successCount,
+    failureCount: response.failureCount,
+  };
+}
+
+async function userDisplayName(uid: string): Promise<string> {
+  try {
+    const snap = await db.collection("users").doc(uid).get();
+    const u = snap.exists ? (snap.data() as any) : {};
+    const name = cleanSmallText(
+      u?.displayName || u?.name || u?.username || u?.email || "مستخدم وازن",
+      80
+    );
+    return name || "مستخدم وازن";
+  } catch (_) {
+    return "مستخدم وازن";
+  }
+}
+
+function messageSnippet(data: any): string {
+  const type = cleanSmallText(data?.type || "text", 40);
+  const text = cleanSmallText(data?.text || data?.message || "", 180);
+  if (text) return text;
+  if (type !== "text") return "أرسل لك مرفقًا في وازن.";
+  return "أرسل لك رسالة جديدة في وازن.";
+}
+
+export const onUserInboxNotificationCreated = functionsV1
+  .region(MARKETING_FN_REGION)
+  .firestore.document("notifications/{uid}/inbox/{notificationId}")
+  .onCreate(async (snap, context) => {
+    const uid = context.params.uid as string;
+    const notificationId = context.params.notificationId as string;
+    const data = snap.data() as any;
+
+    if (data?.active === false || data?.sendPush === false || data?.silent === true) {
+      await snap.ref.set({pushStatus: "skipped", pushSkippedAt: FieldValue.serverTimestamp()}, {merge: true});
+      return;
+    }
+
+    const title = cleanSmallText(data?.title || "وازن", 90) || "وازن";
+    const body = cleanSmallText(data?.body || "لديك تحديث جديد في وازن.", 900) || "لديك تحديث جديد في وازن.";
+    if (!body) {
+      await snap.ref.set({pushStatus: "skipped_empty_body", pushSkippedAt: FieldValue.serverTimestamp()}, {merge: true});
+      return;
+    }
+
+    try {
+      const result = await sendWazenPushToUser({
+        uid,
+        title,
+        body,
+        data: {
+          ...data,
+          notificationId,
+          inboxId: notificationId,
+          type: data?.notificationType || data?.type || "user_inbox",
+          source: data?.source || "inbox",
+          deeplink: defaultDeeplinkForNotification(data),
+        },
+      });
+
+      await snap.ref.set({
+        pushStatus: result.tokenCount ? "sent" : "no_tokens",
+        pushTokenCount: result.tokenCount,
+        pushSuccessCount: result.successCount,
+        pushFailureCount: result.failureCount,
+        pushAttemptedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    } catch (e: any) {
+      logger.error("onUserInboxNotificationCreated failed", {
+        uid,
+        notificationId,
+        error: String(e?.message ?? e).slice(0, 400),
+      });
+      await snap.ref.set({
+        pushStatus: "error",
+        pushError: String(e?.message ?? e).slice(0, 400),
+        pushAttemptedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+  });
+
+export const onChatMessageCreatedNotifyRecipient = functionsV1
+  .region(MARKETING_FN_REGION)
+  .firestore.document("chats/{chatId}/messages/{messageId}")
+  .onCreate(async (snap, context) => {
+    const chatId = context.params.chatId as string;
+    const messageId = context.params.messageId as string;
+    const data = snap.data() as any;
+    const senderUid = cleanSmallText(data?.senderId || data?.fromUid || data?.uid, 140);
+    if (!senderUid) {
+      await snap.ref.set({notificationStatus: "skipped_missing_sender"}, {merge: true});
+      return;
+    }
+
+    const chatSnap = await db.collection("chats").doc(chatId).get();
+    const chat = chatSnap.exists ? (chatSnap.data() as any) : {};
+    let members = Array.isArray(chat?.members) ? chat.members.map((x: any) => String(x || "")) : [];
+    if (members.length < 2 && Array.isArray(chat?.participants)) {
+      members = chat.participants.map((x: any) => String(x || ""));
+    }
+    if (members.length < 2 && chatId.includes("__")) {
+      members = chatId.split("__");
+    }
+
+    const recipients: string[] = Array.from(
+      new Set<string>(members.map((x: string) => x.trim()).filter((x: string) => Boolean(x)))
+    )
+      .filter((uid: string) => uid !== senderUid)
+      .slice(0, 10);
+
+    if (!recipients.length) {
+      await snap.ref.set({notificationStatus: "skipped_no_recipient"}, {merge: true});
+      return;
+    }
+
+    const senderName = await userDisplayName(senderUid);
+    const body = cleanSmallText(messageSnippet(data), 220);
+    const title = cleanSmallText(`رسالة جديدة من ${senderName}`, 90);
+
+    await Promise.allSettled(recipients.map(async (uid) => {
+      await db.collection("notifications").doc(uid).collection("inbox").add({
+        title,
+        body,
+        notificationType: "chat_message",
+        type: "chat_message",
+        source: "chat",
+        active: true,
+        read: false,
+        priority: "high",
+        chatId,
+        messageId,
+        senderUid,
+        senderName,
+        targetUid: uid,
+        deeplink: `/chat/${chatId}`,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }));
+
+    await snap.ref.set({
+      notificationStatus: "queued",
+      notificationRecipients: recipients,
+      notificationQueuedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+  });
 
 export const adminRegisterWebPushToken = onRequest(
   {

@@ -65,10 +65,19 @@ class DailyCloudBackupService with WidgetsBindingObserver {
   }
 
   void start() {
-    // تم تعطيل النسخ السحابي التلقائي بالخلفية.
-    // المزامنة الآن من زر الإعدادات فقط عبر CloudSyncService.
     if (_started) return;
     _started = true;
+    WidgetsBinding.instance.addObserver(this);
+
+    // فحص بعد فتح التطبيق بدون تعليق الواجهة.
+    unawaited(_backupMissedPreviousDays().catchError((_) {}));
+    unawaited(_backupTodayIfDue().catchError((_) {}));
+
+    // فحص خفيف كل دقيقة. لا يقرأ Firestore ولا يوقف الواجهة.
+    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+      unawaited(_backupTodayIfDue().catchError((_) {}));
+      unawaited(_backupMissedPreviousDays().catchError((_) {}));
+    });
   }
 
   void dispose() {
@@ -78,15 +87,28 @@ class DailyCloudBackupService with WidgetsBindingObserver {
     _started = false;
   }
 
-  /// لا نرفع أو نجهز مزامنة بالخلفية. الحفظ المحلي فقط، والمزامنة يدوية من الإعدادات.
+  /// نستخدمها فقط كإشارة مستقبلية؛ لا تحفظ في السحابة أثناء اليوم.
   Future<void> markDirty() async {
-    return;
+    final prefs = await SharedPreferences.getInstance();
+    final email = await _emailKey();
+    await prefs.setBool('eod_cloud_dirty_${email}_${_ymd(DateTime.now())}', true);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // لا توجد مزامنة تلقائية عند تغيير حالة التطبيق.
-    return;
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_backupMissedPreviousDays().catchError((_) {}));
+      unawaited(_backupTodayIfDue().catchError((_) {}));
+      return;
+    }
+
+    // إذا المستخدم خرج آخر الليل قبل 11:59، نعطيه فرصة يحفظ لقطة اليوم.
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      final now = DateTime.now();
+      if (now.hour >= 23 && now.minute >= 50) {
+        unawaited(backupDay(_ymd(now), reason: 'late_app_pause').catchError((_) {}));
+      }
+    }
   }
 
   Future<void> _backupTodayIfDue() async {
@@ -137,6 +159,7 @@ class DailyCloudBackupService with WidgetsBindingObserver {
         steps: (snapshot['steps'] as num?)?.toInt() ?? 0,
         burned: (snapshot['burned'] as num?)?.toInt() ?? 0,
         weightKg: _toD(snapshot['weightKg']),
+        healthMetrics: Map<String, dynamic>.from(snapshot['healthMetrics'] as Map? ?? const {}),
         reason: reason,
       ).timeout(const Duration(seconds: 10));
 
@@ -179,8 +202,9 @@ class DailyCloudBackupService with WidgetsBindingObserver {
       waterLiters = _toD(log[ymd]);
     }
 
-    // النشاط
+    // النشاط + Apple Health الموسّع
     final activity = _decodeMap(prefs.getString('activity_${ymd}_$email')) ?? <String, dynamic>{};
+    final healthMetrics = _decodeMap(prefs.getString('health_${ymd}_$email')) ?? <String, dynamic>{};
     final steps = (activity['steps'] as num?)?.toInt() ?? 0;
     final burned = (activity['burned'] as num?)?.toInt() ?? 0;
 
@@ -218,6 +242,7 @@ class DailyCloudBackupService with WidgetsBindingObserver {
         waterLiters > 0 ||
         steps > 0 ||
         burned > 0 ||
+        healthMetrics.isNotEmpty ||
         weightKg > 0;
 
     return {
@@ -233,6 +258,7 @@ class DailyCloudBackupService with WidgetsBindingObserver {
       'waterLiters': waterLiters,
       'steps': steps,
       'burned': burned,
+      'healthMetrics': healthMetrics,
       'weightKg': weightKg,
     };
   }

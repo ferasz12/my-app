@@ -12,7 +12,7 @@ import '../shared/premium_gate.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:health/health.dart';
+import '../services/health_data_sync_service.dart';
 
 // PDF
 import 'package:pdf/pdf.dart';
@@ -583,7 +583,7 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 4, vsync: this);
+    _tab = TabController(length: 5, vsync: this);
     _initUserNameSync();
   }
 
@@ -1606,7 +1606,7 @@ pw.Text(labelBuilder(i), style: const pw.TextStyle(fontSize: 8.0)),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
             child: Container(
-              height: 44,
+              height: 48,
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
                 color: cs.surfaceVariant.withOpacity(.55),
@@ -1627,12 +1627,15 @@ pw.Text(labelBuilder(i), style: const pw.TextStyle(fontSize: 8.0)),
                     ),
                   ],
                 ),
+                isScrollable: true,
+                labelPadding: const EdgeInsets.symmetric(horizontal: 14),
                 labelStyle: const TextStyle(fontWeight: FontWeight.w800),
                 labelColor: cs.onSurface,
                 unselectedLabelColor: cs.onSurface.withOpacity(.65),
                 tabs: const [
                   Tab(text: 'الماكروز'),
                   Tab(text: 'الوزن'),
+                  Tab(text: 'صحتي'),
                   Tab(text: 'النشاط'),
                   Tab(text: 'تحليلات'),
                 ],
@@ -1659,6 +1662,7 @@ pw.Text(labelBuilder(i), style: const pw.TextStyle(fontSize: 8.0)),
         children: const [
           _CaloriesHistoryScreen(),
           _WeightTab(),
+          _MyHealthTab(),
           _ActivityTab(),
           _InsightsTab(),
         ],
@@ -3424,6 +3428,764 @@ class _WeightPoint {
   _WeightPoint(this.t, this.kg);
 }
 
+
+//// ========= My Health Tab =========
+class _MyHealthTab extends StatefulWidget {
+  const _MyHealthTab();
+
+  @override
+  State<_MyHealthTab> createState() => _MyHealthTabState();
+}
+
+class _MyHealthTabState extends State<_MyHealthTab> {
+  HealthDataSyncResult? _result;
+  bool _loading = true;
+  bool _fetching = false;
+  String? _error;
+  Timer? _liveTimer;
+
+  Map<String, dynamic> get _activity => Map<String, dynamic>.from(
+        _result?.metrics['activity'] as Map? ?? const {},
+      );
+  Map<String, dynamic> get _sleep => Map<String, dynamic>.from(
+        _result?.metrics['sleep'] as Map? ?? const {},
+      );
+  Map<String, dynamic> get _vitals => Map<String, dynamic>.from(
+        _result?.metrics['vitals'] as Map? ?? const {},
+      );
+  Map<String, dynamic> get _body => Map<String, dynamic>.from(
+        _result?.metrics['body'] as Map? ?? const {},
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh(showLoading: true);
+    _liveTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (mounted) _refresh(showLoading: false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh({bool showLoading = false}) async {
+    if (_fetching) return;
+    _fetching = true;
+    if (showLoading || _result == null) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final result = await HealthDataSyncService.fetchTodayDirect(
+        timeout: const Duration(seconds: 18),
+      );
+      if (!mounted) return;
+      setState(() {
+        _result = result;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'تعذر تحديث بيانات الصحة. تحقق من صلاحيات الوصول إلى تطبيق الصحة ثم حاول مجددًا.';
+      });
+    } finally {
+      _fetching = false;
+    }
+  }
+
+  DateTime? get _updatedAt {
+    final raw = _result?.metrics['updatedAtIso'];
+    if (raw == null) return null;
+    return DateTime.tryParse(raw.toString());
+  }
+
+  double _num(Map<String, dynamic> m, String key) => _asSafeDouble(m[key]);
+  int _int(Map<String, dynamic> m, String key) => _asSafeInt(m[key]);
+
+  String _fmtInt(num v) => NumberFormat.decimalPattern('ar').format(v.round());
+  String _fmt1(num v) => v.toStringAsFixed(1);
+  String _fmt2(num v) => v.toStringAsFixed(2);
+
+  String _bloodOxygenText(double value) {
+    if (value <= 0) return '—';
+    final pct = value <= 1.2 ? value * 100 : value;
+    return '${pct.toStringAsFixed(0)}%';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final updated = _updatedAt;
+    final pointsCount = _asSafeInt(_result?.metrics['pointsCount']);
+
+    return RefreshIndicator(
+      onRefresh: () => _refresh(showLoading: false),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        children: [
+          _HealthHeroCard(
+            loading: _loading,
+            lastUpdateText: updated == null ? 'لم يتم التحديث بعد' : 'آخر تحديث ${DateFormat('HH:mm').format(updated)}',
+            pointsCount: pointsCount,
+            onRefresh: () => _refresh(showLoading: true),
+          ),
+          if (_loading && _result == null) ...[
+            const SizedBox(height: 14),
+            _HealthLoadingCard(colorScheme: cs),
+          ],
+          if ((_error ?? '').isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _HealthNoticeCard(
+              icon: Icons.info_outline_rounded,
+              title: 'تنبيه',
+              message: _error!,
+              color: cs.error,
+            ),
+          ],
+          const SizedBox(height: 14),
+          _HealthSection(
+            title: 'النشاط اليوم',
+            subtitle: 'بيانات النشاط لهذا اليوم من تطبيق الصحة',
+            icon: Icons.directions_walk_rounded,
+            children: [
+              _HealthMetricCard(
+                title: 'الخطوات',
+                value: _fmtInt(_result?.steps ?? 0),
+                unit: 'خطوة',
+                icon: Icons.directions_walk_rounded,
+                color: Colors.green,
+              ),
+              _HealthMetricCard(
+                title: 'المحروق النشط',
+                value: _fmtInt(_result?.activeEnergyKcal ?? 0),
+                unit: 'سعرة',
+                icon: Icons.local_fire_department_rounded,
+                color: Colors.deepOrange,
+              ),
+              _HealthMetricCard(
+                title: 'إجمالي المحروق',
+                value: _fmtInt(_num(_activity, 'totalEnergyKcal')),
+                unit: 'سعرة',
+                icon: Icons.bolt_rounded,
+                color: Colors.orange,
+              ),
+              _HealthMetricCard(
+                title: 'المسافة',
+                value: _fmt2(_num(_activity, 'totalDistanceKm')),
+                unit: 'كم',
+                icon: Icons.route_rounded,
+                color: Colors.blue,
+              ),
+              _HealthMetricCard(
+                title: 'دقائق التمرين',
+                value: _fmtInt(math.max(_num(_activity, 'exerciseMinutes'), _num(_activity, 'workoutMinutes'))),
+                unit: 'دقيقة',
+                icon: Icons.fitness_center_rounded,
+                color: Colors.deepPurple,
+              ),
+              _HealthMetricCard(
+                title: 'التمارين',
+                value: _fmtInt(_num(_activity, 'workouts')),
+                unit: 'تمرين',
+                icon: Icons.timer_rounded,
+                color: Colors.indigo,
+              ),
+              _HealthMetricCard(
+                title: 'صعود الدرج',
+                value: _fmtInt(_num(_activity, 'flightsClimbed')),
+                unit: 'طابق',
+                icon: Icons.stairs_rounded,
+                color: Colors.teal,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _HealthSection(
+            title: 'النوم',
+            subtitle: 'النوم والخفيف والعميق وREM حسب البيانات المتاحة من تطبيق الصحة',
+            icon: Icons.bedtime_rounded,
+            empty: _sleep.isEmpty,
+            emptyText: 'لا توجد بيانات نوم متاحة لهذا اليوم.',
+            children: [
+              _HealthMetricCard(
+                title: 'النوم',
+                value: _fmt1(_num(_sleep, 'asleepHours')),
+                unit: 'ساعة',
+                icon: Icons.nights_stay_rounded,
+                color: Colors.indigo,
+              ),
+              _HealthMetricCard(
+                title: 'وقت السرير',
+                value: _fmt1(_num(_sleep, 'inBedHours')),
+                unit: 'ساعة',
+                icon: Icons.hotel_rounded,
+                color: Colors.blueGrey,
+              ),
+              _HealthMetricCard(
+                title: 'النوم العميق',
+                value: _fmt1(_num(_sleep, 'deepHours')),
+                unit: 'ساعة',
+                icon: Icons.dark_mode_rounded,
+                color: Colors.deepPurple,
+              ),
+              _HealthMetricCard(
+                title: 'REM',
+                value: _fmt1(_num(_sleep, 'remHours')),
+                unit: 'ساعة',
+                icon: Icons.auto_awesome_rounded,
+                color: Colors.purple,
+              ),
+              _HealthMetricCard(
+                title: 'النوم الخفيف',
+                value: _fmt1(_num(_sleep, 'lightOrCoreHours')),
+                unit: 'ساعة',
+                icon: Icons.waves_rounded,
+                color: Colors.lightBlue,
+              ),
+              _HealthMetricCard(
+                title: 'الاستيقاظ',
+                value: _fmt1(_num(_sleep, 'awakeHours')),
+                unit: 'ساعة',
+                icon: Icons.wb_sunny_rounded,
+                color: Colors.amber,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _HealthSection(
+            title: 'القلب والمؤشرات',
+            subtitle: 'نبض الراحة، نبض القلب، HRV، الأكسجين والتنفس',
+            icon: Icons.favorite_rounded,
+            empty: _vitals.isEmpty,
+            emptyText: 'لا توجد بيانات قلب أو مؤشرات متاحة لهذا اليوم.',
+            children: [
+              _HealthMetricCard(
+                title: 'نبض الراحة',
+                value: _fmtInt(_num(_vitals, 'restingHeartRateBpm')),
+                unit: 'نبضة/دقيقة',
+                icon: Icons.favorite_rounded,
+                color: Colors.pink,
+              ),
+              _HealthMetricCard(
+                title: 'نبض القلب',
+                value: _fmtInt(_num(_vitals, 'heartRateBpm')),
+                unit: 'نبضة/دقيقة',
+                icon: Icons.monitor_heart_rounded,
+                color: Colors.red,
+              ),
+              _HealthMetricCard(
+                title: 'نبض المشي',
+                value: _fmtInt(_num(_vitals, 'walkingHeartRateBpm')),
+                unit: 'نبضة/دقيقة',
+                icon: Icons.directions_walk_rounded,
+                color: Colors.green,
+              ),
+              _HealthMetricCard(
+                title: 'HRV',
+                value: _fmt1(_num(_vitals, 'hrvSdnnMs')),
+                unit: 'ms',
+                icon: Icons.show_chart_rounded,
+                color: Colors.cyan,
+              ),
+              _HealthMetricCard(
+                title: 'الأكسجين',
+                value: _bloodOxygenText(_num(_vitals, 'bloodOxygen')),
+                unit: '',
+                icon: Icons.air_rounded,
+                color: Colors.lightBlue,
+              ),
+              _HealthMetricCard(
+                title: 'التنفس',
+                value: _fmt1(_num(_vitals, 'respiratoryRate')),
+                unit: 'مرة/دقيقة',
+                icon: Icons.spa_rounded,
+                color: Colors.teal,
+              ),
+              _HealthMetricCard(
+                title: 'حرارة الجسم',
+                value: _fmt1(_num(_vitals, 'bodyTemperatureC')),
+                unit: '°C',
+                icon: Icons.thermostat_rounded,
+                color: Colors.orange,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _HealthSection(
+            title: 'الجسم والتغذية',
+            subtitle: 'تظهر عند توفرها في تطبيق الصحة',
+            icon: Icons.health_and_safety_rounded,
+            empty: _body.isEmpty && !_activity.containsKey('waterLiters'),
+            emptyText: 'لا توجد قياسات جسم أو تغذية متاحة.',
+            children: [
+              _HealthMetricCard(
+                title: 'الوزن',
+                value: _fmt1(_num(_body, 'bodyMassKg')),
+                unit: 'كجم',
+                icon: Icons.monitor_weight_rounded,
+                color: Colors.brown,
+              ),
+              _HealthMetricCard(
+                title: 'نسبة الدهون',
+                value: _fmt1(_num(_body, 'bodyFatPercent')),
+                unit: '%',
+                icon: Icons.percent_rounded,
+                color: Colors.deepOrange,
+              ),
+              _HealthMetricCard(
+                title: 'الكتلة العضلية',
+                value: _fmt1(_num(_body, 'leanBodyMassKg')),
+                unit: 'كجم',
+                icon: Icons.fitness_center_rounded,
+                color: Colors.deepPurple,
+              ),
+              _HealthMetricCard(
+                title: 'الماء',
+                value: _fmt1(_num(_activity, 'waterLiters')),
+                unit: 'لتر',
+                icon: Icons.water_drop_rounded,
+                color: Colors.blue,
+              ),
+              _HealthMetricCard(
+                title: 'طاقة غذائية',
+                value: _fmtInt(_num(_activity, 'dietaryEnergyKcal')),
+                unit: 'سعرة',
+                icon: Icons.restaurant_rounded,
+                color: Colors.green,
+              ),
+              _HealthMetricCard(
+                title: 'اليقظة',
+                value: _fmtInt(_num(_activity, 'mindfulnessMinutes')),
+                unit: 'دقيقة',
+                icon: Icons.self_improvement_rounded,
+                color: Colors.teal,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _HealthNoticeCard(
+            icon: Icons.cloud_off_rounded,
+            title: 'مصدر البيانات',
+            message: 'تعرض هذه الصفحة بيانات اليوم المتاحة من تطبيق الصحة على جهازك. يمكن حفظ نسخة سحابية من الإعدادات عند الحاجة.',
+            color: cs.primary,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthHeroCard extends StatelessWidget {
+  final bool loading;
+  final String lastUpdateText;
+  final int pointsCount;
+  final VoidCallback onRefresh;
+
+  const _HealthHeroCard({
+    required this.loading,
+    required this.lastUpdateText,
+    required this.pointsCount,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            cs.primary.withOpacity(.18),
+            cs.tertiary.withOpacity(.08),
+            cs.surface,
+          ],
+        ),
+        border: Border.all(color: cs.primary.withOpacity(.14)),
+        boxShadow: [
+          BoxShadow(
+            color: cs.primary.withOpacity(.10),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: cs.primary.withOpacity(.13),
+              border: Border.all(color: cs.primary.withOpacity(.18)),
+            ),
+            child: Icon(Icons.watch_rounded, color: cs.primary, size: 30),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'صحتي',
+                  style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'ملخص بيانات النشاط والصحة اليومية',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(.62),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _HealthTinyChip(icon: Icons.sync_rounded, text: lastUpdateText),
+                    _HealthTinyChip(icon: Icons.data_usage_rounded, text: '$pointsCount قراءة'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          IconButton.filledTonal(
+            onPressed: loading ? null : onRefresh,
+            icon: loading
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh_rounded),
+            tooltip: 'تحديث بيانات الصحة',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthLoadingCard extends StatelessWidget {
+  final ColorScheme colorScheme;
+  const _HealthLoadingCard({required this.colorScheme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: colorScheme.outlineVariant.withOpacity(.45)),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'جاري تحديث بيانات الصحة...',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthNoticeCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final Color color;
+
+  const _HealthNoticeCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.08),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: color.withOpacity(.14)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.w900, color: color)),
+                const SizedBox(height: 3),
+                Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withOpacity(.68),
+                    height: 1.45,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthSection extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Widget> children;
+  final bool empty;
+  final String emptyText;
+
+  const _HealthSection({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.children,
+    this.empty = false,
+    this.emptyText = 'لا توجد بيانات حالياً.',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(.96),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.45)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(.035), blurRadius: 18, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(.10),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: cs.primary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurface.withOpacity(.58),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (empty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: cs.surfaceVariant.withOpacity(.35),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Text(
+                emptyText,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurface.withOpacity(.62),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, c) {
+                final width = c.maxWidth;
+                final count = width > 720 ? 4 : (width > 460 ? 3 : 2);
+                return GridView.count(
+                  crossAxisCount: count,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: width > 460 ? 1.55 : 1.35,
+                  children: children,
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthMetricCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final String unit;
+  final IconData icon;
+  final Color color;
+
+  const _HealthMetricCard({
+    required this.title,
+    required this.value,
+    required this.unit,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final cleanValue = value.trim().isEmpty || value == '0.0' || value == '0.00' || value == '0'
+        ? '—'
+        : value;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            color.withOpacity(.12),
+            cs.surface.withOpacity(.86),
+          ],
+        ),
+        border: Border.all(color: color.withOpacity(.13)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const Spacer(),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color.withOpacity(.85), shape: BoxShape.circle),
+              ),
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: cs.onSurface.withOpacity(.62),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Row(
+                  children: [
+                    Text(
+                      cleanValue,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    if (unit.trim().isNotEmpty) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        unit,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: cs.onSurface.withOpacity(.55),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthTinyChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _HealthTinyChip({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.primary.withOpacity(.10)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: cs.primary),
+          const SizedBox(width: 5),
+          Text(text, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+        ],
+      ),
+    );
+  }
+}
+
 //// ========= Activity Tab =========
 class _ActivityTab extends StatefulWidget {
   const _ActivityTab();
@@ -3432,11 +4194,12 @@ class _ActivityTab extends StatefulWidget {
 }
 
 class _ActivityTabState extends State<_ActivityTab> {
-  // ⬅️ Health بنسخته الحديثة (بدل HealthFactory)
-  final Health health = Health();
-
   int steps = 0;
   int burned = 0;
+  double distanceKm = 0.0;
+  double exerciseMinutes = 0.0;
+  double sleepHours = 0.0;
+  int restingHeartRate = 0;
 
   Timer? _tick;
 
@@ -3468,9 +4231,17 @@ class _ActivityTabState extends State<_ActivityTab> {
       if (!mounted) return;
       final s = (m['steps'] as num?)?.toInt() ?? 0;
       final b = (m['burned'] as num?)?.toInt() ?? 0;
+      final d = (m['distanceKm'] as num?)?.toDouble() ?? 0.0;
+      final ex = (m['exerciseMinutes'] as num?)?.toDouble() ?? 0.0;
+      final sl = (m['sleepHours'] as num?)?.toDouble() ?? 0.0;
+      final hr = (m['restingHeartRateBpm'] as num?)?.toInt() ?? 0;
       setState(() {
         steps = s;
         burned = b;
+        distanceKm = d;
+        exerciseMinutes = ex;
+        sleepHours = sl;
+        restingHeartRate = hr;
       });
 }
   }
@@ -3480,64 +4251,42 @@ class _ActivityTabState extends State<_ActivityTab> {
     final email = await _currentEmail() ?? 'unknown_user';
     await prefs.setString(
       'activity_${_todayKey()}_$email',
-      jsonEncode({'steps': steps, 'burned': burned}),
+      jsonEncode({
+        'steps': steps,
+        'burned': burned,
+        'distanceKm': distanceKm,
+        'exerciseMinutes': exerciseMinutes,
+        'sleepHours': sleepHours,
+        'restingHeartRateBpm': restingHeartRate,
+      }),
     );
   }
 
   Future<void> _fetchFromHealth() async {
     try {
-      final types = [HealthDataType.STEPS, HealthDataType.ACTIVE_ENERGY_BURNED];
-      final now = DateTime.now();
-      final start = DateTime(now.year, now.month, now.day);
+      final result = await HealthDataSyncService.fetchTodayAndCache(
+        force: true,
+        timeout: const Duration(seconds: 20),
+      );
+      final activity = Map<String, dynamic>.from(
+        result.metrics['activity'] as Map? ?? const {},
+      );
+      final sleep = Map<String, dynamic>.from(
+        result.metrics['sleep'] as Map? ?? const {},
+      );
+      final vitals = Map<String, dynamic>.from(
+        result.metrics['vitals'] as Map? ?? const {},
+      );
 
-      await health.configure();
-
-      final ok = await health.requestAuthorization(types);
-      if (ok) {
-        final data = await health.getHealthDataFromTypes(
-          types: types,
-          startTime: start,
-          endTime: now,
-        );
-
-        double asDouble(dynamic v) {
-          if (v == null) return 0.0;
-          if (v is num) return v.toDouble();
-          try {
-            final nv = (v as dynamic).numericValue;
-            if (nv is num) return nv.toDouble();
-          } catch (_) {}
-          try {
-            final vv = (v as dynamic).value;
-            if (vv is num) return vv.toDouble();
-          } catch (_) {}
-          try {
-            final m = (v as dynamic).toJson();
-            if (m is Map) {
-              final nv = m['numericValue'];
-              if (nv is num) return nv.toDouble();
-              final vv = m['value'];
-              if (vv is num) return vv.toDouble();
-            }
-          } catch (_) {}
-          return 0.0;
-        }
-
-        int s = 0;
-        double b = 0;
-        for (final p in data) {
-          if (p.type == HealthDataType.STEPS) s += asDouble(p.value).toInt();
-          if (p.type == HealthDataType.ACTIVE_ENERGY_BURNED) {
-            b += asDouble(p.value);
-          }
-        }
-        if (!mounted) return;
-        setState(() {
-          steps = s;
-          burned = b.toInt();
-        });
-await _saveActivity();
-      }
+      if (!mounted) return;
+      setState(() {
+        steps = result.steps;
+        burned = result.activeEnergyKcal;
+        distanceKm = (activity['totalDistanceKm'] as num?)?.toDouble() ?? 0.0;
+        exerciseMinutes = (activity['exerciseMinutes'] as num?)?.toDouble() ?? 0.0;
+        sleepHours = (sleep['asleepHours'] as num?)?.toDouble() ?? 0.0;
+        restingHeartRate = (vitals['restingHeartRateBpm'] as num?)?.toInt() ?? 0;
+      });
     } catch (_) {
       // تجاهل لو غير مدعوم
     }
@@ -3552,6 +4301,12 @@ await _saveActivity();
         _stat('الخطوات', '$steps 👣', Icons.directions_walk, Colors.green),
         _stat('المحروق', '$burned 🔥', Icons.local_fire_department_outlined,
             Colors.red),
+        _stat('المسافة', '${distanceKm.toStringAsFixed(2)} كم', Icons.route_rounded, Colors.blue),
+        _stat('التمرين', '${exerciseMinutes.toStringAsFixed(0)} دقيقة', Icons.fitness_center_rounded, Colors.deepPurple),
+        if (sleepHours > 0)
+          _stat('النوم', '${sleepHours.toStringAsFixed(1)} ساعة', Icons.bedtime_rounded, Colors.indigo),
+        if (restingHeartRate > 0)
+          _stat('نبض الراحة', '$restingHeartRate نبضة/دقيقة', Icons.favorite_rounded, Colors.pink),
         const SizedBox(height: 16),
         SizedBox(
           height: 220,

@@ -22,7 +22,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../firebase_options.dart';
-import '../app/app_nav.dart';
 import 'app_notifications.dart';
 import 'firestore_broadcast_scheduler.dart';
 
@@ -38,11 +37,6 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   } catch (_) {
     // notification payload يعرضه النظام تلقائيًا غالبًا، فلا نكسر الاستقبال.
   }
-}
-
-@pragma('vm:entry-point')
-void fcmLocalNotificationTapBackground(NotificationResponse response) {
-  // لا نحتاج تنفيذ شيء في isolate الخلفية؛ فتح الرابط يتم عند رجوع التطبيق للواجهة.
 }
 
 class FcmMarketingPush {
@@ -69,7 +63,7 @@ class FcmMarketingPush {
   StreamSubscription<String>? _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _foregroundSub;
 
-  static const bool disableApplePushForCrashTest = false;
+  static const bool disableApplePushForCrashTest = true;
 
   bool get _applePushDisabled =>
       !kIsWeb && disableApplePushForCrashTest && (Platform.isIOS || Platform.isMacOS);
@@ -95,11 +89,7 @@ class FcmMarketingPush {
         requestSoundPermission: true,
       );
       const initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
-      await _local.initialize(
-        initSettings,
-        onDidReceiveNotificationResponse: _onLocalNotificationTap,
-        onDidReceiveBackgroundNotificationResponse: fcmLocalNotificationTapBackground,
-      );
+      await _local.initialize(initSettings);
 
       if (!kIsWeb && Platform.isAndroid) {
         const channel = AndroidNotificationChannel(
@@ -129,22 +119,11 @@ class FcmMarketingPush {
         sound: true,
       );
 
-      // لا نشترك في Topics أثناء فتح التطبيق حتى لا تتراكم طلبات شبكة/Firestore بالخلفية.
-      // يتم تطبيق تفضيلات التسويق عند حفظ صفحة الإشعارات.
+      // اشترك حسب آخر إعدادات محفوظة محليًا.
+      // إذا ما فيه prefs، الافتراضي تشغيل wazen_all و wazen_marketing.
+      await _applyLocalPrefsFallback();
 
       _foregroundSub ??= FirebaseMessaging.onMessage.listen(_onMessageForeground);
-
-      FirebaseMessaging.onMessageOpenedApp.listen((message) {
-        _openFromData(message.data);
-      });
-
-      final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-      if (initialMessage != null) {
-        // نعطي MaterialApp فرصة يجهز الـ navigator قبل محاولة الفتح.
-        Future<void>.delayed(const Duration(milliseconds: 600), () {
-          _openFromData(initialMessage.data);
-        });
-      }
 
       _authSub ??= FirebaseAuth.instance.authStateChanges().listen((u) {
         if (u != null && !u.isAnonymous) {
@@ -162,13 +141,8 @@ class FcmMarketingPush {
 
       final u = FirebaseAuth.instance.currentUser;
       if (u != null && !u.isAnonymous) {
-        // لا نخلي فشل APNS/FCM يمنع init؛ نحاول بالخلفية وبعد مهلة بسيطة.
-        Future<void>.delayed(const Duration(seconds: 6), () {
-          final current = FirebaseAuth.instance.currentUser;
-          if (current != null && !current.isAnonymous && current.uid == u.uid) {
-            unawaited(_saveTokenForUser(u.uid));
-          }
-        });
+        // لا نخلي فشل APNS/FCM يمنع init؛ نحاول بالخلفية.
+        unawaited(_saveTokenForUser(u.uid));
       }
 
       _inited = true;
@@ -273,10 +247,10 @@ class FcmMarketingPush {
   Future<String?> _getTokenSafely({bool forceRefresh = false}) async {
     // في iOS لازم APNS token يكون جاهز قبل FCM token.
     if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) {
-      for (var i = 0; i < 3; i++) {
+      for (var i = 0; i < 8; i++) {
         final apns = await _messaging.getAPNSToken();
         if (apns != null && apns.trim().isNotEmpty) break;
-        await Future.delayed(Duration(milliseconds: 500 + (i * 250)));
+        await Future.delayed(Duration(milliseconds: 700 + (i * 350)));
       }
     }
 
@@ -361,50 +335,6 @@ class FcmMarketingPush {
       const NotificationDetails(android: androidDetails, iOS: iosDetails),
       payload: payload,
     );
-  }
-
-
-  void _onLocalNotificationTap(NotificationResponse response) {
-    final payload = response.payload;
-    if (payload == null || payload.trim().isEmpty) return;
-    try {
-      final decoded = jsonDecode(payload);
-      if (decoded is Map) {
-        _openFromData(decoded.map((k, v) => MapEntry(k.toString(), v?.toString() ?? '')));
-      }
-    } catch (_) {
-      // ignore malformed payload
-    }
-  }
-
-  void _openFromData(Map<dynamic, dynamic> data) {
-    final raw = (data['deeplink'] ?? data['route'] ?? '').toString().trim();
-    if (raw.isEmpty) return;
-
-    // حماية من الروابط غير المعروفة حتى لا يطيح التطبيق عند الضغط على الإشعار.
-    String? route;
-    if (raw == '/home' || raw.startsWith('/community') || raw.startsWith('/chat')) {
-      route = '/home';
-    } else if (raw == '/settings' || raw.startsWith('/settings')) {
-      route = '/settings';
-    } else if (raw.startsWith('/subscription')) {
-      route = '/subscription';
-    } else if (raw == '/profile') {
-      route = '/profile';
-    } else if (raw == '/weight') {
-      route = '/weight';
-    } else if (raw == '/recipes' || raw.startsWith('/recipes')) {
-      route = '/recipes';
-    }
-
-    if (route == null) return;
-    final nav = AppNav.key.currentState;
-    if (nav == null) return;
-    try {
-      nav.pushNamed(route);
-    } catch (e) {
-      debugPrint('⚠️ FCM deeplink open skipped: $e');
-    }
   }
 
   Future<void> _persistTopicState({

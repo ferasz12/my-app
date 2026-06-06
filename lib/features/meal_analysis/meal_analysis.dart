@@ -202,8 +202,8 @@ class MealAnalysisResult {
 /// Service (Auto: Proxy or Functions)
 /// ==========================
 class MealAnalysisService {
-  static const Duration _timeout = Duration(seconds: 70);
-  static const Duration _fastTextTimeout = Duration(seconds: 70);
+  static const Duration _timeout = Duration(seconds: 25);
+  static const Duration _fastTextTimeout = Duration(seconds: 30);
   static const int _maxRetries = 1;
 
   // نحدّد هل نستخدم البروكسي أم الفنكشن تلقائيًا
@@ -568,17 +568,10 @@ class MealAnalysisService {
           : Map<String, dynamic>.from(legacyRes.data as Map);
       return MealAnalysisResult.fromJson(legacyData);
     } on FirebaseFunctionsException catch (e) {
-      final rawMsg = (e.message ?? '').trim();
-      final low = rawMsg.toLowerCase();
-      // حماية للنسخ القديمة من السيرفر: لا نعرض للمستخدم أن التحليل النصي وصل الحد.
-      // بعد نشر functions المحدثة، food_text غير محدود من السيرفر.
-      if (e.code == 'resource-exhausted' || rawMsg.contains('تجاوزت الحد') || low.contains('quota')) {
-        return MealAnalysisResult.error(
-          'التحليل النصي عليه ضغط مؤقت الآن. جرّب مرة ثانية بعد لحظات، ولن يتم احتساب حد يومي للتحليل النصي.',
-        );
-      }
       return MealAnalysisResult.error(
-        rawMsg.isNotEmpty ? rawMsg : FriendlyErrors.message(e),
+        e.message?.trim().isNotEmpty == true
+            ? e.message!.trim()
+            : FriendlyErrors.message(e),
       );
     } catch (e, st) {
       if (kDebugMode) {
@@ -677,7 +670,7 @@ class MealAnalysisService {
       );
     } on TimeoutException {
       return MealAnalysisResult.error(
-        'تحليل النص أخذ وقت أطول من المتوقع. جرّب مرة ثانية بعد لحظات، أو اكتب الوصف بشكل مختصر وواضح.',
+        'تحليل النص أخذ وقت أطول من المتوقع. اكتب الوصف بشكل مختصر وواضح ثم حاول مرة ثانية.',
       );
     } catch (e, st) {
       if (kDebugMode) {

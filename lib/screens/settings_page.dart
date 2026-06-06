@@ -31,6 +31,8 @@ import 'package:my_app/settings/changelog_page.dart';
 // ✅ صفحة الاشتراك
 import 'package:my_app/settings/subscription_page.dart';
 import 'package:my_app/settings/sync_page.dart';
+import 'package:my_app/shared/premium_access.dart';
+import 'package:my_app/shared/premium_feature.dart';
 
 
 class SettingsPage extends StatelessWidget {
@@ -529,17 +531,35 @@ Future<void> _deleteUserFirestore(String uid) async {
                 ),
                 _tile(
                   context: context,
+                  icon: Icons.cloud_sync_rounded,
+                  title: 'المزامنة السحابية',
+                  subtitle: 'احفظ السعرات والماء والتتبع وبياناتك في السحابة',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.workspace_premium_rounded, size: 18),
+                      SizedBox(width: 4),
+                      Icon(Icons.chevron_left_rounded),
+                    ],
+                  ),
+                  onTap: () async {
+                    final ok = await PremiumAccess.ensureSubscribed(
+                      context,
+                      feature: PremiumFeature.cloudSync,
+                    );
+                    if (!ok || !context.mounted) return;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SettingsCloudSyncPage()),
+                    );
+                  },
+                ),
+                _tile(
+                  context: context,
                   icon: Icons.qr_code_2,
                   title: 'اشتراكي',
                   subtitle: 'إدارة الاشتراك ومسح الباركود',
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SubscriptionPage())),
-                ),
-                _tile(
-                  context: context,
-                  icon: Icons.cloud_sync_rounded,
-                  title: 'المزامنة السحابية',
-                  subtitle: 'للمشتركين فقط: مزامنة الكل أو أقسام محددة',
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsCloudSyncPage())),
                 ),
               ],
             ),

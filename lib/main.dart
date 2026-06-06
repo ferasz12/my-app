@@ -17,7 +17,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 
 import 'app/auth_gate.dart' show AuthGate;
@@ -55,10 +54,13 @@ import 'settings/subscription_page.dart';
 import 'app/app_nav.dart';
 import 'notifications/fcm_marketing_push.dart';
 import 'services/app_review_service.dart';
+import 'services/end_of_day_cloud_backup_service.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'fasting/fasting_notifications.dart';
 import 'notifications/app_notifications.dart';
+import 'notifications/community_inbox_notification_service.dart';
+import 'notifications/notification_sync_service.dart';
 import 'notifications/tz_config.dart';
 import 'shared/safe_prefs.dart';
 import 'shared/premium_gate.dart';
@@ -163,7 +165,7 @@ Future<void> _printEnvDiagnostics() async {
 
 // تعطيل مؤقت لإشعارات iOS/Apple لاختبار سبب Watchdog/OneSignal crash.
 // هذا لا يؤثر على فتح التطبيق أو الاشتراكات أو التحليل؛ فقط يوقف الإشعارات على iPhone مؤقتًا.
-const bool kDisableApplePushForCrashTest = false;
+const bool kDisableApplePushForCrashTest = true;
 
 Future<void> _initNotificationsIfSupported() async {
   if (_isWindows) {
@@ -178,10 +180,15 @@ Future<void> _initNotificationsIfSupported() async {
 
   TzConfig.ensureInitialized();
 
-  // تهيئة خفيفة فقط. لا نعيد جدولة كل الإشعارات ولا نستمع لـ Firestore عند فتح التطبيق،
-  // لأن إشعارات المجتمع والرسائل تصل عبر FCM/Cloud Functions حتى لا تعلق الصفحات.
-  await FastingNotifications.instance.init().timeout(const Duration(seconds: 3));
-  await AppNotifications.instance.init().timeout(const Duration(seconds: 3));
+  await FastingNotifications.instance.init();
+  await AppNotifications.instance.init();
+  await AppNotifications.instance.restoreFromLocalPrefs();
+
+  // ✅ مزامنة إعدادات الإشعارات من Firestore + جدولة العروض (عند فتح التطبيق)
+  NotificationSyncService.instance.start();
+
+  // ✅ إشعارات مجتمع وازن: الردود، الإعجابات، تثبيت التعليقات، والبلاغات.
+  await CommunityInboxNotificationService.instance.start();
 }
 
 Future<void> _initFcmIfSupported() async {
@@ -214,15 +221,11 @@ Future<void> _safeStartupTask(
 }
 
 Future<void> _startOptionalServicesAfterFirstFrame() async {
-  // الخدمات الاختيارية لا يجب أن تضغط أول فتح للهوم.
-  // نشغلها بتأخير بسيط وبشكل غير متسلسل حتى لو تعطلت خدمة لا توقف الباقي.
-  Future<void>.delayed(const Duration(seconds: 20), () {
-    unawaited(_safeStartupTask('FCM', _initFcmIfSupported));
-  });
+  // شغّل FCM كخدمة مستقلة حتى لو تعطلت جدولة الإشعارات المحلية
+  // أو أخذت وقت طويل. هذا مهم حتى تُحفظ التوكنات وتشتغل Topics.
+  unawaited(_safeStartupTask('FCM', _initFcmIfSupported));
 
-  Future<void>.delayed(const Duration(seconds: 30), () {
-    unawaited(_safeStartupTask('Notifications', _initNotificationsIfSupported));
-  });
+  await _safeStartupTask('Notifications', _initNotificationsIfSupported);
 }
 
 void main() {
@@ -246,12 +249,6 @@ void main() {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-
-    // ✅ مهم جدًا: تسجيل معالج رسائل FCM الخلفية مبكرًا حتى تصل
-    // إشعارات المجتمع والرسائل عندما يكون التطبيق بالخلفية أو مغلقًا.
-    if (!_isWindows) {
-      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    }
 
     // 2. تفعيل App Check
     final recaptchaKey =
@@ -299,9 +296,9 @@ void main() {
     // 4. شغّل الخدمات الاختيارية بعد ظهور أول واجهة حتى لا تسبب شاشة بيضاء عند الإقلاع.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_startOptionalServicesAfterFirstFrame());
+      DailyCloudBackupService.instance.start();
 
-      // لا توجد مزامنة سحابية تلقائية بالخلفية. المزامنة الآن من زر الإعدادات فقط.
-      Future<void>.delayed(const Duration(seconds: 10), () {
+      Future<void>.delayed(const Duration(seconds: 3), () {
         final context = AppNav.key.currentContext;
         if (context != null) {
           unawaited(AppReviewService.maybeShowPeriodicPrompt(context));

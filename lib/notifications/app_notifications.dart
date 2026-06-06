@@ -16,7 +16,7 @@ class AppNotifications {
   AppNotifications._();
   static final AppNotifications instance = AppNotifications._();
 
-  static const bool disableAppleLocalNotificationsForCrashTest = false;
+  static const bool disableAppleLocalNotificationsForCrashTest = true;
 
   bool get _appleNotificationsDisabled =>
       disableAppleLocalNotificationsForCrashTest && (Platform.isIOS || Platform.isMacOS);
@@ -207,7 +207,6 @@ class AppNotifications {
 
     await applySettings(
       allEnabled: all,
-      cancelDisabled: false,
       waterEnabled: waterEnabled,
       waterStartHour: wsH,
       waterStartMinute: wsM,
@@ -235,7 +234,6 @@ class AppNotifications {
   /// تطبق الحالة (جدولة/إلغاء) حسب إعدادات المستخدم
   Future<void> applySettings({
     required bool allEnabled,
-    bool cancelDisabled = true,
     required bool waterEnabled,
     required int waterStartHour,
     required int waterStartMinute,
@@ -262,14 +260,12 @@ class AppNotifications {
     if (!_ready) await init();
 
     if (!allEnabled) {
-      if (cancelDisabled) {
-        await cancelWaterReminders();
-        await cancelWorkoutReminders();
-        await cancelDailyTips();
-        await cancelWeighInReminder();
-        await cancelCaloriesReminder();
-        await cancelStreakWarning();
-      }
+      await cancelWaterReminders();
+      await cancelWorkoutReminders();
+      await cancelDailyTips();
+      await cancelWeighInReminder();
+      await cancelCaloriesReminder();
+      await cancelStreakWarning();
       return;
     }
 
@@ -281,7 +277,7 @@ class AppNotifications {
         endMinute: waterEndMinute,
         intervalMinutes: waterIntervalMinutes,
       );
-    } else if (cancelDisabled) {
+    } else {
       await cancelWaterReminders();
     }
 
@@ -291,25 +287,25 @@ class AppNotifications {
         minute: workoutMinute,
         weekdays: workoutWeekdays,
       );
-    } else if (cancelDisabled) {
+    } else {
       await cancelWorkoutReminders();
     }
 
     if (tipsEnabled) {
       await scheduleDailyTip(hour: tipsHour, minute: tipsMinute);
-    } else if (cancelDisabled) {
+    } else {
       await cancelDailyTips();
     }
 
     if (weightEnabled) {
       await scheduleWeighInReminder(hour: weightHour, minute: weightMinute);
-    } else if (cancelDisabled) {
+    } else {
       await cancelWeighInReminder();
     }
 
     if (caloriesEnabled) {
       await scheduleCaloriesReminder(hour: caloriesHour, minute: caloriesMinute);
-    } else if (cancelDisabled) {
+    } else {
       await cancelCaloriesReminder();
     }
   }
@@ -394,7 +390,6 @@ class AppNotifications {
     required int minute,
     required List<int> weekdays, // 1..7 (Mon..Sun)
   }) async {
-    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
 
     await cancelWorkoutReminders();

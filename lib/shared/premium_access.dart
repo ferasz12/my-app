@@ -29,14 +29,16 @@ class PremiumAccess {
   static const Set<PremiumFeature> paidFeatures = <PremiumFeature>{
     PremiumFeature.aiPhoto,
     PremiumFeature.aiText,
-    PremiumFeature.restaurantsAdd,
-    PremiumFeature.smartCoach,
-    PremiumFeature.pdfTracking,
+    PremiumFeature.restaurants,
+    PremiumFeature.coach,
+    PremiumFeature.trackingPdf,
     PremiumFeature.virtualClubGuide,
     PremiumFeature.recipes,
     PremiumFeature.regimen,
-    PremiumFeature.appearance,
+    PremiumFeature.regimens,
+    PremiumFeature.theme,
     PremiumFeature.notifications,
+    PremiumFeature.cloudSync,
   };
 
   static bool isPaid(PremiumFeature f) => paidFeatures.contains(f);
@@ -102,6 +104,100 @@ class PremiumAccess {
     if (!isPaid(feature)) return true; // مجانية
     final st = await current();
     return st.isPremium;
+  }
+
+
+  /// تحقق سريع عند الضغط على زر ميزة مدفوعة.
+  /// يرجّع true إذا الميزة مجانية أو المستخدم مشترك، وإلا يفتح صفحة الاشتراك.
+  static Future<bool> ensureSubscribed(
+    BuildContext context, {
+    required PremiumFeature feature,
+    bool showSheet = true,
+  }) async {
+    final allowed = await hasAccess(feature);
+    if (allowed) return true;
+
+    if (!context.mounted) return false;
+
+    if (showSheet) {
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: Theme.of(ctx).colorScheme.primary.withOpacity(.12),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(feature.icon, color: Theme.of(ctx).colorScheme.primary),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${feature.titleAr} ميزة مدفوعة',
+                              style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(feature.subtitleAr, style: Theme.of(ctx).textTheme.bodySmall),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () async {
+                        Navigator.of(ctx).pop();
+                        await openPaywall(context);
+                      },
+                      icon: const Icon(Icons.workspace_premium_rounded),
+                      label: const Text('الاشتراك الآن'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('إغلاق'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      await openPaywall(context);
+    }
+
+    try {
+      final refreshed = await current();
+      return refreshed.isPremium;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<PremiumStatus> _computeStatus(User user, {Map<String, dynamic>? remoteData}) async {

@@ -29,6 +29,7 @@ class OwnerFeatureFlagsService {
     PremiumFeature.regimen: true,
     PremiumFeature.theme: true,
     PremiumFeature.notifications: true,
+    PremiumFeature.cloudSync: true,
   };
 
   Stream<Map<PremiumFeature, bool>> watchFlags() {

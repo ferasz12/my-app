@@ -1,5 +1,5 @@
 // lib/settings/sync_page.dart
-// صفحة المزامنة السحابية — للمشتركين فقط.
+// صفحة المزامنة السحابية.
 
 import 'package:flutter/material.dart';
 
@@ -56,7 +56,7 @@ class _SettingsCloudSyncPageState extends State<SettingsCloudSyncPage> {
     setState(() {
       _busy = true;
       _error = null;
-      _status = 'جارٍ المزامنة مع السحابة...';
+      _status = 'جاري مزامنة بياناتك في السحابة...';
     });
 
     try {
@@ -100,14 +100,14 @@ class _SettingsCloudSyncPageState extends State<SettingsCloudSyncPage> {
     setState(() {
       _busy = true;
       _error = null;
-      _status = 'جارٍ استرجاع البيانات من السحابة...';
+      _status = 'جاري استرجاع بياناتك من السحابة...';
     });
 
     try {
       final result = await CloudSyncService.restore(categoryIds: _selected);
       if (!mounted) return;
       setState(() => _status = result.summary);
-      _showSnack('تم الاسترجاع. أغلق التطبيق وافتحه إذا لم تظهر بعض البيانات مباشرة.');
+      _showSnack('تم الاسترجاع بنجاح. قد تحتاج بعض الصفحات إلى إعادة الفتح لعرض البيانات المحدثة.');
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = _friendlyError(e));
@@ -124,7 +124,7 @@ class _SettingsCloudSyncPageState extends State<SettingsCloudSyncPage> {
   String _friendlyError(Object e) {
     final text = e.toString();
     if (text.contains('permission-denied')) {
-      return 'ما عندك صلاحية كتابة/قراءة المزامنة. إذا ظهرت لك، تأكد من قواعد Firestore لمسار users/{uid}/syncBackups و users/{uid}/syncMeta.';
+      return 'تعذر الوصول إلى المزامنة. تحقق من تسجيل الدخول وصلاحيات الحساب ثم حاول مرة أخرى.';
     }
     if (text.contains('network')) return 'تأكد من اتصال الإنترنت ثم حاول مرة ثانية.';
     if (text.contains('المشتركين فقط')) return 'المزامنة السحابية متاحة للمشتركين فقط.';
@@ -165,7 +165,7 @@ class _SettingsCloudSyncPageState extends State<SettingsCloudSyncPage> {
                       ),
                       const SizedBox(height: 12),
                       if (_busy) ...[
-                        LinearProgressIndicator(borderRadius: BorderRadius.circular(999)),
+                        _SyncProgressCard(message: _status ?? 'جاري مزامنة بياناتك في السحابة...'),
                         const SizedBox(height: 12),
                       ],
                       if (_status != null) _InfoBox(icon: Icons.check_circle_rounded, text: _status!, color: cs.primary),
@@ -257,7 +257,7 @@ class _LockedView extends StatelessWidget {
               Text('المزامنة للمشتركين فقط', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
               const SizedBox(height: 8),
               Text(
-                'اشترك في وازن عشان تحفظ بياناتك في السحابة وتسترجعها عند تغيير الجهاز أو حذف التطبيق.',
+                'اشترك في وازن لحفظ بياناتك في السحابة واسترجاعها عند تغيير الجهاز أو إعادة تثبيت التطبيق.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant, height: 1.5),
               ),
@@ -323,7 +323,7 @@ class _HeroCard extends StatelessWidget {
                     Text('حفظ واسترجاع بيانات وازن', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
                     const SizedBox(height: 2),
                     Text(
-                      'المحدد الآن: $selectedCount أقسام',
+                      'الأقسام المحددة: $selectedCount',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                     ),
                   ],
@@ -358,6 +358,45 @@ class _HeroCard extends StatelessWidget {
               onPressed: busy ? null : onRestore,
               icon: const Icon(Icons.cloud_download_rounded),
               label: const Text('استرجاع المحدد من السحابة'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class _SyncProgressCard extends StatelessWidget {
+  final String message;
+  const _SyncProgressCard({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withOpacity(0.22)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.8, color: cs.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    height: 1.45,
+                    fontWeight: FontWeight.w800,
+                    color: cs.onSurface,
+                  ),
             ),
           ),
         ],
