@@ -144,7 +144,7 @@ class AchievementsStore {
 
   static Future<void> _ensureDoc() async {
     final ref = _ref();
-    final snap = await ref.get();
+    final snap = await ref.get(const GetOptions(source: Source.serverAndCache)).timeout(const Duration(milliseconds: 650));
     if (!snap.exists) {
       await ref.set({
         'points_total': 0,
@@ -161,8 +161,10 @@ class AchievementsStore {
 
   /// بث مباشر لتغيرات المستخدم (من totals)
   static Stream<Map<String, dynamic>> watchMe() async* {
-    await _ensureDoc();
-    yield* _ref().snapshots().map((s) => s.data() ?? <String, dynamic>{});
+    // اعرض الصفحة فورًا، ولا تنتظر إنشاء/قراءة الوثيقة قبل ظهور الواجهة.
+    yield <String, dynamic>{};
+    unawaited(_ensureDoc().catchError((_) {}));
+    yield* _ref().snapshots(includeMetadataChanges: true).map((s) => s.data() ?? <String, dynamic>{});
   }
 
   static Future<int> getPoints() async {

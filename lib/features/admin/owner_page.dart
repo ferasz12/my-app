@@ -349,7 +349,6 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
           PremiumFeature.regimen,
           PremiumFeature.theme,
           PremiumFeature.notifications,
-          PremiumFeature.cloudSync,
         ];
 
         return ListView.separated(

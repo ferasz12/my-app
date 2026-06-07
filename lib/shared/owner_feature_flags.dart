@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'premium_feature.dart';
@@ -32,23 +34,28 @@ class OwnerFeatureFlagsService {
     PremiumFeature.regimen: true,
     PremiumFeature.theme: true,
     PremiumFeature.notifications: true,
-    PremiumFeature.cloudSync: true,
+    PremiumFeature.cloudSync: false,
   };
 
   Stream<Map<PremiumFeature, bool>> watchFlags() {
-    return _doc.snapshots().map((snap) => _decode(snap.data()));
+    return _doc.snapshots().map((snap) {
+      final decoded = _decode(snap.data());
+      _cachedFlags = decoded;
+      _cachedAt = DateTime.now();
+      return decoded;
+    });
   }
 
   Future<Map<PremiumFeature, bool>> loadFlags({bool allowCached = true}) async {
     final now = DateTime.now();
     final cached = _cachedFlags;
     final cachedAt = _cachedAt;
-    if (allowCached && cached != null && cachedAt != null && now.difference(cachedAt) < const Duration(minutes: 5)) {
+    if (allowCached && cached != null && cachedAt != null && now.difference(cachedAt) < const Duration(minutes: 10)) {
       return cached;
     }
 
     try {
-      final snap = await _doc.get().timeout(const Duration(milliseconds: 900));
+      final snap = await _doc.get(const GetOptions(source: Source.serverAndCache)).timeout(const Duration(milliseconds: 450));
       final decoded = _decode(snap.data());
       _cachedFlags = decoded;
       _cachedAt = now;
@@ -59,8 +66,18 @@ class OwnerFeatureFlagsService {
   }
 
   Future<bool> isEnabled(PremiumFeature feature) async {
-    final flags = await loadFlags();
-    return flags[feature] ?? true;
+    if (feature == PremiumFeature.cloudSync) return false;
+    final now = DateTime.now();
+    final cached = _cachedFlags;
+    final cachedAt = _cachedAt;
+    if (cached != null && cachedAt != null && now.difference(cachedAt) < const Duration(minutes: 10)) {
+      return cached[feature] ?? true;
+    }
+
+    // مهم للأداء: لا نوقف فتح الصفحات على قراءة إعدادات المالك.
+    // نرجع الافتراضي فورًا، ونحدّث الكاش بالخلفية للاستخدامات التالية.
+    unawaited(loadFlags(allowCached: false).catchError((_) => defaults));
+    return defaults[feature] ?? true;
   }
 
   Future<void> setFlag(PremiumFeature feature, bool enabled) async {

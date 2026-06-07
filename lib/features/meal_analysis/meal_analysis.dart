@@ -203,7 +203,7 @@ class MealAnalysisResult {
 /// ==========================
 class MealAnalysisService {
   static const Duration _timeout = Duration(seconds: 25);
-  static const Duration _fastTextTimeout = Duration(seconds: 28);
+  static const Duration _fastTextTimeout = Duration(seconds: 22);
   static const int _maxRetries = 1;
 
   // نحدّد هل نستخدم البروكسي أم الفنكشن تلقائيًا
@@ -556,11 +556,7 @@ class MealAnalysisService {
       } on FirebaseFunctionsException catch (e) {
         final code = e.code.toLowerCase();
         final msg = (e.message ?? '').toLowerCase();
-        final shouldTryLegacy = code.contains('not-found') ||
-            msg.contains('not found') ||
-            code.contains('unavailable') ||
-            code.contains('internal') ||
-            code.contains('deadline-exceeded');
+        final shouldTryLegacy = code.contains('not-found') || msg.contains('not found');
 
         if (!shouldTryLegacy) {
           return MealAnalysisResult.error(
@@ -570,9 +566,12 @@ class MealAnalysisService {
           );
         }
       } on TimeoutException {
-        // إذا تأخر V2 نجرب الدالة القديمة بدل إظهار خطأ للمستخدم.
+        return MealAnalysisResult.error(
+          'التحليل أخذ وقت أطول من المتوقع. حاول مرة ثانية بوصف أقصر أو تحقق من الاتصال.',
+        );
       }
 
+      // نستخدم الدالة القديمة فقط إذا لم تكن V2 منشورة، وليس كمسار دائم حتى لا ينتظر المستخدم مرتين.
       final legacyCallable = fns.httpsCallable(
         'analyzeMealText',
         options: HttpsCallableOptions(timeout: _timeout),

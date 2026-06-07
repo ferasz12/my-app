@@ -7,8 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 
-import '../shared/premium_feature.dart';
-import '../shared/premium_gate.dart';
 
 // صفحات داخلية
 import 'restaurants_page.dart';
@@ -21,8 +19,10 @@ import '../trainers/trainer_dashboard_screen.dart';
 import '../trainers/trainer_contact_gate.dart';
 
 // شارات/حساب
+import '../community/local_repos.dart'; // LocalAuthRepo().currentUser()
 import '../community/models.dart'; // AppUser
 import '../models/badge.dart'; // enum BadgeType
+import '../shared/user_badges_store.dart'; // مصدر الشارات
 
 // ✅ صفحات المالك والدعم داخل features
 import '../features/admin/owner_page.dart'; // OwnerPage
@@ -50,10 +50,8 @@ class GuidePage extends StatelessWidget {
           }
           return const _NotAllowed(reason: "الرجاء تسجيل الدخول للوصول إلى هذه الصفحة");
         }
-        return PremiumGate(
-          feature: PremiumFeature.guide,
-          child: const GuidePageInner(),
-        );
+        // دليلك ليس ميزة مدفوعة بحد ذاته؛ افتحه مباشرة حتى لا ينتظر تحقق الاشتراك/Firestore.
+        return const GuidePageInner();
       },
     );
   }
@@ -126,6 +124,7 @@ class GuidePageInner extends StatefulWidget {
 
 class _GuidePageState extends State<GuidePageInner> {
   final RolesService _roles = RolesService();
+  final UserBadgesStore _badges = UserBadgesStore(); // غيّرها لو عندك Singleton مختلف
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   AppUser? _me;
@@ -166,14 +165,39 @@ class _GuidePageState extends State<GuidePageInner> {
   }
 
   Future<void> _resolveEverything() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-
-    // افتح الصفحة فورًا. لا ننتظر الدور/الشارة حتى لا تتأخر صفحة دليلك.
-    if (mounted && _loading) {
-      setState(() => _loading = false);
+    // لا نعلّق صفحة دليلك على Firestore. اعرض الصفحة فورًا ثم حدّث الصلاحيات بالخلفية.
+    final current = FirebaseAuth.instance.currentUser;
+    if (current != null) {
+      _me = AppUser(
+        uid: current.uid,
+        email: current.email ?? '',
+        displayName: current.displayName ?? '',
+        photoUrl: current.photoURL,
+      );
     }
 
-    // بث الدور يبدأ مباشرة؛ عند وصوله تظهر لوحات المالك/الدعم بدون تعطيل الصفحة.
+    unawaited(_loadMeAndBadgeInBackground());
+    await _startRoleListenerFast();
+  }
+
+  Future<void> _loadMeAndBadgeInBackground() async {
+    try {
+      final me = await LocalAuthRepo().currentUser().timeout(const Duration(milliseconds: 600));
+      BadgeType? badge;
+      try {
+        badge = await _badges.getBadge(me.uid).timeout(const Duration(milliseconds: 600));
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _me = me;
+        _myBadge = badge;
+      });
+    } catch (_) {
+      // تجاهل: الصفحة تبقى مفتوحة بدون انتظار.
+    }
+  }
+
+  Future<void> _startRoleListenerFast() async {
     try {
       await _roleSub?.cancel();
       _roleSub = _roles.currentUserRoleStream().listen((role) {
@@ -182,34 +206,17 @@ class _GuidePageState extends State<GuidePageInner> {
           _isOwner = (role == AppRole.owner);
           _isAdmin = (role == AppRole.admin);
           _isSupport = (role == AppRole.support || _isAdmin || _isOwner);
+          _loading = false;
         });
       });
-    } catch (_) {}
-
-    if (uid == null || uid.isEmpty) return;
-
-    // الاسم والشارة تحميل خفيف بالخلفية مع timeout؛ لا يعلق الصفحة إذا الشبكة بطيئة.
-    unawaited(_loadGuideIdentity(uid));
-  }
-
-  Future<void> _loadGuideIdentity(String uid) async {
-    try {
-      final snap = await _db
-          .collection('users')
-          .doc(uid)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(milliseconds: 1800));
-      final data = snap.data() ?? const <String, dynamic>{};
-      final me = AppUser.fromJson(data, uid: uid);
-      final badge = badgeFromString((data['badge'] ?? '').toString());
-
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _me = me;
-        _myBadge = badge == BadgeType.none ? null : badge;
+        _isOwner = false;
+        _isAdmin = false;
+        _isSupport = false;
+        _loading = false;
       });
-    } catch (_) {
-      // لا نعرض خطأ ولا نوقف الصفحة؛ فقط نخفي الشارات الإضافية مؤقتًا.
     }
   }
 
@@ -219,9 +226,7 @@ class _GuidePageState extends State<GuidePageInner> {
     final cs = theme.colorScheme;
     final tt = theme.textTheme;
 
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    // لا نعرض لودنق لصفحة دليلك؛ الصلاحيات تُحدّث بالخلفية.
 
     // منطق الإظهار حسب الرتبة (لا تغيّر)
     final showTrainerPanel = _myBadge == BadgeType.coach;

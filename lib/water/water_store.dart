@@ -1,14 +1,11 @@
 // lib/water/water_store.dart
 // محلي وسريع: لا توجد مزامنة Firestore أثناء اليوم.
-// يتم رفع الماء ضمن لقطة نهاية اليوم عبر DailyCloudBackupService.
+// الحفظ محلي فقط؛ تم تعطيل أي رفع سحابي تلقائي.
 
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import '../services/end_of_day_cloud_backup_service.dart';
 
 const double kPlentyWaterThresholdLiters = 2.0;
 
@@ -46,7 +43,6 @@ class WaterStore {
     final map = _decodeMap(prefs.getString(logKey));
     map[ymd] = liters;
     await prefs.setString(logKey, jsonEncode(map));
-    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 
   static Future<double> todayLiters() async {

@@ -1,14 +1,11 @@
 // lib/services/tracker_store.dart
 // سريع ومحلي: لا يقرأ ولا يكتب Firestore أثناء اليوم.
-// يتم رفع لقطة اليوم للسحابة عبر DailyCloudBackupService في نهاية اليوم.
+// الحفظ محلي فقط؛ تم تعطيل أي رفع سحابي تلقائي.
 
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'end_of_day_cloud_backup_service.dart';
 
 class TrackerStore {
   static String _todayKey() => _keyForDate(DateTime.now());
@@ -73,7 +70,6 @@ class TrackerStore {
       await prefs.setString('intake_entries_${email}_$ymd', jsonEncode(entries));
     }
 
-    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 
   static Map<String, dynamic> _dayMapFromTotals({
@@ -232,7 +228,6 @@ class TrackerStore {
     await prefs.remove('kcal_daytotals_${email}_$yyyymmdd');
     await prefs.remove('intake_entries_${email}_$yyyymmdd');
     await prefs.setBool('eod_cloud_backup_done_${email}_$yyyymmdd', false);
-    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 
 
@@ -384,6 +379,5 @@ class TrackerStore {
     await prefs.remove('kcal_daytotals_${email}_$ymd');
     await prefs.remove('intake_entries_${email}_$ymd');
     await prefs.setBool('eod_cloud_backup_done_${email}_$ymd', false);
-    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 }
