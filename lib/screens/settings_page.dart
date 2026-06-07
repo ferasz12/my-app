@@ -11,29 +11,46 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 // صفحاتك الحالية
-import 'package:my_app/screens/welcome_screen.dart';
-import 'package:my_app/settings/edit_email_page.dart';
-import 'package:my_app/settings/edit_password_page.dart';
-import 'package:my_app/settings/terms_page.dart';
-import 'package:my_app/settings/privacy_page.dart';
-import 'package:my_app/settings/contact_page.dart';
-import 'package:my_app/settings/theme_settings_page.dart';
-import 'package:my_app/settings/font_size_page.dart';
+import 'welcome_screen.dart';
+import '../settings/edit_email_page.dart';
+import '../settings/edit_password_page.dart';
+import '../settings/terms_page.dart';
+import '../settings/privacy_page.dart';
+import '../settings/contact_page.dart';
+import '../settings/theme_settings_page.dart';
+import '../settings/font_size_page.dart';
 
 // الصفحات الجديدة
-import 'package:my_app/settings/profile_page.dart';
-import 'package:my_app/settings/notifications_page.dart';
-import 'package:my_app/settings/language_page.dart';
-import 'package:my_app/settings/sessions_page.dart';
-import 'package:my_app/settings/faq_page.dart';
-import 'package:my_app/settings/changelog_page.dart';
+import '../settings/profile_page.dart';
+import '../settings/notifications_page.dart';
+import '../settings/language_page.dart';
+import '../settings/sessions_page.dart';
+import '../settings/faq_page.dart';
+import '../settings/changelog_page.dart';
+import '../settings/cloud_sync_page.dart';
 
 // ✅ صفحة الاشتراك
-import 'package:my_app/settings/subscription_page.dart';
+import '../settings/subscription_page.dart';
+import '../shared/premium_gate.dart';
+import '../shared/premium_feature.dart';
 
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
+
+
+  static Future<void> _openCloudSync(BuildContext context) async {
+    final allowed = await PremiumAccess.ensureSubscribed(
+      context,
+      feature: PremiumFeature.cloudSync,
+      showSheet: true,
+    );
+    if (!allowed || !context.mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CloudSyncPage()),
+    );
+  }
 
   // ======= تحسينات شكلية عامة =======
   static BoxDecoration _cardDecoration(BuildContext context) {
@@ -525,6 +542,13 @@ Future<void> _deleteUserFirestore(String uid) async {
                   icon: Icons.devices_other,
                   title: 'الأجهزة والجلسات النشطة',
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SessionsPage())),
+                ),
+                _tile(
+                  context: context,
+                  icon: Icons.cloud_sync_rounded,
+                  title: 'المزامنة السحابية',
+                  subtitle: 'رفع واسترجاع بياناتك عند الحاجة',
+                  onTap: () => _openCloudSync(context),
                 ),
                 _tile(
                   context: context,

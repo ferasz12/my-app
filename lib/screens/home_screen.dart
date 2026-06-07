@@ -54,7 +54,7 @@ import '../water/water_store.dart';
 import '../water/water_pages.dart';
 
 // نصيحة اليوم
-import 'package:my_app/core/daily_health_tips.dart';
+import '../core/daily_health_tips.dart';
 
 // ✅ استدعاء مخزن الإنجازات (يُستخدم للـ total فقط)
 import 'achievements_page.dart' show AchievementsStore;
@@ -62,7 +62,7 @@ import 'achievements_page.dart' show AchievementsStore;
 // ✅ تنظيف المفاتيح التي خُزّنت بنوع خاطئ
 import '../shared/safe_prefs.dart';
 import '../shared/macro_targets_controller.dart';
-import 'package:my_app/achievements/achievements_with_leaderboard.dart';
+import '../achievements/achievements_with_leaderboard.dart';
 
 import '../features/meal_analysis/meal_analysis.dart';
 //import '../achievements/achievements_with_leaderboard.dart' show AchievementsPage;

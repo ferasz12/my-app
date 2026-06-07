@@ -6,6 +6,8 @@
 // - snapshots(includeMetadataChanges: true) للاستفادة من كاش Firestore بسرعة.
 // - لا يوجد أي fallback ثابت للمقاهي من هنا؛ صفحة العرض هي التي تقرر استخدام fallback المطاعم فقط.
 
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:typed_data';
 
@@ -14,6 +16,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/meal.dart';
 import '../models/venue.dart';
@@ -31,6 +34,9 @@ class RestaurantsFirestoreRepository {
   static final Map<String, List<Venue>> _venuesCache = <String, List<Venue>>{};
   static final Map<String, List<Meal>> _mealsCache = <String, List<Meal>>{};
 
+  String _venuesCacheKey(VenueType type) => 'wazen_venues_cache_${_typeToString(type)}';
+  String _mealsCacheKey(String restaurantId) => 'wazen_meals_cache_$restaurantId';
+
   String _typeToString(VenueType t) =>
       t == VenueType.restaurant ? 'restaurant' : 'cafe';
 
@@ -46,10 +52,16 @@ class RestaurantsFirestoreRepository {
   }
 
   /// بثّ حي للمطاعم/المقاهي حسب النوع.
-  /// ملاحظة: الترتيب يتم محليًا حتى لا تحتاج index إضافي في Firestore.
-  Stream<List<Venue>> streamVenuesByType(VenueType type) {
+  /// يعرض آخر كاش محفوظ فورًا ثم يحدّثه من Firestore.
+  Stream<List<Venue>> streamVenuesByType(VenueType type) async* {
     final typeKey = _typeToString(type);
-    return _col
+    final memory = _venuesCache[typeKey] ?? const <Venue>[];
+    if (memory.isNotEmpty) yield List<Venue>.unmodifiable(memory);
+
+    final persisted = await _readVenuesCache(type);
+    if (persisted.isNotEmpty && memory.isEmpty) yield persisted;
+
+    yield* _col
         .where('type', isEqualTo: typeKey)
         .snapshots(includeMetadataChanges: true)
         .map((q) {
@@ -65,14 +77,23 @@ class RestaurantsFirestoreRepository {
       }).where((v) => v.name.isNotEmpty).toList();
 
       list.sort((a, b) => a.name.compareTo(b.name));
-      _venuesCache[typeKey] = List<Venue>.unmodifiable(list);
-      return list;
+      final out = List<Venue>.unmodifiable(list);
+      _venuesCache[typeKey] = out;
+      unawaited(_saveVenuesCache(type, out));
+      return out;
     });
   }
 
   /// بثّ حي لوجبات مطعم/مقهى واحد.
-  Stream<List<Meal>> streamMeals(String restaurantId, {String? restaurantName}) {
-    return _col
+  /// يعرض كاش الوجبات أولًا لتختفي شاشة الانتظار عند الرجوع للصفحة.
+  Stream<List<Meal>> streamMeals(String restaurantId, {String? restaurantName}) async* {
+    final memory = _mealsCache[restaurantId] ?? const <Meal>[];
+    if (memory.isNotEmpty) yield List<Meal>.unmodifiable(memory);
+
+    final persisted = await _readMealsCache(restaurantId);
+    if (persisted.isNotEmpty && memory.isEmpty) yield persisted;
+
+    yield* _col
         .doc(restaurantId)
         .collection('meals')
         .snapshots(includeMetadataChanges: true)
@@ -95,10 +116,118 @@ class RestaurantsFirestoreRepository {
       }).where((m) => m.name.isNotEmpty).toList();
 
       list.sort((a, b) => a.name.compareTo(b.name));
-      _mealsCache[restaurantId] = List<Meal>.unmodifiable(list);
-      return list;
+      final out = List<Meal>.unmodifiable(list);
+      _mealsCache[restaurantId] = out;
+      unawaited(_saveMealsCache(restaurantId, out));
+      return out;
     });
   }
+
+
+  Future<List<Venue>> _readVenuesCache(VenueType type) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_venuesCacheKey(type));
+      if (raw == null || raw.trim().isEmpty) return const <Venue>[];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <Venue>[];
+      final list = decoded
+          .whereType<Map>()
+          .map((m) => _venueFromJson(Map<String, dynamic>.from(m)))
+          .where((v) => v.name.isNotEmpty)
+          .toList();
+      list.sort((a, b) => a.name.compareTo(b.name));
+      _venuesCache[_typeToString(type)] = List<Venue>.unmodifiable(list);
+      return List<Venue>.unmodifiable(list);
+    } catch (_) {
+      return const <Venue>[];
+    }
+  }
+
+  Future<void> _saveVenuesCache(VenueType type, List<Venue> venues) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _venuesCacheKey(type),
+        jsonEncode(venues.take(200).map(_venueToJson).toList(growable: false)),
+      );
+    } catch (_) {}
+  }
+
+  Future<List<Meal>> _readMealsCache(String restaurantId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_mealsCacheKey(restaurantId));
+      if (raw == null || raw.trim().isEmpty) return const <Meal>[];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <Meal>[];
+      final list = decoded
+          .whereType<Map>()
+          .map((m) => _mealFromJson(Map<String, dynamic>.from(m)))
+          .where((m) => m.name.isNotEmpty)
+          .toList();
+      list.sort((a, b) => a.name.compareTo(b.name));
+      _mealsCache[restaurantId] = List<Meal>.unmodifiable(list);
+      return List<Meal>.unmodifiable(list);
+    } catch (_) {
+      return const <Meal>[];
+    }
+  }
+
+  Future<void> _saveMealsCache(String restaurantId, List<Meal> meals) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _mealsCacheKey(restaurantId),
+        jsonEncode(meals.take(400).map(_mealToJson).toList(growable: false)),
+      );
+    } catch (_) {}
+  }
+
+  Map<String, dynamic> _venueToJson(Venue v) => {
+        'id': v.id,
+        'name': v.name,
+        'type': _typeToString(v.type),
+        'imageAsset': v.imageAsset,
+        'imageUrl': v.imageUrl,
+      };
+
+  Venue _venueFromJson(Map<String, dynamic> m) => Venue(
+        id: (m['id'] ?? '').toString(),
+        name: (m['name'] ?? '').toString().trim(),
+        type: _stringToType(m['type']?.toString()),
+        meals: const <Meal>[],
+        imageAsset: m['imageAsset']?.toString(),
+        imageUrl: m['imageUrl']?.toString(),
+      );
+
+  Map<String, dynamic> _mealToJson(Meal m) => {
+        'id': m.id,
+        'restaurant': m.restaurant,
+        'name': m.name,
+        'category': m.category,
+        'serving': m.serving,
+        'calories': m.calories,
+        'protein': m.protein,
+        'carbs': m.carbs,
+        'fat': m.fat,
+        'imageUrl': m.imageUrl,
+        'description': m.description,
+      };
+
+  Meal _mealFromJson(Map<String, dynamic> m) => Meal(
+        id: (m['id'] ?? '').toString(),
+        restaurant: (m['restaurant'] ?? '').toString(),
+        name: (m['name'] ?? '').toString().trim(),
+        category: (m['category'] ?? '').toString(),
+        serving: (m['serving'] ?? '').toString(),
+        calories: _asInt(m['calories']),
+        protein: _asDouble(m['protein']),
+        carbs: _asDouble(m['carbs']),
+        fat: _asDouble(m['fat']),
+        imageUrl: m['imageUrl']?.toString(),
+        description: m['description']?.toString(),
+      );
 
   /// إنشاء أو تحديث مطعم/مقهى.
   Future<void> upsertVenue({

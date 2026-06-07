@@ -17,9 +17,6 @@ import 'virtual_gym_page.dart';
 import 'training_schedule_page.dart';
 import '../features/recipes/ui/recipes_explore_page.dart';
 import 'community_page.dart';
-import '../trainers/my_trainer_screen.dart';
-import '../trainers/trainer_dashboard_screen.dart';
-import '../trainers/trainer_contact_gate.dart';
 
 // شارات/حساب
 import '../community/local_repos.dart'; // LocalAuthRepo().currentUser()
@@ -32,7 +29,7 @@ import '../features/admin/owner_page.dart'; // OwnerPage
 import '../features/support/support_page.dart'; // SupportPage
 
 // أخرى (عدّل اسم الباكيج لو مو my_app)
-import 'package:my_app/gyms/gyms_map_page.dart';
+import '../gyms/gyms_map_page.dart';
 
 // خدمة الأدوار
 import '../core/auth/roles_service.dart';
@@ -283,7 +280,6 @@ class _GuidePageState extends State<GuidePageInner> {
     }
 
     // منطق الإظهار حسب الرتبة (لا تغيّر)
-    final showTrainerPanel = _myBadge == BadgeType.coach;
     final showSupportPanel = _isOwner || _isSupport || _myBadge == BadgeType.support;
     final showOwnerPanel = _isOwner;
 
@@ -325,15 +321,7 @@ class _GuidePageState extends State<GuidePageInner> {
         onTap: () => _safePush(GymsMapPage()),
       ),
 
-      // 👇 تظهر حسب الصلاحيات (لا تغيّر)
-      if (showTrainerPanel)
-        _GuideCard(
-          icon: Icons.dashboard_customize_rounded,
-          title: 'لوحة المدرب',
-          description: 'إدارة المتدربين وخططهم (للحسابات المصرّح لها).',
-          onTap: () => _safePush(TrainerDashboardScreen()),
-        ),
-
+      // 👇 تظهر حسب الصلاحيات
       if (showSupportPanel)
         _GuideCard(
           icon: Icons.support_agent,
@@ -351,16 +339,6 @@ class _GuidePageState extends State<GuidePageInner> {
           onTap: () => _safePush(OwnerPage()),
         ),
 
-      _GuideCard(
-        icon: Icons.chat_bubble_outline_rounded,
-        title: 'تواصل مع المدرب',
-        description: 'بوابة تواصل — سيتم تحويلك لواجهة المدرب.',
-        onTap: () => _safePush(
-          TrainerContactGate(
-            child: MyTrainerScreen(),
-          ),
-        ),
-      ),
     ];
 
     final badgeLabel = (_myBadge == null) ? '' : _badgeLabel(_myBadge!);

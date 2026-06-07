@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../shared/premium_feature.dart';
 import '../shared/premium_gate.dart';
-import 'package:my_app/regimens/keto_guard.dart';
+import '../regimens/keto_guard.dart';
 import 'regimen_screen.dart' show DietBus; // لفحص وجود نظام آخر مفعّل
 
 class KetoRegimenScreen extends StatefulWidget {

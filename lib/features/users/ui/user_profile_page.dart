@@ -19,25 +19,23 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
+import '../../../core/data/wazen_user_store.dart';
+
 class UserProfilePage extends StatelessWidget {
   final String uid;
   const UserProfilePage({super.key, required this.uid});
 
   @override
   Widget build(BuildContext context) {
-    final rootDoc = FirebaseFirestore.instance.collection('users').doc(uid);
     final basicRef = FirebaseFirestore.instance.doc('users/$uid/profile/basic');
     final socialRef = FirebaseFirestore.instance.doc('users/$uid/profile/social');
 
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: rootDoc.snapshots(),
+      child: StreamBuilder<Map<String, dynamic>>(
+        stream: WazenUserStore.watchUser(uid),
         builder: (context, rootSnap) {
-          final exists = rootSnap.hasData && rootSnap.data!.exists;
-          final root = exists
-              ? (rootSnap.data!.data() ?? const <String, dynamic>{})
-              : const <String, dynamic>{};
+          final root = rootSnap.data ?? const <String, dynamic>{};
 
           final displayName = (root['name'] ?? root['displayName'] ?? '').toString().trim();
           final username = (root['username'] ?? '').toString().trim();

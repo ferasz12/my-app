@@ -47,39 +47,111 @@ class AppRepository {
     unawaited(_ensureUserMeta().catchError((_) {}));
   }
 
+
+  static void _mergeDayInBackground(String ymd, Map<String, dynamic> patch) {
+    unawaited(() async {
+      try {
+        _touchUserMetaInBackground();
+        await _dayDoc(ymd)
+            .set({...patch, 'updatedAt': Timestamp.now()}, SetOptions(merge: true))
+            .timeout(const Duration(seconds: 4));
+      } catch (_) {}
+    }());
+  }
+
   // ---------------------------------------------------------------------------
-  // دوال الكتابة اليومية القديمة: أصبحت No-op حتى لا يصير أي اتصال Firestore
-  // أثناء استخدام التطبيق. لا تغير التواقيع حتى ما ينكسر أي ملف يستدعيها.
+  // دوال الكتابة اليومية: حفظ واجهة المستخدم يبقى محليًا وفوريًا،
+  // وهذه الدوال ترفع نسخة خفيفة في الخلفية بدون انتظار الشبكة.
   // ---------------------------------------------------------------------------
 
   static Future<void> writeActivity({
     required String ymd,
     required int steps,
     required int burned,
-  }) async {}
+  }) async {
+    _mergeDayInBackground(ymd, {
+      'activity': {
+        'steps': steps < 0 ? 0 : steps,
+        'burned': burned < 0 ? 0 : burned,
+        'updatedAt': Timestamp.now(),
+      },
+    });
+  }
 
   static Future<void> writeWaterLiters({
     required String ymd,
     required double liters,
-  }) async {}
+  }) async {
+    _mergeDayInBackground(ymd, {
+      'water': {
+        'liters': liters < 0 ? 0.0 : liters,
+        'updatedAt': Timestamp.now(),
+      },
+    });
+  }
 
   static Future<void> writeMeals({
     required String ymd,
     required List<Map<String, dynamic>> meals,
-  }) async {}
+  }) async {
+    _mergeDayInBackground(ymd, {
+      'meals': meals,
+      'mealsUpdatedAt': Timestamp.now(),
+    });
+  }
 
   static Future<void> writeEntriesAndTotals({
     required String ymd,
     required List<Map<String, dynamic>> entries,
     required Map<String, dynamic> totals,
-  }) async {}
+  }) async {
+    _mergeDayInBackground(ymd, {
+      'intake': {
+        'entries': entries,
+        'totals': {
+          'k': _toD(totals['k'] ?? totals['calories']),
+          'p': _toD(totals['p'] ?? totals['protein']),
+          'c': _toD(totals['c'] ?? totals['carb'] ?? totals['carbs']),
+          'f': _toD(totals['f'] ?? totals['fat']),
+        },
+        'updatedAt': Timestamp.now(),
+      },
+    });
+  }
 
-  static Future<void> clearDayIntake({required String ymd}) async {}
+  static Future<void> clearDayIntake({required String ymd}) async {
+    _mergeDayInBackground(ymd, {
+      'intake': {
+        'entries': <Map<String, dynamic>>[],
+        'totals': {'k': 0.0, 'p': 0.0, 'c': 0.0, 'f': 0.0},
+        'updatedAt': Timestamp.now(),
+      },
+      'meals': <Map<String, dynamic>>[],
+      'mealsUpdatedAt': Timestamp.now(),
+    });
+  }
 
   static Future<void> writeWeightKg({
     required String ymd,
     required double kg,
-  }) async {}
+  }) async {
+    if (kg <= 0) return;
+    _mergeDayInBackground(ymd, {
+      'tracking': {
+        'weightKg': kg,
+        'updatedAt': Timestamp.now(),
+      },
+      'currentWeightKg': kg,
+    });
+    unawaited(() async {
+      try {
+        await _userDoc().set({
+          'currentWeightKg': kg,
+          'updatedAt': Timestamp.now(),
+        }, SetOptions(merge: true)).timeout(const Duration(seconds: 4));
+      } catch (_) {}
+    }());
+  }
 
   // ---------------------------------------------------------------------------
   // الرفع الحقيقي الوحيد: لقطة نهاية اليوم.

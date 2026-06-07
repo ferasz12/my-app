@@ -1,6 +1,5 @@
-import 'package:my_app/shared/badges_api.dart';
+import 'badges_api.dart';
 // lib/shared/user_badges.dart
-import 'shared.dart' if (dart.library.io) 'badges.dart'; // تجاهل هذا الشرط لو يسبب لخبطة
 import 'badges.dart';
 import 'user_badges_store.dart';
 

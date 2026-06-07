@@ -3,6 +3,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'badges.dart';
 import 'badges_api.dart' show isOwnerClaimNow;
@@ -29,17 +30,64 @@ BadgeType _badgeFromString(String s) {
   }
 }
 
-/// قراءة شارة المستخدم (للـ UI)
+/// قراءة شارة المستخدم بسرعة من الكاش أولًا ثم Firestore بمهلة قصيرة.
 Future<BadgeType> getBadge(String uid) async {
-  final doc = await _fs.collection('users').doc(uid).get();
-  final b = (doc.data()?['badge'] ?? '').toString();
-  return _badgeFromString(b);
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('badge_$uid') ?? prefs.getString('support_badge_$uid');
+    if (raw != null && raw.trim().isNotEmpty) {
+      return _badgeFromString(raw);
+    }
+  } catch (_) {}
+
+  Future<BadgeType?> read(Source source, Duration timeout) async {
+    try {
+      Map<String, dynamic>? data;
+      if (uid.contains('@')) {
+        final qs = await _fs
+            .collection('users')
+            .where('email', isEqualTo: uid)
+            .limit(1)
+            .get(GetOptions(source: source))
+            .timeout(timeout);
+        if (qs.docs.isNotEmpty) data = qs.docs.first.data();
+      } else {
+        final doc = await _fs.collection('users').doc(uid).get(GetOptions(source: source)).timeout(timeout);
+        data = doc.data();
+      }
+      final b = (data?['badge'] ?? '').toString();
+      if (b.trim().isEmpty) return null;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('badge_$uid', b);
+        await prefs.setString('support_badge_$uid', b);
+      } catch (_) {}
+      return _badgeFromString(b);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  return await read(Source.cache, const Duration(milliseconds: 650)) ??
+      await read(Source.server, const Duration(seconds: 2)) ??
+      BadgeType.none;
 }
 
 /// مراقبة الشارة كسيل (Stream) للعرض الحي
-Stream<BadgeType> watchBadge(String uid) {
-  return _fs.collection('users').doc(uid).snapshots().map((d) {
+Stream<BadgeType> watchBadge(String uid) async* {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('badge_$uid') ?? prefs.getString('support_badge_$uid');
+    if (raw != null && raw.trim().isNotEmpty) yield _badgeFromString(raw);
+  } catch (_) {}
+
+  yield* _fs.collection('users').doc(uid).snapshots(includeMetadataChanges: true).map((d) {
     final b = (d.data()?['badge'] ?? '').toString();
+    if (b.trim().isNotEmpty) {
+      SharedPreferences.getInstance()
+          .then((prefs) => prefs.setString('badge_$uid', b))
+          .catchError((_) {});
+    }
     return _badgeFromString(b);
   });
 }

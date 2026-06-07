@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../shared/premium_feature.dart';
 import '../shared/premium_gate.dart';
-import 'package:my_app/data/exercise_data.dart';
+import '../data/exercise_data.dart';
 
 /// النادي الافتراضي — نسخة مطورة:
 /// - خريطة جسم تفاعلية بشكل فخم بدون مكتبات خارجية.

@@ -9,8 +9,11 @@
 // - لوحة المالك/الدعم: تعديل الدور، الحظر، تعليق نشر الوصفات، تعديل/تعيين النقاط، إرسال إشعار Inbox.
 // - صفحة الإنجازات: تقرأ النقاط من points_total أو stats.points (وتشغيلياً نحدّث أيضاً points/pointsTotal كتوافق قديم).
 
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum AppRole { owner, admin, support, user }
 
@@ -58,13 +61,80 @@ class RolesService {
     }
   }
 
-  /// يقرأ دور المستخدم الحالي من وثيقة users/{uid}.role (مباشرة من Firestore).
+  /// يقرأ دور المستخدم الحالي بسرعة:
+  /// 1) hard owner مباشرة.
+  /// 2) كاش محلي من دليلك/اللوحات.
+  /// 3) custom claims.
+  /// 4) Firestore cache ثم server بمهلة قصيرة.
   Future<AppRole> currentUserRoleOnce() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid;
     if (uid == null) return AppRole.user;
-    if (_hardOwnerUids.contains(uid)) return AppRole.owner;
-    final snap = await _db.doc('users/$uid').get();
-    return _toRole((snap.data() ?? const {})['role']?.toString());
+    if (_hardOwnerUids.contains(uid)) {
+      unawaited(_saveRoleCache(uid, AppRole.owner));
+      return AppRole.owner;
+    }
+
+    AppRole? cachedRole;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('guide_role_$uid') ?? prefs.getString('cached_role_$uid');
+      if (raw != null && raw.trim().isNotEmpty) cachedRole = _toRole(raw);
+    } catch (_) {}
+
+    if (cachedRole != null && cachedRole != AppRole.user) {
+      unawaited(_refreshRoleCache(uid));
+      return cachedRole;
+    }
+
+    try {
+      final token = await user!.getIdTokenResult(false).timeout(const Duration(milliseconds: 650));
+      final role = _toRole(token.claims?['role']?.toString());
+      if (role != AppRole.user) {
+        unawaited(_saveRoleCache(uid, role));
+        unawaited(_refreshRoleCache(uid));
+        return role;
+      }
+    } catch (_) {}
+
+    final cacheRole = await _readRoleFromFirestore(uid, Source.cache, const Duration(milliseconds: 650));
+    if (cacheRole != null && cacheRole != AppRole.user) {
+      unawaited(_saveRoleCache(uid, cacheRole));
+      unawaited(_refreshRoleCache(uid));
+      return cacheRole;
+    }
+
+    final serverRole = await _readRoleFromFirestore(uid, Source.server, const Duration(seconds: 2));
+    if (serverRole != null) {
+      unawaited(_saveRoleCache(uid, serverRole));
+      return serverRole;
+    }
+
+    unawaited(_refreshRoleCache(uid));
+    return cachedRole ?? AppRole.user;
+  }
+
+  Future<AppRole?> _readRoleFromFirestore(String uid, Source source, Duration timeout) async {
+    try {
+      final snap = await _db.doc('users/$uid').get(GetOptions(source: source)).timeout(timeout);
+      return _toRole((snap.data() ?? const {})['role']?.toString());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _saveRoleCache(String uid, AppRole role) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final value = roleToString(role);
+      await prefs.setString('guide_role_$uid', value);
+      await prefs.setString('cached_role_$uid', value);
+    } catch (_) {}
+  }
+
+  Future<void> _refreshRoleCache(String uid) async {
+    final role = await _readRoleFromFirestore(uid, Source.server, const Duration(seconds: 3));
+    if (role != null) await _saveRoleCache(uid, role);
   }
 
   /// بثّ حي لدور المستخدم الحالي (يتحدّث تلقائياً عند تعديل الوثيقة).
@@ -78,9 +148,18 @@ class RolesService {
       yield AppRole.owner;
       return;
     }
-    yield* _db.doc('users/$uid').snapshots().map(
-          (s) => _toRole((s.data() ?? const {})['role']?.toString()),
-        );
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('guide_role_$uid') ?? prefs.getString('cached_role_$uid');
+      if (raw != null && raw.trim().isNotEmpty) yield _toRole(raw);
+    } catch (_) {}
+
+    yield* _db.doc('users/$uid').snapshots(includeMetadataChanges: true).map((s) {
+      final role = _toRole((s.data() ?? const {})['role']?.toString());
+      unawaited(_saveRoleCache(uid, role));
+      return role;
+    });
   }
 
   /// يقرأ دور أي مستخدم بالـ uid.
@@ -111,13 +190,14 @@ class RolesService {
   Future<void> incrementUserPoints(String uid, int delta) async {
     if (delta == 0) return;
     final ref = _db.doc('users/$uid');
+    final totalsRef = ref.collection('achievements').doc('totals');
 
-    // بدون Transaction لتفادي [cloud_firestore/internal] Internal errors
+    // تحديث المصدر الموحد + totals حتى لا تختلف صفحة الهوم/الإنجازات/الدعم.
     await ref.set(
       {
         'points_total': FieldValue.increment(delta),
-        'pointsTotal': FieldValue.increment(delta), // توافق قديم
-        'points': FieldValue.increment(delta), // توافق قديم
+        'pointsTotal': FieldValue.increment(delta),
+        'points': FieldValue.increment(delta),
         'stats': {
           'points': FieldValue.increment(delta),
         },
@@ -125,17 +205,40 @@ class RolesService {
       },
       SetOptions(merge: true),
     );
+    await totalsRef.set({
+      'points_total': FieldValue.increment(delta),
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final current = prefs.getInt('points_total_$uid') ?? prefs.getInt('userPoints') ?? 0;
+      final next = current + delta;
+      await prefs.setInt('points_total_$uid', next);
+      await prefs.setInt('wazen_points_$uid', next);
+      await prefs.setInt('userPoints', next);
+    } catch (_) {}
   }
 
   /// يعيّن النقاط مباشرة على كل الحقول المتوافقة.
   Future<void> setUserPoints(String uid, int points) async {
     await _db.doc('users/$uid').set({
       'points_total': points,
-      'pointsTotal': points, // توافق قديم
-      'points': points, // توافق قديم
+      'pointsTotal': points,
+      'points': points,
       'stats': {'points': points},
       'updatedAt': Timestamp.now(),
     }, SetOptions(merge: true));
+    await _db.doc('users/$uid/achievements/totals').set({
+      'points_total': points,
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('points_total_$uid', points);
+      await prefs.setInt('wazen_points_$uid', points);
+      await prefs.setInt('userPoints', points);
+    } catch (_) {}
   }
 
   /// قارئ موحّد للنقاط (نفس منطق صفحة الإنجازات).

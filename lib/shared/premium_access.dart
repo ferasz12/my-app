@@ -37,6 +37,7 @@ class PremiumAccess {
     PremiumFeature.regimen,
     PremiumFeature.appearance,
     PremiumFeature.notifications,
+    PremiumFeature.cloudSync,
   };
 
   static bool isPaid(PremiumFeature f) => paidFeatures.contains(f);

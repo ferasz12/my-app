@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../shared/premium_feature.dart';
 import '../shared/premium_gate.dart';
 import 'package:intl/intl.dart';
-import 'package:my_app/regimens/keto_guard.dart';
+import '../regimens/keto_guard.dart';
 
 class KetoRegimenLogPage extends StatefulWidget {
   const KetoRegimenLogPage({super.key});

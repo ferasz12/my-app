@@ -15,6 +15,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../shared/premium_feature.dart';
 import '../../../shared/premium_gate.dart';
@@ -161,6 +162,18 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
       return;
     }
 
+    // لا نعلّق صفحة الوصفات على الدور؛ نعرضها فورًا ونحدّث أدوات المشرف بالخلفية.
+    SharedPreferences.getInstance().then((prefs) {
+      if (!mounted) return;
+      final cached = prefs.getString('guide_role_$uid') ?? prefs.getString('cached_role_$uid');
+      if (cached != null && cached.trim().isNotEmpty) {
+        setState(() {
+          _myRole = cached.toLowerCase().trim();
+          _loadingRole = false;
+        });
+      }
+    }).catchError((_) {});
+
     _roleSub?.cancel();
     _roleSub = FirebaseFirestore.instance.doc('users/$uid').snapshots().listen(
       (snap) {
@@ -171,6 +184,9 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
           _myRole = role;
           _loadingRole = false;
         });
+        SharedPreferences.getInstance()
+            .then((prefs) => prefs.setString('guide_role_$uid', role))
+            .catchError((_) {});
       },
       onError: (_) {
         if (!mounted) return;
@@ -440,10 +456,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
             ],
           ),
         ),
-        floatingActionButton: (_loadingGuard || _loadingRole)
-            ? null
-            : (_guard.allowed
-                ? FloatingActionButton.extended(
+        floatingActionButton: (!_loadingGuard && _guard.allowed)
+            ? FloatingActionButton.extended(
                     onPressed: _onTapAdd,
                     icon: const Icon(Icons.add_rounded),
                     label: const Text(
@@ -451,10 +465,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                       style: TextStyle(fontWeight: FontWeight.w900),
                     ),
                   )
-                : null),
-        body: (_loadingGuard || _loadingRole)
-            ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
+            : null,
+        body: TabBarView(
                 controller: _tabs,
                 children: [
                   // ===================== Explore =====================
@@ -586,8 +598,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                             return StreamBuilder<List<Recipe>>(
                               stream: repo.streamMyFavorites(uid),
                               builder: (context, favsSnap) {
-                                if (favsSnap.connectionState == ConnectionState.waiting) {
-                                  return const Center(child: CircularProgressIndicator());
+                                if (favsSnap.connectionState == ConnectionState.waiting && !favsSnap.hasData) {
+                                  return const Center(child: Text('جاري تجهيز المفضلات...'));
                                 }
                                 if (favsSnap.hasError) {
                                   return Center(child: Text('حصل خطأ: ${favsSnap.error}'));

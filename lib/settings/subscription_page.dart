@@ -34,8 +34,8 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_android/in_app_purchase_android.dart' as iap_android;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:my_app/settings/privacy_page.dart';
-import 'package:my_app/settings/terms_page.dart';
+import 'privacy_page.dart';
+import 'terms_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../shared/friendly_errors.dart';
 

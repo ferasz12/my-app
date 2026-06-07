@@ -1,5 +1,6 @@
 // lib/achievements/achievements_with_leaderboard.dart
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // يفتح بروفايل المستخدم الجديد (بدون مجتمع)
-import 'package:my_app/features/users/ui/user_profile_page.dart';
+import '../features/users/ui/user_profile_page.dart';
 
 /// Helper موحّد لقراءة نقاط المستخدم.
 /// ✅ يدعم الحقول الشائعة كلها: points_total, stats.points, points, pointsTotal
@@ -272,24 +273,29 @@ class AchievementsRepo {
   /// - نقرأ الاسم والصورة واللقب من نفس مستند المستخدم، بدون طلبات إضافية لكل لاعب.
   Stream<List<LeaderboardEntry>> watchLeaderboard({
     int visibleLimit = 100,
-    int fetchLimit = 300,
+    int fetchLimit = 140,
   }) {
     return _leaderboardQuery(
       visibleLimit: visibleLimit,
       fetchLimit: fetchLimit,
-    ).snapshots().map((qs) {
+    ).snapshots(includeMetadataChanges: true).map((qs) {
       return _mapLeaderboardDocs(qs.docs, visibleLimit: visibleLimit);
     });
   }
 
   Future<List<LeaderboardEntry>> fetchLeaderboardOnce({
     int visibleLimit = 100,
-    int fetchLimit = 300,
+    int fetchLimit = 140,
+    Source? source,
+    Duration timeout = const Duration(seconds: 3),
   }) async {
-    final qs = await _leaderboardQuery(
+    final q = _leaderboardQuery(
       visibleLimit: visibleLimit,
       fetchLimit: fetchLimit,
-    ).get();
+    );
+    final qs = source == null
+        ? await q.get().timeout(timeout)
+        : await q.get(GetOptions(source: source)).timeout(timeout);
     return _mapLeaderboardDocs(qs.docs, visibleLimit: visibleLimit);
   }
 
@@ -310,7 +316,8 @@ class AchievementsRepo {
   /// ✅ إضافة نقاط مع تحديث كل الحقول الشائعة للتوافق (قديم/جديد)
   Future<void> addPoints(String uid, int delta) async {
     if (delta == 0) return;
-    await _db.collection('users').doc(uid).set(
+    final userRef = _db.collection('users').doc(uid);
+    await userRef.set(
       {
         'points_total': FieldValue.increment(delta),
         'stats': {'points': FieldValue.increment(delta)},
@@ -321,6 +328,10 @@ class AchievementsRepo {
       },
       SetOptions(merge: true),
     );
+    await userRef.collection('achievements').doc('totals').set({
+      'points_total': FieldValue.increment(delta),
+      'updatedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
   }
 
   /// المطالبة بإنجاز: تضيف id + الإيموجي + تحدّث أعلى لقب.
@@ -455,18 +466,149 @@ class _AchievementsPageState extends State<AchievementsPage>
 }
 
 /// تبويب "إنجازاتي"
-class _MyAchievementsTab extends StatelessWidget {
+class _MyAchievementsTab extends StatefulWidget {
   final String uid;
   final AchievementsRepo repo;
 
   const _MyAchievementsTab({required this.uid, required this.repo});
 
   @override
+  State<_MyAchievementsTab> createState() => _MyAchievementsTabState();
+}
+
+class _MyAchievementsTabState extends State<_MyAchievementsTab>
+    with AutomaticKeepAliveClientMixin<_MyAchievementsTab> {
+  Map<String, dynamic>? _cachedUser;
+
+  String get _cacheKey => 'wazen_achievements_user_${widget.uid}';
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadCachedUser());
+    unawaited(_warmUserFromFirestore());
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
+  Future<void> _loadCachedUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      Map<String, dynamic> data = const <String, dynamic>{};
+      if (raw != null && raw.trim().isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) data = Map<String, dynamic>.from(decoded);
+      }
+
+      // توافق مع نظام النقاط المحلي القديم، عشان لا تظهر 0 عند أول دخول.
+      final localPoints = [
+        prefs.getInt('userPoints') ?? 0,
+        prefs.getInt('points_total_${widget.uid}') ?? 0,
+        prefs.getInt('wazen_points_${widget.uid}') ?? 0,
+      ].fold<int>(0, (a, b) => b > a ? b : a);
+      if (localPoints > readUserPoints(data)) {
+        data = Map<String, dynamic>.from(data)..['points_total'] = localPoints;
+      }
+
+      if (mounted && data.isNotEmpty) setState(() => _cachedUser = data);
+    } catch (_) {}
+  }
+
+  Future<void> _warmUserFromFirestore() async {
+    // قراءة سريعة من كاش Firestore ثم محاولة قصيرة من السيرفر.
+    await _fetchUserDoc(Source.cache, timeout: const Duration(milliseconds: 650));
+    await _fetchTotalsDoc(Source.cache, timeout: const Duration(milliseconds: 650));
+    await _fetchUserDoc(Source.server, timeout: const Duration(seconds: 3));
+    await _fetchTotalsDoc(Source.server, timeout: const Duration(seconds: 3));
+  }
+
+  Future<void> _fetchUserDoc(Source source, {required Duration timeout}) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.uid)
+          .get(GetOptions(source: source))
+          .timeout(timeout);
+      final data = snap.data();
+      if (data == null) return;
+      _mergeAndCache(data);
+    } catch (_) {}
+  }
+
+  Future<void> _fetchTotalsDoc(Source source, {required Duration timeout}) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.uid)
+          .collection('achievements')
+          .doc('totals')
+          .get(GetOptions(source: source))
+          .timeout(timeout);
+      final data = snap.data();
+      final v = data?['points_total'];
+      final pts = v is num ? v.toInt() : int.tryParse('${v ?? ''}') ?? 0;
+      if (pts <= 0) return;
+      _mergeAndCache({'points_total': pts, 'pointsTotal': pts, 'points': pts});
+    } catch (_) {}
+  }
+
+  void _mergeAndCache(Map<String, dynamic> incoming) {
+    final merged = Map<String, dynamic>.from(_cachedUser ?? const <String, dynamic>{});
+    merged.addAll(incoming);
+
+    // لا تنقص النقاط محليًا إذا وصل مستند قديم ناقص.
+    final oldPts = readUserPoints(_cachedUser);
+    final newPts = readUserPoints(merged);
+    if (oldPts > newPts) merged['points_total'] = oldPts;
+
+    final oldAch = _cachedUser?['achievements'];
+    final newAch = merged['achievements'];
+    final same = readUserPoints(_cachedUser) == readUserPoints(merged) &&
+        jsonEncode(oldAch ?? const <String, dynamic>{}) ==
+            jsonEncode(newAch ?? const <String, dynamic>{});
+    if (!same && mounted) setState(() => _cachedUser = merged);
+    if (!same) unawaited(_saveUserCache(merged));
+  }
+
+  Future<void> _saveUserCache(Map<String, dynamic> data) async {
+    try {
+      final achievements = data['achievements'] is Map
+          ? Map<String, dynamic>.from(data['achievements'] as Map)
+          : const <String, dynamic>{};
+      final safe = <String, dynamic>{
+        'points_total': readUserPoints(data),
+        'pointsTotal': readUserPoints(data),
+        'points': readUserPoints(data),
+        'achievements': {
+          'claimed': List<String>.from(achievements['claimed'] ?? const <String>[]),
+          'badgeEmojis': List<String>.from(achievements['badgeEmojis'] ?? const <String>[]),
+          'title': (achievements['title'] ?? '').toString(),
+        },
+      };
+      final prefs = await SharedPreferences.getInstance();
+      final pts = readUserPoints(safe);
+      await prefs.setString(_cacheKey, jsonEncode(safe));
+      await prefs.setInt('userPoints', pts);
+      await prefs.setInt('points_total_${widget.uid}', pts);
+      await prefs.setInt('wazen_points_${widget.uid}', pts);
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: repo.watchMe(uid),
+      stream: widget.repo.watchMe(widget.uid),
       builder: (context, snap) {
-        final m = snap.data?.data() ?? const <String, dynamic>{};
+        final incoming = snap.data?.data();
+        if (incoming != null && incoming.isNotEmpty) {
+          // نحدث الكاش بدون ما نوقف الرسم.
+          scheduleMicrotask(() => _mergeAndCache(incoming));
+        }
+
+        final m = incoming ?? _cachedUser ?? const <String, dynamic>{};
         final points = readUserPoints(m);
         final ach = (m['achievements'] as Map<String, dynamic>?) ?? const {};
         final claimed = List<String>.from(ach['claimed'] ?? const <String>[]);
@@ -480,11 +622,10 @@ class _MyAchievementsTab extends StatelessWidget {
             : ((points / target).clamp(0.0, 1.0)).toDouble();
         final claimedCount = claimed.length.clamp(0, kDefs.length).toInt();
 
-        // ✅ لا نعرض Skeleton/لودر في أول فتح. نعرض الصفحة فورًا بقيم افتراضية،
-        // ثم تتحدث النقاط والإنجازات مباشرة عند وصول Firestore.
-        // هذا يمنع بقاء تبويب الإنجازات رمادي/معلّق في TestFlight.
         return RefreshIndicator(
-          onRefresh: () async {},
+          onRefresh: () async {
+            await _warmUserFromFirestore();
+          },
           child: ListView(
             key: const PageStorageKey('my_achievements_list'),
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -522,7 +663,7 @@ class _MyAchievementsTab extends StatelessWidget {
                   claimed: already,
                   canClaim: canClaim,
                   progress: itemProgress,
-                  onClaim: () => repo.claimAchievementWithBadge(uid: uid, def: a),
+                  onClaim: () => widget.repo.claimAchievementWithBadge(uid: widget.uid, def: a),
                 );
               }),
             ],
@@ -945,15 +1086,19 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
   bool _refreshing = false;
   Object? _lastError;
   bool? _localHiddenOverride; // خيار إخفاء الحساب (محلي/فوري)
+  int _cachedMyPoints = 0;
+
+  String get _leaderboardCacheKey => 'wazen_leaderboard_top100_v2';
 
   @override
   void initState() {
     super.initState();
-    _loadLocalHidden();
-    // نؤخر تحميل المتصدرين حتى تظهر صفحة الإنجازات فورًا.
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) _subscribeLeaderboard();
-    });
+    unawaited(_loadLocalHidden());
+    unawaited(_loadCachedLeaderboard());
+    // ابدأ الاشتراك فورًا، لكن عرض الصفحة يعتمد على الكاش أولًا.
+    _subscribeLeaderboard();
+    // قراءة مباشرة قصيرة تساعد TestFlight لو الكاش فارغ.
+    unawaited(_refreshLeaderboard());
   }
 
   @override
@@ -969,9 +1114,61 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
     try {
       final prefs = await SharedPreferences.getInstance();
       final v = prefs.getBool('lb_hidden_${widget.uid}');
-      if (v != null && mounted) {
-        setState(() => _localHiddenOverride = v);
+      final pts = prefs.getInt('userPoints') ?? 0;
+      if (mounted) {
+        setState(() {
+          if (v != null) _localHiddenOverride = v;
+          _cachedMyPoints = pts;
+        });
       }
+    } catch (_) {}
+  }
+
+  Future<void> _loadCachedLeaderboard() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_leaderboardCacheKey);
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      final rows = decoded
+          .whereType<Map>()
+          .map((m) => LeaderboardEntry(
+                uid: (m['uid'] ?? '').toString(),
+                points: (m['points'] is num)
+                    ? (m['points'] as num).toInt()
+                    : int.tryParse('${m['points'] ?? ''}') ?? 0,
+                displayName: (m['displayName'] ?? 'مستخدم وازن').toString(),
+                photoUrl: (m['photoUrl'] ?? '').toString(),
+                title: (m['title'] ?? '').toString(),
+                badgeEmojis: ((m['badgeEmojis'] as List?) ?? const <dynamic>[])
+                    .map((e) => e.toString())
+                    .where((e) => e.trim().isNotEmpty)
+                    .toList(),
+              ))
+          .where((e) => e.uid.isNotEmpty && e.points > 0)
+          .toList(growable: false);
+      if (rows.isEmpty || !mounted) return;
+      setState(() {
+        _rows = rows;
+        _loadedOnce = true;
+      });
+      _resolveVisiblePhotos(rows.take(24));
+    } catch (_) {}
+  }
+
+  Future<void> _saveCachedLeaderboard(List<LeaderboardEntry> rows) async {
+    try {
+      final safe = rows.take(100).map((e) => <String, dynamic>{
+            'uid': e.uid,
+            'points': e.points,
+            'displayName': e.displayName,
+            'photoUrl': e.photoUrl,
+            'title': e.title,
+            'badgeEmojis': e.badgeEmojis,
+          }).toList(growable: false);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_leaderboardCacheKey, jsonEncode(safe));
     } catch (_) {}
   }
 
@@ -986,6 +1183,7 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
           _lastError = null;
         });
         _resolveVisiblePhotos(rows.take(24));
+        unawaited(_saveCachedLeaderboard(rows));
       },
       onError: (Object e) {
         if (!mounted) return;
@@ -1001,7 +1199,29 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
     if (_refreshing) return;
     setState(() => _refreshing = true);
     try {
-      final rows = await widget.repo.fetchLeaderboardOnce(visibleLimit: 100);
+      // أولًا من Firestore cache إذا متوفر، ثم السيرفر. كذا ما تبقى الصفحة فاضية.
+      try {
+        final cached = await widget.repo.fetchLeaderboardOnce(
+          visibleLimit: 100,
+          source: Source.cache,
+          timeout: const Duration(milliseconds: 700),
+        );
+        if (mounted && cached.isNotEmpty) {
+          setState(() {
+            _rows = cached;
+            _loadedOnce = true;
+            _lastError = null;
+          });
+          _resolveVisiblePhotos(cached.take(24));
+          unawaited(_saveCachedLeaderboard(cached));
+        }
+      } catch (_) {}
+
+      final rows = await widget.repo.fetchLeaderboardOnce(
+        visibleLimit: 100,
+        source: Source.server,
+        timeout: const Duration(seconds: 3),
+      );
       if (!mounted) return;
       setState(() {
         _rows = rows;
@@ -1009,9 +1229,13 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
         _lastError = null;
       });
       _resolveVisiblePhotos(rows.take(24));
+      unawaited(_saveCachedLeaderboard(rows));
     } catch (e) {
       if (mounted) {
-        setState(() => _lastError = e);
+        setState(() {
+          _lastError = e;
+          _loadedOnce = true;
+        });
       }
     } finally {
       if (mounted) setState(() => _refreshing = false);
@@ -1100,7 +1324,8 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
         final hidden = _localHiddenOverride ?? isLeaderboardHidden(meData);
         final rows = _visibleRows(hidden);
         final myRank = _findMyRank();
-        final myPoints = readUserPoints(meData);
+        final serverMyPoints = readUserPoints(meData);
+        final myPoints = serverMyPoints > 0 ? serverMyPoints : _cachedMyPoints;
 
         return RefreshIndicator(
           onRefresh: _refreshLeaderboard,

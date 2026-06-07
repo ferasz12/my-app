@@ -2,6 +2,7 @@
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../community/local_repos.dart';
+import '../core/data/wazen_user_store.dart';
 import '../community/models.dart';
 
 class UserView {
@@ -50,17 +51,22 @@ Future<UserView> getUserViewFor(String uid) async {
     return v2 ?? const [];
   }
 
-  // الاسم الظاهر
+  // الاسم الظاهر: كاش وازن الموحد أولاً ثم مفاتيح Legacy.
+  final cached = await WazenUserStore.readCachedUser(uid);
   final first = readString('firstName');
   final last  = readString('lastName');
   final namePref = readString('name');
-  final displayName = (namePref.isNotEmpty
-          ? namePref
-          : [first, last].where((s) => s.trim().isNotEmpty).join(' '))
+  final cachedName = ((cached['displayName'] ?? cached['name'] ?? '')).toString().trim();
+  final displayName = (cachedName.isNotEmpty
+          ? cachedName
+          : (namePref.isNotEmpty
+              ? namePref
+              : [first, last].where((s) => s.trim().isNotEmpty).join(' ')))
       .trim();
 
   // الهاندل الموحّد (@handle)
-  var handle = readString('username').trim();
+  var handle = ((cached['username'] ?? '')).toString().trim();
+  if (handle.isEmpty) handle = readString('username').trim();
   if (handle.isEmpty) {
     // fallback من AppUser أو من الإيميل
     final me = await LocalAuthRepo().getUserById(uid) ?? await LocalAuthRepo().currentUser();
@@ -75,10 +81,12 @@ Future<UserView> getUserViewFor(String uid) async {
     await prefs.setString('username_$uid', handle); // تأكيد التوحيد
   }
 
-  final bio = readString('bio');
-  final imagePath = readString('profile_image_path').isNotEmpty
-      ? readString('profile_image_path')
-      : null;
+  final cachedBio = ((cached['bio'] ?? '')).toString().trim();
+  final bio = cachedBio.isNotEmpty ? cachedBio : readString('bio');
+  final cachedPhoto = ((cached['photoUrl'] ?? cached['avatarUrl'] ?? '')).toString().trim();
+  final imagePath = cachedPhoto.isNotEmpty
+      ? cachedPhoto
+      : (readString('profile_image_path').isNotEmpty ? readString('profile_image_path') : null);
 
   final followers = readList('followers').length;
   final following = readList('following').length;
@@ -103,4 +111,8 @@ Future<UserView> getCurrentUserView() async {
   return getUserViewFor(me.uid);
 }
 
-bool fileExists(String? p) => p != null && p.isNotEmpty && File(p).existsSync();
+bool fileExists(String? p) {
+  if (p == null || p.isEmpty) return false;
+  if (p.startsWith('http://') || p.startsWith('https://')) return true;
+  return File(p).existsSync();
+}

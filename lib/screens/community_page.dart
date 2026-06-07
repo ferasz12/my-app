@@ -173,10 +173,14 @@ class _CommunityPageState extends State<CommunityPage> {
       return StreamBuilder<List<String>>(
         stream: _service.streamMyLikedPostIds(uid),
         builder: (context, likedSnap) {
-          if (likedSnap.connectionState == ConnectionState.waiting) {
+          if (likedSnap.connectionState == ConnectionState.waiting && !likedSnap.hasData) {
             return const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator()));
+              hasScrollBody: false,
+              child: _EmptyCommunityState(
+                title: 'نجهّز إعجاباتك',
+                message: 'بنجيبها من الكاش أولًا ثم نحدّثها من السحابة.',
+              ),
+            );
           }
           final ids = likedSnap.data ?? const <String>[];
           if (ids.isEmpty) {
@@ -191,10 +195,14 @@ class _CommunityPageState extends State<CommunityPage> {
           return FutureBuilder<List<CommunityPost>>(
             future: _service.getPostsByIds(ids),
             builder: (context, postsSnap) {
-              if (postsSnap.connectionState == ConnectionState.waiting) {
+              if (postsSnap.connectionState == ConnectionState.waiting && !postsSnap.hasData) {
                 return const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(child: CircularProgressIndicator()));
+                  hasScrollBody: false,
+                  child: _EmptyCommunityState(
+                    title: 'نجهّز المنشورات',
+                    message: 'تظهر مباشرة إذا كانت محفوظة في الكاش.',
+                  ),
+                );
               }
               final posts = _applyLocalFilters(
                   postsSnap.data ?? const <CommunityPost>[], uid);
@@ -208,10 +216,14 @@ class _CommunityPageState extends State<CommunityPage> {
     return StreamBuilder<List<CommunityPost>>(
       stream: _service.streamPosts(sort: _sort),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()));
+            hasScrollBody: false,
+            child: _EmptyCommunityState(
+              title: 'نجهّز المجتمع',
+              message: 'يعرض وازن آخر بيانات محفوظة فور توفرها ثم يحدّثها من Firestore.',
+            ),
+          );
         }
         if (snap.hasError) {
           return SliverFillRemaining(
@@ -1107,8 +1119,8 @@ class _CommentsSheet extends StatelessWidget {
                   stream: service.streamComments(post.id, limit: 0),
                   builder: (context, snap) {
                     final comments = snap.data ?? const <CommunityComment>[];
-                    if (snap.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
+                    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                      return const Center(child: Text('جاري تجهيز التعليقات...'));
                     }
                     if (comments.isEmpty) {
                       return const Center(child: Text('لا توجد تعليقات بعد'));

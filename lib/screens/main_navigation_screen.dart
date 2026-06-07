@@ -13,11 +13,12 @@ import 'weight_tracking_page.dart';
 import 'regimen_screen.dart';
 import 'guide_page.dart';
 
-import 'package:my_app/achievements/achievements_with_leaderboard.dart';
+import '../achievements/achievements_with_leaderboard.dart';
 //import '../achievements/achievements_with_leaderboard.dart'; // يحتوي AchievementsPage
 import 'settings_page.dart';
 import '../settings/edit_username_page.dart';
 import '../shared/user_goal_controller.dart';
+import '../shared/nav_icon_asset.dart';
 import '../services/whats_new_service.dart';
 
 class MainNavigationScreen extends StatefulWidget {
@@ -259,13 +260,41 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             activeColor: cs.primary,
             inactiveColor: cs.onSurfaceVariant,
             destinations: const [
-              NavigationDestination(icon: Icon(Icons.home), label: 'الرئيسية'),
-              NavigationDestination(icon: Icon(Icons.person), label: 'بياناتي'),
-              NavigationDestination(icon: Icon(Icons.monitor_weight), label: 'تتبع الوزن'),
-              NavigationDestination(icon: Icon(Icons.local_hospital), label: 'رجيمي'),
-              NavigationDestination(icon: Icon(Icons.map), label: 'دليلك'),
-              NavigationDestination(icon: Icon(Icons.emoji_events), label: 'الإنجازات'),
-              NavigationDestination(icon: Icon(Icons.settings), label: 'الإعدادات'),
+              NavigationDestination(
+                icon: WazenNavIcon(name: 'home', fallbackIcon: Icons.home_rounded),
+                selectedIcon: WazenNavIcon(name: 'home', selected: true, fallbackIcon: Icons.home_rounded),
+                label: 'الرئيسية',
+              ),
+              NavigationDestination(
+                icon: WazenNavIcon(name: 'my_data', fallbackIcon: Icons.person_rounded),
+                selectedIcon: WazenNavIcon(name: 'my_data', selected: true, fallbackIcon: Icons.person_rounded),
+                label: 'بياناتي',
+              ),
+              NavigationDestination(
+                icon: WazenNavIcon(name: 'tracking', fallbackIcon: Icons.monitor_weight_rounded),
+                selectedIcon: WazenNavIcon(name: 'tracking', selected: true, fallbackIcon: Icons.monitor_weight_rounded),
+                label: 'تتبع الوزن',
+              ),
+              NavigationDestination(
+                icon: WazenNavIcon(name: 'regimen', fallbackIcon: Icons.local_hospital_rounded),
+                selectedIcon: WazenNavIcon(name: 'regimen', selected: true, fallbackIcon: Icons.local_hospital_rounded),
+                label: 'رجيمي',
+              ),
+              NavigationDestination(
+                icon: WazenNavIcon(name: 'guide', fallbackIcon: Icons.map_rounded),
+                selectedIcon: WazenNavIcon(name: 'guide', selected: true, fallbackIcon: Icons.map_rounded),
+                label: 'دليلك',
+              ),
+              NavigationDestination(
+                icon: WazenNavIcon(name: 'achievements', fallbackIcon: Icons.emoji_events_rounded),
+                selectedIcon: WazenNavIcon(name: 'achievements', selected: true, fallbackIcon: Icons.emoji_events_rounded),
+                label: 'الإنجازات',
+              ),
+              NavigationDestination(
+                icon: WazenNavIcon(name: 'settings', fallbackIcon: Icons.settings_rounded),
+                selectedIcon: WazenNavIcon(name: 'settings', selected: true, fallbackIcon: Icons.settings_rounded),
+                label: 'الإعدادات',
+              ),
             ],
           ),
         );

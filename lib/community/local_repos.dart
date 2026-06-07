@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+import '../core/data/wazen_user_store.dart';
 import 'models.dart';
 
 class LocalAuthRepo {
@@ -8,15 +12,22 @@ class LocalAuthRepo {
   Future<AppUser> currentUser() async {
     final u = FirebaseAuth.instance.currentUser;
     if (u == null) return AppUser(uid: 'anonymous');
-    final doc = await _db.collection('users').doc(u.uid).get();
-    final data = (doc.data() ?? {});
-    return AppUser.fromJson(data, uid: u.uid);
+
+    final cached = await WazenUserStore.readCachedUser(u.uid, authUser: u);
+    unawaited(WazenUserStore.readUserDocFast(u.uid));
+    return AppUser.fromJson(cached, uid: u.uid);
   }
 
   Future<AppUser?> getUserById(String uid) async {
-    final doc = await _db.collection('users').doc(uid).get();
-    if (!doc.exists) return null;
-    return AppUser.fromJson(doc.data()!, uid: uid);
+    final cached = await WazenUserStore.readCachedUser(uid);
+    if (cached.isNotEmpty && (cached['displayName'] ?? cached['username'] ?? '').toString().trim().isNotEmpty) {
+      unawaited(WazenUserStore.readUserDocFast(uid));
+      return AppUser.fromJson(cached, uid: uid);
+    }
+
+    final data = await WazenUserStore.readUserDocFast(uid);
+    if (data == null || data.isEmpty) return null;
+    return AppUser.fromJson(data, uid: uid);
   }
 
   Future<AppUser?> getByEmailOrKey(String keyOrEmail) async {
@@ -28,6 +39,7 @@ class LocalAuthRepo {
     final q = await _db.collection('users').where('username', isEqualTo: keyOrEmail).limit(1).get();
     if (q.docs.isNotEmpty) {
       final d = q.docs.first;
+      unawaited(WazenUserStore.saveUserCache(d.id, d.data()));
       return AppUser.fromJson(d.data(), uid: d.id);
     }
     return null;
@@ -39,6 +51,7 @@ class LocalAuthRepo {
 
   Future<void> updateUser(AppUser u) async {
     await _db.collection('users').doc(u.uid).set(u.toJson(), SetOptions(merge: true));
+    unawaited(WazenUserStore.saveUserCache(u.uid, u.toJson()));
   }
 }
 

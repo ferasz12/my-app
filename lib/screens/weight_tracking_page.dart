@@ -2081,7 +2081,7 @@ final now = DateTime.now();
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('الرسم الموحَّد (السعرات + الماكروز)', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text('الرسم اليومي للماكروز والسعرات', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
           const SizedBox(height: 6),
           Expanded(child: LineChart(LineChartData(
             minY: 0, maxY: maxY <= 0 ? 1 : maxY,
@@ -2107,9 +2107,9 @@ final now = DateTime.now();
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: [
             legend(_calColor, '🔥 السعرات (سعرة)'),
-            legend(Colors.indigo, '🥩 البروتين (×4 سعرة)'),
-            legend(Colors.orange, '🍞 الكارب (×4 سعرة)'),
-            legend(Colors.redAccent, '🧈 الدهون (×9 سعرة)'),
+            legend(Colors.indigo, '🥩 البروتين'),
+            legend(Colors.orange, '🍞 الكارب'),
+            legend(Colors.redAccent, '🧈 الدهون'),
           ]),
           const SizedBox(height: 6),
           Wrap(spacing: 8, children: [
@@ -2449,50 +2449,112 @@ double _maxOf(List<double> vals) => vals.isEmpty ? 0 : vals.reduce((a,b)=>a>b?a:
     }
 
     
-    Widget _aggregatesRow(List<double> kcal, List<double> prot, List<double> carb, List<double> fat) {
-      double sum(List<double> v) => v.isEmpty ? 0.0 : v.reduce((a,b)=>a+b);
-      String fmt(double v, {bool intLike=false}) {
-        if (intLike) return v.round().toString();
-        return v >= 1000 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
-      }
-      final t  = Theme.of(context).textTheme;
-      final cs = Theme.of(context).colorScheme;
+    Widget _periodInsightCard(List<double> kcal, List<double> prot, List<double> carb, List<double> fat) {
+      double avg(List<double> v) => v.isEmpty ? 0.0 : v.reduce((a, b) => a + b) / v.length;
+      double sum(List<double> v) => v.isEmpty ? 0.0 : v.reduce((a, b) => a + b);
+      String fmt(double v, {bool intLike = false}) => intLike ? v.round().toString() : v.toStringAsFixed(v >= 100 ? 0 : 1);
 
-      Widget card(String label, String value) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: cs.outlineVariant.withOpacity(.5)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      final t = Theme.of(context).textTheme;
+      final cs = Theme.of(context).colorScheme;
+      final days = kcal.length;
+      final avgCal = avg(kcal);
+      final avgP = avg(prot);
+      final avgC = avg(carb);
+      final avgF = avg(fat);
+      final proteinShare = (sum(prot) + sum(carb) + sum(fat)) > 0
+          ? (sum(prot) / (sum(prot) + sum(carb) + sum(fat)) * 100).round()
+          : 0;
+
+      String trendText() {
+        if (kcal.length < 4) return 'أضف أيام أكثر حتى تظهر لك قراءة أدق.';
+        final half = (kcal.length / 2).floor();
+        final oldAvg = avg(kcal.take(half).toList());
+        final newAvg = avg(kcal.skip(half).toList());
+        final diff = newAvg - oldAvg;
+        if (diff.abs() < 80) return 'سعراتك مستقرة تقريبًا خلال الفترة.';
+        return diff > 0
+            ? 'سعراتك ارتفعت آخر الفترة بمتوسط ${fmt(diff, intLike: true)} سعرة.'
+            : 'سعراتك نزلت آخر الفترة بمتوسط ${fmt(diff.abs(), intLike: true)} سعرة.';
+      }
+
+      Widget line({required IconData icon, required String title, required String value}) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
             children: [
-              Text(label, style: t.labelMedium?.copyWith(color: cs.outline)),
-              const SizedBox(height: 4),
-              Text(value, style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(.09),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: cs.primary, size: 19),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                value,
+                style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w900, color: cs.primary),
+              ),
             ],
           ),
         );
       }
 
-      final sCal = fmt(sum(kcal), intLike: true);
-      final sP   = fmt(sum(prot));
-      final sC   = fmt(sum(carb));
-      final sF   = fmt(sum(fat));
-
-      return Wrap(
-        spacing: 8, runSpacing: 8,
-        children: [
-          card('إجمالي السعرات', '$sCal سعرة'),
-          card('إجمالي البروتين', '$sP غ'),
-          card('إجمالي الكارب', '$sC غ'),
-          card('إجمالي الدهون', '$sF غ'),
-        ],
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cs.outlineVariant.withOpacity(.65)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.insights_rounded, color: cs.primary),
+                const SizedBox(width: 8),
+                Text('قراءة مفيدة للفترة', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              trendText(),
+              style: t.bodyMedium?.copyWith(color: cs.onSurface.withOpacity(.82), height: 1.35),
+            ),
+            const SizedBox(height: 10),
+            line(
+              icon: Icons.local_fire_department_rounded,
+              title: 'متوسط السعرات اليومي',
+              value: days == 0 ? '—' : '${fmt(avgCal, intLike: true)} سعرة',
+            ),
+            line(
+              icon: Icons.fitness_center_rounded,
+              title: 'متوسط البروتين',
+              value: days == 0 ? '—' : '${fmt(avgP)} غ',
+            ),
+            line(
+              icon: Icons.pie_chart_rounded,
+              title: 'نسبة البروتين من الماكروز',
+              value: proteinShare == 0 ? '—' : '$proteinShare%',
+            ),
+            line(
+              icon: Icons.restaurant_menu_rounded,
+              title: 'متوسط الكارب / الدهون',
+              value: days == 0 ? '—' : '${fmt(avgC)}غ / ${fmt(avgF)}غ',
+            ),
+          ],
+        ),
       );
     }
+
 
 Widget _singleChart(String title, List<double> values, Color color) {
       final spots = values.asMap().entries.map((e)=> FlSpot(e.key.toDouble(), e.value)).toList();
@@ -2604,7 +2666,7 @@ Widget _singleChart(String title, List<double> values, Color color) {
         const SizedBox(height: 12),
         _bestWorstCards(cs, t),
         const SizedBox(height: 12),
-        _aggregatesRow(kcal, prot, carb, fat),
+        _periodInsightCard(kcal, prot, carb, fat),
         const SizedBox(height: 12),
         _microGoals(cs, t),
         const SizedBox(height: 12),

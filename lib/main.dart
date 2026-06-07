@@ -163,9 +163,8 @@ Future<void> _printEnvDiagnostics() async {
   debugPrint('🔎 Platform: $defaultTargetPlatform');
 }
 
-// تعطيل مؤقت لإشعارات iOS/Apple لاختبار سبب Watchdog/OneSignal crash.
-// هذا لا يؤثر على فتح التطبيق أو الاشتراكات أو التحليل؛ فقط يوقف الإشعارات على iPhone مؤقتًا.
-const bool kDisableApplePushForCrashTest = true;
+// إشعارات Apple مفعلة. تهيئتها مؤجلة بعد ظهور أول واجهة حتى لا تؤثر على سرعة الإقلاع.
+const bool kDisableApplePushForCrashTest = false;
 
 // ✅ وضع الأداء السريع: لا نشغّل أي مزامنة سحابية/Streams عند بداية التطبيق.
 const bool kDisableStartupCloudSyncForPerformance = true;

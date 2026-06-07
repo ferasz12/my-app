@@ -3,9 +3,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:my_app/screens/login_page.dart';
-import 'package:my_app/screens/register_page.dart';
-import 'package:my_app/settings/privacy_page.dart';
+import 'login_page.dart';
+import 'register_page.dart';
+import '../settings/privacy_page.dart';
 
 import '../services/auth/social_auth.dart';
 import '../services/auth_service.dart';

@@ -26,6 +26,7 @@ class _EditUsernamePageState extends State<EditUsernamePage> {
   Timer? _debounce;
   bool _saving = false;
   bool _checking = false;
+  bool _suppressTextListener = false;
   bool? _available; // null = not checked/invalid
 
   User? _user;
@@ -37,10 +38,11 @@ class _EditUsernamePageState extends State<EditUsernamePage> {
 
     _user = FirebaseAuth.instance.currentUser;
     if (_user != null) {
-      _stream = FirebaseFirestore.instance.doc('users/${_user!.uid}').snapshots();
+      unawaited(_loadInitialUsername());
     }
 
     _ctrl.addListener(() {
+      if (_suppressTextListener) return;
       _debounce?.cancel();
       setState(() {
         _checking = true;
@@ -65,6 +67,66 @@ class _EditUsernamePageState extends State<EditUsernamePage> {
   }
 
   String _normalizeHandle(String raw) => raw.trim().toLowerCase();
+
+
+  void _setUsernameText(String value, {bool available = true}) {
+    final username = value.trim();
+    if (username.isEmpty || _ctrl.text.trim() == username) return;
+    _suppressTextListener = true;
+    _ctrl.value = TextEditingValue(
+      text: username,
+      selection: TextSelection.collapsed(offset: username.length),
+    );
+    _suppressTextListener = false;
+    if (mounted) {
+      setState(() {
+        _checking = false;
+        _available = available ? true : _available;
+      });
+    }
+  }
+
+  Future<void> _loadInitialUsername() async {
+    final user = _user ?? FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = (prefs.getString('currentEmail') ?? user.email ?? '').trim();
+      final candidates = <String>[
+        prefs.getString('username_${user.uid}') ?? '',
+        if (email.isNotEmpty) prefs.getString('currentUsername_$email') ?? '',
+        if (email.isNotEmpty) prefs.getString('username_$email') ?? '',
+      ];
+      final local = candidates.map((e) => e.trim()).firstWhere(
+            (e) => e.isNotEmpty,
+            orElse: () => '',
+          );
+      if (local.isNotEmpty && mounted) _setUsernameText(local);
+    } catch (_) {}
+
+    Future<void> tryDoc(Source source, Duration timeout) async {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .doc('users/${user.uid}')
+            .get(GetOptions(source: source))
+            .timeout(timeout);
+        final username = (snap.data()?['username'] ?? '').toString().trim();
+        if (username.isEmpty || !mounted) return;
+        _setUsernameText(username);
+        final prefs = await SharedPreferences.getInstance();
+        final email = (prefs.getString('currentEmail') ?? user.email ?? '').trim();
+        await prefs.setString('username_${user.uid}', username);
+        if (email.isNotEmpty) {
+          await prefs.setString('username_$email', username);
+          await prefs.setString('currentUsername_$email', username);
+        }
+      } catch (_) {}
+    }
+
+    await tryDoc(Source.cache, const Duration(milliseconds: 650));
+    unawaited(tryDoc(Source.server, const Duration(seconds: 3)));
+  }
 
   String? _usernameRuleError(String raw) {
     final t = raw.trim();
@@ -241,77 +303,62 @@ return null;
             ),
           ],
         ),
-        body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: _stream,
-          builder: (context, snap) {
-            final username = (snap.data?.data()?['username'] ?? '').toString().trim();
-
-            // Prefill once if empty
-            if (_ctrl.text.isEmpty && username.isNotEmpty) {
-              _ctrl.value = TextEditingValue(
-                text: username,
-                selection: TextSelection.collapsed(offset: username.length),
-              );
-            }
-
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'اختر يوزر فريد للتطبيق',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'الشروط: ٥ أحرف أو أكثر، إنجليزي فقط (حروف/أرقام/_)، بدون مسافات.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 14),
-
-                    TextFormField(
-                      controller: _ctrl,
-                      focusNode: _focus,
-                      textDirection: TextDirection.ltr,
-                      decoration: InputDecoration(
-                        labelText: 'اسم المستخدم',
-                        prefixText: '@',
-                        helperText: _helperText(),
-                        suffixIcon: _suffixIcon(),
-                        border: const OutlineInputBorder(),
-                      ),
-                      validator: (v) => _usernameRuleError(v ?? ''),
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _save(),
-                    ),
-
-                    const Spacer(),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: FilledButton.icon(
-                        onPressed: _saving ? null : _save,
-                        icon: _saving
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.check_rounded),
-                        label: Text(_saving ? 'جارٍ الحفظ...' : 'حفظ'),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: () => Navigator.maybePop(context),
-                      icon: const BackButtonIcon(),
-                      label: const Text('رجوع'),
-                    ),
-                  ],
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'اختر يوزر فريد للتطبيق',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
                 ),
-              ),
-            );
-          },
-        ),
+                const SizedBox(height: 8),
+                Text(
+                  'الشروط: ٥ أحرف أو أكثر، إنجليزي فقط (حروف/أرقام)، بدون مسافات.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 14),
+
+                TextFormField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  textDirection: TextDirection.ltr,
+                  decoration: InputDecoration(
+                    labelText: 'اسم المستخدم',
+                    prefixText: '@',
+                    helperText: _helperText(),
+                    suffixIcon: _suffixIcon(),
+                    border: const OutlineInputBorder(),
+                  ),
+                  validator: (v) => _usernameRuleError(v ?? ''),
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _save(),
+                ),
+
+                const Spacer(),
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: _saving
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.check_rounded),
+                    label: Text(_saving ? 'جارٍ الحفظ...' : 'حفظ'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: const BackButtonIcon(),
+                  label: const Text('رجوع'),
+                ),
+              ],
+            ),
+          ),
+        )
       ),
     );
   }

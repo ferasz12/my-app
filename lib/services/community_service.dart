@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/community_models.dart';
+import '../core/data/wazen_user_store.dart';
 
 class CommunityService {
   CommunityService._();
@@ -31,8 +34,12 @@ class CommunityService {
           code: 'not-signed-in', message: 'يجب تسجيل الدخول');
     }
 
-    final snap = await _db.doc('users/${user.uid}').get();
-    final data = snap.data() ?? const <String, dynamic>{};
+    // كاش أولًا: فتح الكومبوزر/المجتمع ما يتوقف على Firestore.
+    var data = await WazenUserStore.readCachedUser(user.uid, authUser: user);
+    if (data.isEmpty) {
+      data = WazenUserStore.normalize(const <String, dynamic>{}, authUser: user, uid: user.uid);
+    }
+    unawaited(WazenUserStore.readUserDocFast(user.uid));
 
     final role = (data['role'] ?? 'user').toString().toLowerCase().trim();
     final showAsSupport =
@@ -102,15 +109,23 @@ class CommunityService {
     return ref.id;
   }
 
-  Stream<List<CommunityPost>> streamPosts({required CommunitySort sort}) {
-    return _posts
+  Stream<List<CommunityPost>> streamPosts({required CommunitySort sort}) async* {
+    final cacheKey = 'community_posts_cache_${sort.firestoreCacheKey}';
+    final cached = await _readCachedPosts(cacheKey);
+    if (cached.isNotEmpty) yield cached;
+
+    yield* _posts
         .orderBy(sort.orderField, descending: true)
         .limit(160)
-        .snapshots()
-        .map((snap) => snap.docs
-            .map(CommunityPost.fromDoc)
-            .where((p) => !p.isDeleted && p.content.trim().isNotEmpty)
-            .toList(growable: false));
+        .snapshots(includeMetadataChanges: true)
+        .map((snap) {
+          final list = snap.docs
+              .map(CommunityPost.fromDoc)
+              .where((p) => !p.isDeleted && p.content.trim().isNotEmpty)
+              .toList(growable: false);
+          unawaited(_saveCachedPosts(cacheKey, list));
+          return list;
+        });
   }
 
   Stream<bool> streamIsLiked(String postId, String uid) {
@@ -213,13 +228,17 @@ class CommunityService {
     ));
   }
 
-  Stream<List<CommunityComment>> streamComments(String postId, {int limit = 3}) {
+  Stream<List<CommunityComment>> streamComments(String postId, {int limit = 3}) async* {
+    final cacheKey = 'community_comments_cache_${postId}_$limit';
+    final cached = await _readCachedComments(cacheKey, postId);
+    if (cached.isNotEmpty) yield cached;
+
     Query<Map<String, dynamic>> q = _posts
         .doc(postId)
         .collection('comments')
         .orderBy('createdAt', descending: false);
     if (limit > 0) q = q.limit(limit);
-    return q.snapshots().map((snap) {
+    yield* q.snapshots(includeMetadataChanges: true).map((snap) {
       final list = snap.docs
           .map((d) => CommunityComment.fromDoc(postId: postId, doc: d))
           .where((c) => !c.isDeleted && c.text.trim().isNotEmpty)
@@ -228,30 +247,68 @@ class CommunityService {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
         return a.createdAt.compareTo(b.createdAt);
       });
-      return List<CommunityComment>.unmodifiable(list);
+      final out = List<CommunityComment>.unmodifiable(list);
+      unawaited(_saveCachedComments(cacheKey, out));
+      return out;
     });
   }
 
-  Stream<List<String>> streamMyLikedPostIds(String uid) {
-    return _db
+  Stream<List<String>> streamMyLikedPostIds(String uid) async* {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'community_liked_ids_$uid';
+    final cached = prefs.getStringList(key) ?? const <String>[];
+    if (cached.isNotEmpty) yield cached;
+
+    yield* _db
         .collection('users')
         .doc(uid)
         .collection('communityLikes')
         .orderBy('createdAt', descending: true)
         .limit(120)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) => d.id).toList(growable: false));
+        .snapshots(includeMetadataChanges: true)
+        .map((snap) {
+          final ids = snap.docs.map((d) => d.id).toList(growable: false);
+          unawaited(prefs.setStringList(key, ids));
+          return ids;
+        });
   }
 
   Future<List<CommunityPost>> getPostsByIds(List<String> ids) async {
     if (ids.isEmpty) return const <CommunityPost>[];
-    final futures = ids.take(80).map((id) => _posts.doc(id).get());
+    final wanted = ids.take(80).toList(growable: false);
+    final wantedSet = wanted.toSet();
+
+    // كاش سريع للمفضلات حتى لا تبقى صفحة الإعجابات معلقة على طلبات كثيرة.
+    final cachedBuckets = await Future.wait([
+      _readCachedPosts('community_posts_cache_latest'),
+      _readCachedPosts('community_posts_cache_likes'),
+      _readCachedPosts('community_posts_cache_comments'),
+      _readCachedPosts('community_posts_cache_trending'),
+    ]);
+    final cachedMap = <String, CommunityPost>{};
+    for (final bucket in cachedBuckets) {
+      for (final p in bucket) {
+        if (wantedSet.contains(p.id)) cachedMap[p.id] = p;
+      }
+    }
+    if (cachedMap.length == wantedSet.length) {
+      return wanted.map((id) => cachedMap[id]).whereType<CommunityPost>().toList(growable: false);
+    }
+
+    final futures = wanted.map((id) => _posts.doc(id).get());
     final snaps = await Future.wait(futures);
-    return snaps
+    final fresh = snaps
         .where((s) => s.exists)
         .map(CommunityPost.fromDoc)
         .where((p) => !p.isDeleted && p.content.trim().isNotEmpty)
         .toList(growable: false);
+    if (fresh.isNotEmpty) {
+      for (final p in fresh) {
+        cachedMap[p.id] = p;
+      }
+      return wanted.map((id) => cachedMap[id]).whereType<CommunityPost>().toList(growable: false);
+    }
+    return wanted.map((id) => cachedMap[id]).whereType<CommunityPost>().toList(growable: false);
   }
 
   Future<void> reportPost({
@@ -592,6 +649,140 @@ class CommunityService {
     }
   }
 
+
+  Future<List<CommunityPost>> _readCachedPosts(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null || raw.trim().isEmpty) return const <CommunityPost>[];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <CommunityPost>[];
+      return decoded
+          .whereType<Map>()
+          .map((m) => _postFromCache(Map<String, dynamic>.from(m)))
+          .where((p) => !p.isDeleted && p.content.trim().isNotEmpty)
+          .toList(growable: false);
+    } catch (_) {
+      return const <CommunityPost>[];
+    }
+  }
+
+  Future<void> _saveCachedPosts(String key, List<CommunityPost> posts) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final safe = posts.take(80).map(_postToCache).toList(growable: false);
+      await prefs.setString(key, jsonEncode(safe));
+    } catch (_) {}
+  }
+
+  Future<List<CommunityComment>> _readCachedComments(String key, String postId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null || raw.trim().isEmpty) return const <CommunityComment>[];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <CommunityComment>[];
+      return decoded
+          .whereType<Map>()
+          .map((m) => _commentFromCache(postId, Map<String, dynamic>.from(m)))
+          .where((c) => !c.isDeleted && c.text.trim().isNotEmpty)
+          .toList(growable: false);
+    } catch (_) {
+      return const <CommunityComment>[];
+    }
+  }
+
+  Future<void> _saveCachedComments(String key, List<CommunityComment> comments) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        key,
+        jsonEncode(comments.take(30).map(_commentToCache).toList(growable: false)),
+      );
+    } catch (_) {}
+  }
+
+  Map<String, dynamic> _postToCache(CommunityPost p) => {
+        'id': p.id,
+        'authorUid': p.authorUid,
+        'authorName': p.authorName,
+        'authorPhotoUrl': p.authorPhotoUrl,
+        'authorRole': p.authorRole,
+        'supportDisplay': p.supportDisplay,
+        'category': p.category.firestoreValue,
+        'content': p.content,
+        'likesCount': p.likesCount,
+        'commentsCount': p.commentsCount,
+        'trendScore': p.trendScore,
+        'createdAt': p.createdAt.toIso8601String(),
+        'updatedAt': p.updatedAt?.toIso8601String(),
+        'isDeleted': p.isDeleted,
+        'recipeId': p.recipeId,
+        'recipeTitle': p.recipeTitle,
+      };
+
+  CommunityPost _postFromCache(Map<String, dynamic> m) => CommunityPost(
+        id: (m['id'] ?? '').toString(),
+        authorUid: (m['authorUid'] ?? '').toString(),
+        authorName: (m['authorName'] ?? 'مستخدم وازن').toString(),
+        authorPhotoUrl: (m['authorPhotoUrl'] ?? '').toString(),
+        authorRole: (m['authorRole'] ?? 'user').toString(),
+        supportDisplay: m['supportDisplay'] == true,
+        category: CommunityCategoryX.fromFirestore(m['category']),
+        content: (m['content'] ?? '').toString(),
+        likesCount: _asInt(m['likesCount']),
+        commentsCount: _asInt(m['commentsCount']),
+        trendScore: _asInt(m['trendScore']),
+        createdAt: DateTime.tryParse((m['createdAt'] ?? '').toString()) ?? DateTime.now(),
+        updatedAt: DateTime.tryParse((m['updatedAt'] ?? '').toString()),
+        isDeleted: m['isDeleted'] == true,
+        recipeId: _nullableString(m['recipeId']),
+        recipeTitle: _nullableString(m['recipeTitle']),
+      );
+
+  Map<String, dynamic> _commentToCache(CommunityComment c) => {
+        'id': c.id,
+        'authorUid': c.authorUid,
+        'authorName': c.authorName,
+        'authorPhotoUrl': c.authorPhotoUrl,
+        'authorRole': c.authorRole,
+        'supportDisplay': c.supportDisplay,
+        'text': c.text,
+        'createdAt': c.createdAt.toIso8601String(),
+        'isDeleted': c.isDeleted,
+        'isPinned': c.isPinned,
+        'pinnedAt': c.pinnedAt?.toIso8601String(),
+        'pinnedBy': c.pinnedBy,
+      };
+
+  CommunityComment _commentFromCache(String postId, Map<String, dynamic> m) => CommunityComment(
+        id: (m['id'] ?? '').toString(),
+        postId: postId,
+        authorUid: (m['authorUid'] ?? '').toString(),
+        authorName: (m['authorName'] ?? 'مستخدم وازن').toString(),
+        authorPhotoUrl: (m['authorPhotoUrl'] ?? '').toString(),
+        authorRole: (m['authorRole'] ?? 'user').toString(),
+        supportDisplay: m['supportDisplay'] == true,
+        text: (m['text'] ?? '').toString(),
+        createdAt: DateTime.tryParse((m['createdAt'] ?? '').toString()) ?? DateTime.now(),
+        isDeleted: m['isDeleted'] == true,
+        isPinned: m['isPinned'] == true,
+        pinnedAt: DateTime.tryParse((m['pinnedAt'] ?? '').toString()),
+        pinnedBy: _nullableString(m['pinnedBy']),
+      );
+
+
+  int _asInt(dynamic v) {
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  String? _nullableString(dynamic v) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? null : s;
+  }
+
   Future<void> _assertAllowedToPost(String uid) async {
     final snap = await _db.doc('users/$uid').get();
     final data = snap.data() ?? const <String, dynamic>{};
@@ -639,6 +830,22 @@ class CommunityService {
       case 'other':
       default:
         return 'بلاغ مجتمع';
+    }
+  }
+}
+
+
+extension _CommunitySortCacheKey on CommunitySort {
+  String get firestoreCacheKey {
+    switch (this) {
+      case CommunitySort.latest:
+        return 'latest';
+      case CommunitySort.mostLiked:
+        return 'likes';
+      case CommunitySort.mostCommented:
+        return 'comments';
+      case CommunitySort.trending:
+        return 'trending';
     }
   }
 }

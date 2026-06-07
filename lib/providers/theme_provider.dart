@@ -160,60 +160,194 @@ class ThemeProvider extends ChangeNotifier {
   
 // الافتراضي — #28B4AC (متناغم فاتح/داكن)
   ThemeData _classicGreen({required bool light}) {
+    // ثيم وازن الأصلي: أخضر وازن الهادئ بدون ألوان فاقعة أو تدرجات مبالغ فيها.
+    const brand = Color(0xFF00695C);
+    const brandSoft = Color(0xFFE6F3F1);
+    const deep = Color(0xFF064D45);
+    const lightBg = Color(0xFFF7FAF9);
+    const darkBg = Color(0xFF0B1114);
+    const darkSurface = Color(0xFF121A1D);
+
     final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF28B4AC),
+      seedColor: brand,
       brightness: light ? Brightness.light : Brightness.dark,
+    ).copyWith(
+      primary: brand,
+      onPrimary: Colors.white,
+      secondary: brand,
+      onSecondary: Colors.white,
+      tertiary: deep,
+      surface: light ? Colors.white : darkSurface,
+      background: light ? lightBg : darkBg,
+      onSurface: light ? const Color(0xFF102326) : const Color(0xFFEAF7F5),
+      outlineVariant: light ? const Color(0xFFDCE8E5) : const Color(0xFF26383B),
+      primaryContainer: light ? brandSoft : const Color(0xFF103B37),
+      onPrimaryContainer: light ? deep : const Color(0xFFEAF7F5),
     );
+
+    final cardColor = light ? Colors.white : darkSurface;
+    final shadow = Colors.black.withOpacity(light ? 0.045 : 0.22);
 
     return ThemeData(
       useMaterial3: true,
+      brightness: light ? Brightness.light : Brightness.dark,
       colorScheme: scheme,
       fontFamily: 'Tajawal',
-      scaffoldBackgroundColor:
-          light ? const Color(0xFFF6F8FA) : const Color(0xFF12161A),
+      scaffoldBackgroundColor: scheme.background,
+      splashColor: brand.withOpacity(.07),
+      highlightColor: brand.withOpacity(.05),
+      dividerColor: scheme.outlineVariant.withOpacity(.7),
 
       appBarTheme: AppBarTheme(
-        backgroundColor: light ? Colors.white : scheme.surface,
-        foregroundColor: light ? const Color(0xFF0A3D62) : Colors.white,
-        elevation: light ? .6 : 0,
+        backgroundColor: light ? lightBg : darkBg,
+        foregroundColor: light ? deep : Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: true,
+        surfaceTintColor: Colors.transparent,
+        titleTextStyle: TextStyle(
+          color: light ? deep : Colors.white,
+          fontFamily: 'Tajawal',
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: Colors.transparent,
+        indicatorColor: brand.withOpacity(light ? .14 : .22),
+        elevation: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+        labelTextStyle: MaterialStateProperty.resolveWith((states) {
+          final selected = states.contains(MaterialState.selected);
+          return TextStyle(
+            fontFamily: 'Tajawal',
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+            fontSize: 12,
+            color: selected ? brand : scheme.onSurfaceVariant,
+          );
+        }),
+        iconTheme: MaterialStateProperty.resolveWith((states) {
+          final selected = states.contains(MaterialState.selected);
+          return IconThemeData(
+            color: selected ? brand : scheme.onSurfaceVariant,
+            size: selected ? 25 : 23,
+          );
+        }),
       ),
 
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: light ? Colors.white : const Color(0xFF161B20),
-        selectedItemColor: scheme.primary,
-        unselectedItemColor: light ? Colors.grey.shade700 : Colors.white70,
+        backgroundColor: light ? Colors.white : darkSurface,
+        selectedItemColor: brand,
+        unselectedItemColor: light ? const Color(0xFF536461) : const Color(0xFF9AA9AD),
         type: BottomNavigationBarType.fixed,
+        showUnselectedLabels: true,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
       ),
 
-      // ⬅️ استخدم الأنواع المنتهية بـ Data
       cardTheme: CardThemeData(
-        color: light ? Colors.white : const Color(0xFF1A1F24),
-        elevation: light ? 1.5 : 1.2,
+        color: cardColor,
+        surfaceTintColor: Colors.transparent,
+        elevation: light ? 0.8 : 0.4,
+        shadowColor: shadow,
         margin: const EdgeInsets.all(12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         clipBehavior: Clip.antiAlias,
       ),
 
       inputDecorationTheme: _inputTheme(isDark: !light, scheme: scheme),
 
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: brand,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'Tajawal'),
+        ),
+      ),
+
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: brand,
+          foregroundColor: Colors.white,
+          elevation: 0.6,
+          shadowColor: brand.withOpacity(.16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'Tajawal'),
+        ),
+      ),
+
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: brand,
+          side: BorderSide(color: brand.withOpacity(.32)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'Tajawal'),
+        ),
+      ),
+
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: brand,
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'Tajawal'),
+        ),
+      ),
+
       chipTheme: ChipThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        backgroundColor:
-            scheme.secondaryContainer.withOpacity(light ? .30 : .26),
-        selectedColor: scheme.secondaryContainer,
+        side: BorderSide(color: scheme.outlineVariant.withOpacity(.7)),
+        backgroundColor: light ? brandSoft.withOpacity(.75) : const Color(0xFF172528),
+        selectedColor: brand.withOpacity(light ? .16 : .24),
         labelStyle: TextStyle(
-          color: light ? const Color(0xFF0A3D62) : Colors.white,
+          color: scheme.onSurface,
           fontSize: 13,
+          fontWeight: FontWeight.w700,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
 
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: scheme.inverseSurface,
-        contentTextStyle: TextStyle(color: scheme.onInverseSurface),
+        backgroundColor: light ? deep : const Color(0xFFEAF7F5),
+        contentTextStyle: TextStyle(
+          color: light ? Colors.white : deep,
+          fontFamily: 'Tajawal',
+          fontWeight: FontWeight.w700,
+        ),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: brand,
+        foregroundColor: Colors.white,
+        elevation: 0.8,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+
+      popupMenuTheme: PopupMenuThemeData(
+        color: cardColor,
+        surfaceTintColor: Colors.transparent,
+        elevation: light ? 3 : 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: TextStyle(
+          fontFamily: 'Tajawal',
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+
+      tabBarTheme: TabBarThemeData(
+        dividerColor: Colors.transparent,
+        labelColor: brand,
+        unselectedLabelColor: scheme.onSurfaceVariant,
+        labelStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w800),
+        unselectedLabelStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w700),
       ),
     );
   }

@@ -1,6 +1,5 @@
 // lib/features/admin_support/admin_support_dashboard_page.dart
 import 'dart:convert';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -32,7 +31,7 @@ class _AdminSupportDashboardPageState extends State<AdminSupportDashboardPage> {
       future: _roleFuture,
       builder: (context, snap) {
         if (!snap.hasData) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(body: Center(child: Text('يتم تجهيز اللوحة...')));
         }
         final role = snap.data!;
         final allowed =
@@ -129,15 +128,10 @@ class _BlurBlob extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipOval(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: color,
-          ),
-        ),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(color: color.withOpacity(0.55)),
       ),
     );
   }
@@ -147,21 +141,10 @@ class _GlassAppBarBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                cs.surface.withOpacity(0.75),
-                cs.surface.withOpacity(0.25),
-              ],
-            ),
-          ),
-        ),
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(0.94),
+        border: Border(bottom: BorderSide(color: cs.outlineVariant.withOpacity(0.35))),
       ),
     );
   }
@@ -171,31 +154,25 @@ class _GlassTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: cs.surface.withOpacity(0.45),
-            border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: TabBar(
-            indicator: BoxDecoration(
-              color: cs.primary.withOpacity(0.20),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cs.primary.withOpacity(0.35)),
-            ),
-            dividerColor: Colors.transparent,
-            labelStyle: const TextStyle(fontWeight: FontWeight.w700),
-            tabs: const [
-              Tab(icon: Icon(Icons.flag_rounded), text: 'البلاغات'),
-              Tab(icon: Icon(Icons.people_alt_rounded), text: 'المستخدمون'),
-            ],
-          ),
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: TabBar(
+        indicator: BoxDecoration(
+          color: cs.primary.withOpacity(0.20),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.primary.withOpacity(0.35)),
         ),
+        dividerColor: Colors.transparent,
+        labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+        tabs: const [
+          Tab(icon: Icon(Icons.flag_rounded), text: 'البلاغات'),
+          Tab(icon: Icon(Icons.people_alt_rounded), text: 'المستخدمون'),
+        ],
       ),
     );
   }
@@ -267,6 +244,7 @@ class _ReportsTabState extends State<_ReportsTab> {
     return _db
         .collection('communityReports')
         .orderBy('createdAt', descending: true)
+        .limit(100)
         .snapshots()
         .map((snap) => snap.docs.map(CommunityReport.fromDoc).toList(growable: false));
   }
@@ -277,7 +255,7 @@ class _ReportsTabState extends State<_ReportsTab> {
       stream: _reportsStream(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: Text('يتم تجهيز البيانات...'));
         }
         if (snap.hasError) {
           return Center(
@@ -999,10 +977,10 @@ class _UsersTabState extends State<_UsersTab> {
         // ===== قائمة المستخدمين =====
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _db.collection('users').snapshots(),
+            stream: _db.collection('users').limit(120).snapshots(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+                return const Center(child: Text('يتم تجهيز البيانات...'));
               }
 
               final docs = snap.data?.docs ?? const [];

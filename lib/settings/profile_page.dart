@@ -22,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/legacy_user_repository.dart';
 import '../data/user_repository.dart';
+import '../core/data/wazen_user_store.dart';
 import '../widgets/avatar_cropper_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -49,6 +50,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _dirtyName = false;
   bool _dirtyUsername = false;
   bool _dirtyAvatarSize = false;
+  bool _suppressProfileTextSync = false;
 
   bool? _usernameAvailable; // null = not checked / checking
   bool _checkingUsername = false;
@@ -88,6 +90,7 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
 
     _usernameCtrl.addListener(() {
+      if (_suppressProfileTextSync) return;
       if (!_dirtyUsername) _dirtyUsername = true;
       _usernameDebounce?.cancel();
       setState(() {
@@ -128,106 +131,112 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _initRefsAndLoad() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
       return;
     }
 
-    // Best-effort: تأكيد وجود الجذر + مهاجرة أي بيانات ناقصة (إن وجدت)
+    final userRef = FirebaseFirestore.instance.doc('users/${user.uid}');
+    if (mounted) {
+      setState(() {
+        _userRef = userRef;
+        _email = user.email ?? '';
+        _photoUrl = user.photoURL;
+      });
+    }
+
+    // 1) اعرض الكاش فورًا قبل أي قراءة من Firestore.
     try {
-      await const LegacyUserRepository().ensureLegacyUserDocExists();
+      final cached = await WazenUserStore.readCachedUser(user.uid, authUser: user);
+      _applyUserDataToState(cached, user: user, cacheOnly: true);
     } catch (_) {}
 
-    final userRef = FirebaseFirestore.instance.doc('users/${user.uid}');
+    if (mounted) setState(() => _loading = false);
 
-    setState(() {
-      _userRef = userRef;
-      _email = user.email ?? '';
-      _photoUrl = user.photoURL;
-    });
+    // 2) أي مهاجرة/تأكيد وثيقة قديمة لا توقف الصفحة أبدًا.
+    unawaited(() async {
+      try {
+        await const LegacyUserRepository()
+            .ensureLegacyUserDocExists()
+            .timeout(const Duration(seconds: 3));
+      } catch (_) {}
+    }());
 
-    // استمع للتغييرات الحية واملأ الحقول من الجذر
-    _userSub = userRef.snapshots().listen((snap) {
+    // 3) استمع للتغييرات الحية، وخزنها في الكاش الموحد ليستفيد منها كل التطبيق.
+    _userSub?.cancel();
+    _userSub = userRef.snapshots(includeMetadataChanges: true).listen((snap) {
       final data = snap.data();
-      if (data != null) {
-        // ===== Identity =====
-        final displayName = (data['displayName'] as String?)?.trim() ?? '';
-        final name = (data['name'] as String?)?.trim() ?? '';
-        final username = (data['username'] as String?)?.trim() ?? '';
-        final email = (data['email'] as String?)?.trim() ?? '';
-
-        final resolvedName = name.isNotEmpty ? name : displayName;
-        _displayName = resolvedName;
-        _username = username;
-        if (email.isNotEmpty) _email = email;
-
-        // Sync editable fields (do not overwrite while user is typing)
-        if (!_dirtyName && _nameCtrl.text != resolvedName) {
-          _nameCtrl.value = TextEditingValue(
-            text: resolvedName,
-            selection: TextSelection.collapsed(offset: resolvedName.length),
-          );
-        }
-
-        if (!_dirtyUsername && _usernameCtrl.text != username) {
-          _usernameCtrl.value = TextEditingValue(
-            text: username,
-            selection: TextSelection.collapsed(offset: username.length),
-          );
-          _usernameAvailable = username.isNotEmpty ? true : null;
-        }
-
-        final storedSize = (data['avatarSize'] as num?)?.toDouble();
-        if (!_dirtyAvatarSize && storedSize != null) {
-          _avatarSize = storedSize.clamp(_avatarSizeMin, _avatarSizeMax);
-        }
-
-        // ===== Photo =====
-        String? raw = (data[kProfilePhotoField] as String?)?.trim();
-        raw = (raw?.isNotEmpty == true)
-            ? raw
-            : (data['avatarUrl'] as String?)?.trim();
-        raw = (raw?.isNotEmpty == true)
-            ? raw
-            : (data['image'] as String?)?.trim();
-        if (raw?.isNotEmpty == true) {
-          _photoUrl = raw;
-        }
-
-        // ===== Bio =====
-        final bio = (data['bio'] as String?)?.trim();
-        if (bio != null) {
-          _bioCtrl.text = bio;
-        }
-
-        // ===== Social =====
-        final social = data['social'];
-        if (social is Map) {
-          final m = Map<String, dynamic>.from(social as Map);
-          final ig = (m['instagram'] as String?)?.trim();
-          final sc = (m['snapchat'] as String?)?.trim();
-          final tk = (m['tiktok'] as String?)?.trim();
-          if (ig != null) _igCtrl.text = ig;
-          if (sc != null) _scCtrl.text = sc;
-          if (tk != null) _tkCtrl.text = tk;
-        }
-      }
-      if (mounted) setState(() {});
+      if (data == null || data.isEmpty) return;
+      unawaited(WazenUserStore.saveUserCache(user.uid, data, authUser: user));
+      _applyUserDataToState(data, user: user);
+    }, onError: (_) {
+      // لا نعيد الصفحة إلى لودينق لو فشل Firestore؛ نخلي آخر كاش ظاهر.
     });
+  }
 
-    // تحميل بدائي من SharedPreferences لو متوفّر
-    final prefs = await SharedPreferences.getInstance();
-    final emailKey = prefs.getString('currentEmail') ?? user.email ?? 'unknown_user';
-    final bioLocal = prefs.getString('bio_$emailKey');
-    final igLocal = prefs.getString('social_instagram_$emailKey');
-    final scLocal = prefs.getString('social_snapchat_$emailKey');
-    final tkLocal = prefs.getString('social_tiktok_$emailKey');
+  void _applyUserDataToState(
+    Map<String, dynamic> data, {
+    required User user,
+    bool cacheOnly = false,
+  }) {
+    if (data.isEmpty) return;
 
-    if (bioLocal != null && bioLocal.isNotEmpty && _bioCtrl.text.isEmpty) _bioCtrl.text = bioLocal;
-    if (igLocal != null && igLocal.isNotEmpty && _igCtrl.text.isEmpty) _igCtrl.text = igLocal;
-    if (scLocal != null && scLocal.isNotEmpty && _scCtrl.text.isEmpty) _scCtrl.text = scLocal;
-    if (tkLocal != null && tkLocal.isNotEmpty && _tkCtrl.text.isEmpty) _tkCtrl.text = tkLocal;
+    final normalized = WazenUserStore.normalize(data, authUser: user, uid: user.uid);
 
-    setState(() => _loading = false);
+    final displayName = (normalized['displayName'] ?? normalized['name'] ?? '').toString().trim();
+    final username = (normalized['username'] ?? '').toString().trim();
+    final email = (normalized['email'] ?? user.email ?? '').toString().trim();
+
+    if (displayName.isNotEmpty) _displayName = displayName;
+    if (username.isNotEmpty) _username = username;
+    if (email.isNotEmpty) _email = email;
+
+    if (!_dirtyName && displayName.isNotEmpty && _nameCtrl.text != displayName) {
+      _nameCtrl.value = TextEditingValue(
+        text: displayName,
+        selection: TextSelection.collapsed(offset: displayName.length),
+      );
+    }
+
+    if (!_dirtyUsername && username.isNotEmpty && _usernameCtrl.text != username) {
+      _suppressProfileTextSync = true;
+      _usernameCtrl.value = TextEditingValue(
+        text: username,
+        selection: TextSelection.collapsed(offset: username.length),
+      );
+      _suppressProfileTextSync = false;
+      _usernameAvailable = true;
+      _checkingUsername = false;
+    }
+
+    final storedSize = (normalized['avatarSize'] as num?)?.toDouble();
+    if (!_dirtyAvatarSize && storedSize != null) {
+      _avatarSize = storedSize.clamp(_avatarSizeMin, _avatarSizeMax);
+    }
+
+    String photo = (normalized[kProfilePhotoField] ??
+            normalized['photoUrl'] ??
+            normalized['avatarUrl'] ??
+            normalized['image'] ??
+            '')
+        .toString()
+        .trim();
+    if (photo.isNotEmpty) _photoUrl = photo;
+
+    final bio = (normalized['bio'] ?? '').toString();
+    if (bio.trim().isNotEmpty && _bioCtrl.text != bio) _bioCtrl.text = bio;
+
+    final social = normalized['social'];
+    if (social is Map) {
+      final m = Map<String, dynamic>.from(social);
+      final ig = (m['instagram'] ?? '').toString().trim();
+      final sc = (m['snapchat'] ?? '').toString().trim();
+      final tk = (m['tiktok'] ?? '').toString().trim();
+      if (ig.isNotEmpty && _igCtrl.text != ig) _igCtrl.text = ig;
+      if (sc.isNotEmpty && _scCtrl.text != sc) _scCtrl.text = sc;
+      if (tk.isNotEmpty && _tkCtrl.text != tk) _tkCtrl.text = tk;
+    }
+
+    if (mounted) setState(() {});
   }
 
   // ----------------------------
@@ -407,6 +416,17 @@ class _ProfilePageState extends State<ProfilePage> {
         'updatedAt': now,
       }, SetOptions(merge: true));
 
+      unawaited(WazenUserStore.saveUserCache(user.uid, {
+        'email': user.email,
+        'name': name,
+        'displayName': name,
+        'username': newHandle,
+        'bio': bio,
+        'social': socialData,
+        'avatarSize': _avatarSize,
+        if ((_photoUrl ?? '').isNotEmpty) 'photoUrl': _photoUrl,
+      }, authUser: user));
+
       // 3) Update Auth displayName (best-effort)
       try {
         await user.updateDisplayName(name);
@@ -575,6 +595,17 @@ class _ProfilePageState extends State<ProfilePage> {
         SetOptions(merge: true),
       );
 
+      unawaited(WazenUserStore.saveUserCache(user.uid, {
+        'email': user.email,
+        'name': _displayName,
+        'displayName': _displayName,
+        'username': _username,
+        kProfilePhotoField: url,
+        'photoUrl': url,
+        'avatarUrl': url,
+        'image': url,
+      }, authUser: user));
+
       // تحديث Auth (اختياري)
       try {
         await user.updatePhotoURL(url);
@@ -642,6 +673,16 @@ class _ProfilePageState extends State<ProfilePage> {
         },
         SetOptions(merge: true),
       );
+
+      unawaited(WazenUserStore.saveUserCache(user.uid, {
+        'email': user.email,
+        'name': _displayName,
+        'displayName': _displayName,
+        'username': _username,
+        'photoUrl': '',
+        'avatarUrl': '',
+        'image': '',
+      }, authUser: user));
 
       // تحديث Auth (اختياري)
       try {

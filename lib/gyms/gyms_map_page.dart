@@ -10,7 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:my_app/services/usage_gate.dart';
+import '../services/usage_gate.dart';
 
 class GymsMapPage extends StatefulWidget {
   const GymsMapPage({super.key});

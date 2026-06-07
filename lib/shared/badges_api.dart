@@ -1,6 +1,6 @@
 // Barrel + claim helper
-export 'package:my_app/shared/badges.dart';
-export 'package:my_app/shared/user_badges_store.dart' show getBadge, setBadge, watchBadge, UserBadgesStore;
+export 'badges.dart';
+export 'user_badges_store.dart' show getBadge, setBadge, watchBadge, UserBadgesStore;
 
 // Convenience barrel file to import BadgeType + badge helpers in one line.
 
