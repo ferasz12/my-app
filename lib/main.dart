@@ -167,6 +167,10 @@ Future<void> _printEnvDiagnostics() async {
 // هذا لا يؤثر على فتح التطبيق أو الاشتراكات أو التحليل؛ فقط يوقف الإشعارات على iPhone مؤقتًا.
 const bool kDisableApplePushForCrashTest = true;
 
+// ✅ وضع الأداء السريع: لا نشغّل أي مزامنة سحابية/Streams عند بداية التطبيق.
+const bool kDisableStartupCloudSyncForPerformance = true;
+const bool kDisableStartupNotificationSyncForPerformance = true;
+
 Future<void> _initNotificationsIfSupported() async {
   if (_isWindows) {
     debugPrint('ℹ️ Notifications init skipped on Windows.');
@@ -184,11 +188,13 @@ Future<void> _initNotificationsIfSupported() async {
   await AppNotifications.instance.init();
   await AppNotifications.instance.restoreFromLocalPrefs();
 
-  // ✅ مزامنة إعدادات الإشعارات من Firestore + جدولة العروض (عند فتح التطبيق)
-  NotificationSyncService.instance.start();
-
-  // ✅ إشعارات مجتمع وازن: الردود، الإعجابات، تثبيت التعليقات، والبلاغات.
-  await CommunityInboxNotificationService.instance.start();
+  // ✅ لا نبدأ Firestore notification streams عند فتح التطبيق حتى لا يبطّئ الصفحات.
+  if (!kDisableStartupNotificationSyncForPerformance) {
+    NotificationSyncService.instance.start();
+    await CommunityInboxNotificationService.instance.start();
+  } else {
+    debugPrint('⚡ Startup notification Firestore sync skipped for performance.');
+  }
 }
 
 Future<void> _initFcmIfSupported() async {
@@ -295,8 +301,16 @@ void main() {
 
     // 4. شغّل الخدمات الاختيارية بعد ظهور أول واجهة حتى لا تسبب شاشة بيضاء عند الإقلاع.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_startOptionalServicesAfterFirstFrame());
-      DailyCloudBackupService.instance.start();
+      // نشغّل الخدمات الاختيارية بعد مهلة حتى لا تنافس فتح الصفحات الأولى.
+      Future<void>.delayed(const Duration(seconds: 8), () {
+        unawaited(_startOptionalServicesAfterFirstFrame());
+      });
+
+      if (!kDisableStartupCloudSyncForPerformance) {
+        DailyCloudBackupService.instance.start();
+      } else {
+        debugPrint('⚡ Daily cloud backup disabled at startup for performance.');
+      }
 
       Future<void>.delayed(const Duration(seconds: 3), () {
         final context = AppNav.key.currentContext;

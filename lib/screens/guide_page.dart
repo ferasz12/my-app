@@ -42,21 +42,15 @@ class GuidePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snap) {
-        final user = snap.data ?? FirebaseAuth.instance.currentUser;
-        if (user == null) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const _GuideSilentShell();
-          }
-          return const _NotAllowed(reason: "الرجاء تسجيل الدخول للوصول إلى هذه الصفحة");
-        }
-        return PremiumGate(
-          feature: PremiumFeature.guide,
-          child: const GuidePageInner(),
-        );
-      },
+    // ✅ لا نستخدم StreamBuilder هنا حتى لا تبقى صفحة دليلك فارغة بانتظار auth stream.
+    // currentUser متوفر فورًا بعد AuthGate، وأي تغيّر تسجيل دخول تتعامل معه AuthGate.
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const _NotAllowed(reason: "الرجاء تسجيل الدخول للوصول إلى هذه الصفحة");
+    }
+    return PremiumGate(
+      feature: PremiumFeature.guide,
+      child: const GuidePageInner(),
     );
   }
 }
@@ -127,6 +121,8 @@ class GuidePageInner extends StatefulWidget {
 }
 
 class _GuidePageState extends State<GuidePageInner> {
+  // ✅ أداء سريع: دليلك لا يفتح أي Stream من Firestore عند الدخول.
+  static const bool _enableOpeningRoleAndBadgeFetch = false;
   final RolesService _roles = RolesService();
   final UserBadgesStore _badges = UserBadgesStore(); // غيّرها لو عندك Singleton مختلف
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -137,7 +133,8 @@ class _GuidePageState extends State<GuidePageInner> {
   bool _isOwner = false;
   bool _isAdmin = false;
   bool _isSupport = false;
-  bool _loading = true;
+  // ✅ نعرض دليلك فورًا. الأدوار والشارات تتحدث بالخلفية وتظهر لو المستخدم مالك/دعم.
+  bool _loading = false;
 
   StreamSubscription<AppRole>? _roleSub;
   bool _routeOpening = false;
@@ -169,38 +166,45 @@ class _GuidePageState extends State<GuidePageInner> {
   }
 
   Future<void> _resolveEverything() async {
-    try {
-      // 1) تحميل بيانات المستخدم/الشارة مرة واحدة
-      final me = await LocalAuthRepo().currentUser();
-      final badge = await _badges.getBadge(me.uid);
+    // ✅ لا نستخدم LocalAuthRepo().currentUser لأنه يقرأ Firestore مباشرة.
+    final u = FirebaseAuth.instance.currentUser;
+    if (u != null && mounted) {
+      setState(() {
+        _me = AppUser(
+          uid: u.uid,
+          email: u.email ?? '',
+          displayName: (u.displayName ?? '').trim(),
+          photoUrl: u.photoURL,
+        );
+        _loading = false;
+      });
+    }
 
+    if (!_enableOpeningRoleAndBadgeFetch) return;
+
+    try {
+      final me = await LocalAuthRepo().currentUser().timeout(const Duration(seconds: 1));
+      final badge = await _badges.getBadge(me.uid).timeout(const Duration(seconds: 1));
       if (!mounted) return;
       setState(() {
         _me = me;
         _myBadge = badge;
       });
-
-      // 2) بثّ حي للدور — مهم عشان لما المالك يغير رتبة المستخدم تظهر مباشرة
-      await _roleSub?.cancel();
-      _roleSub = _roles.currentUserRoleStream().listen((role) {
-        if (!mounted) return;
-        setState(() {
-          _isOwner = (role == AppRole.owner);
-          _isAdmin = (role == AppRole.admin);
-          // ✅ الأدمن لازم يشوف لوحة الدعم/الإدارة مثل الدعم
-          _isSupport = (role == AppRole.support || _isAdmin || _isOwner);
-          _loading = false;
-        });
-      });
     } catch (e) {
+      debugPrint('[GuidePage] optional user/badge fetch skipped: $e');
+    }
+
+    try {
+      final role = await _roles.currentUserRoleOnce().timeout(const Duration(seconds: 1));
       if (!mounted) return;
       setState(() {
-        _isOwner = false;
-        _isAdmin = false;
-        _isSupport = false;
-        _myBadge = null;
+        _isOwner = (role == AppRole.owner);
+        _isAdmin = (role == AppRole.admin);
+        _isSupport = (role == AppRole.support || _isAdmin || _isOwner);
         _loading = false;
       });
+    } catch (e) {
+      debugPrint('[GuidePage] optional role fetch skipped: $e');
     }
   }
 
@@ -338,30 +342,12 @@ class _GuidePageState extends State<GuidePageInner> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // ✅ اسم المستخدم/اليوزر يتحدّث فورًا من Firestore بدون الحاجة لإعادة فتح الصفحة.
-                                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                                    stream: (uid == null)
-                                        ? null
-                                        : _db.collection('users').doc(uid).snapshots(),
-                                    builder: (context, snap) {
-                                      AppUser? live;
-                                      final data = snap.data?.data();
-                                      if (uid != null && data != null) {
-                                        try {
-                                          live = AppUser.fromJson(data, uid: uid);
-                                        } catch (_) {
-                                          live = null;
-                                        }
-                                      }
-
-                                      final name = _displayName(live ?? _me);
-                                      return Text(
-                                        name.isEmpty ? 'مرحبًا' : 'مرحبًا، $name',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                                      );
-                                    },
+                                  // ✅ بدون Stream من Firestore: الاسم من FirebaseAuth/الكاش فقط.
+                                  Text(
+                                    _displayName(_me).isEmpty ? 'مرحبًا' : 'مرحبًا، ${_displayName(_me)}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                                   ),
                                   const SizedBox(height: 6),
                                   Text(

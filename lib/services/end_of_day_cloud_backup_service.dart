@@ -14,6 +14,8 @@ import '../data/app_repository.dart';
 import '../shared/session_manager.dart';
 
 class DailyCloudBackupService with WidgetsBindingObserver {
+  // ✅ معطل افتراضيًا لأن النسخ السحابي بالخلفية كان يسبب بطء وتعليق.
+  static const bool enabled = false;
   DailyCloudBackupService._();
 
   static final DailyCloudBackupService instance = DailyCloudBackupService._();
@@ -65,6 +67,7 @@ class DailyCloudBackupService with WidgetsBindingObserver {
   }
 
   void start() {
+    if (!enabled) return;
     if (_started) return;
     _started = true;
     WidgetsBinding.instance.addObserver(this);
@@ -89,6 +92,7 @@ class DailyCloudBackupService with WidgetsBindingObserver {
 
   /// نستخدمها فقط كإشارة مستقبلية؛ لا تحفظ في السحابة أثناء اليوم.
   Future<void> markDirty() async {
+    if (!enabled) return;
     final prefs = await SharedPreferences.getInstance();
     final email = await _emailKey();
     await prefs.setBool('eod_cloud_dirty_${email}_${_ymd(DateTime.now())}', true);

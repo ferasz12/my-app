@@ -19,6 +19,9 @@ class MyDataPage extends StatefulWidget {
 }
 
 class _MyDataPageState extends State<MyDataPage> {
+  // ✅ أداء سريع: لا نفتح Stream/قراءة Firestore عند دخول صفحة بياناتي.
+  static const bool _enableOpeningUserDocStream = false;
+  static const bool _enableOpeningCloudRefresh = false;
   // بيانات أساسية
   String gender = 'ذكر';
   int age = 25;
@@ -68,7 +71,9 @@ class _MyDataPageState extends State<MyDataPage> {
   @override
   void initState() {
     super.initState();
-    _listenUserDoc();
+    if (_enableOpeningUserDocStream) {
+      _listenUserDoc();
+    }
     _bootstrap();
 
     // ✅ تحديث فوري إذا تغيّرت أهداف الماكروز من صفحة ثانية (مثل الملخص الصحي)
@@ -189,7 +194,7 @@ class _MyDataPageState extends State<MyDataPage> {
     if (uid == null) return;
 
     try {
-      final snap = await _db.collection('users').doc(uid).get();
+      final snap = await _db.collection('users').doc(uid).get(const GetOptions(source: Source.serverAndCache)).timeout(const Duration(seconds: 2));
       final data = snap.data();
       if (data == null) return;
 
@@ -312,6 +317,10 @@ class _MyDataPageState extends State<MyDataPage> {
   }
 
   Future<void> _bootstrap() async {
+    // ✅ Cache-first: لا ننتظر Firestore قبل عرض صفحة بياناتي.
+    // السبب السابق للبطء كان أن _seedFromCloud تنتظر الشبكة ثم تبقى الصفحة على
+    // "جاري تحميل بياناتك...". الآن نعرض بيانات SharedPreferences فورًا،
+    // ثم نحدّث من السحابة في الخلفية بدون تعطيل المستخدم.
     setState(() {
       _loading = true;
       _error = null;
@@ -368,9 +377,6 @@ class _MyDataPageState extends State<MyDataPage> {
       _lastWeightChangeAtMs =
           prefs.getInt('${_Prefs.lastWeightChangeAt}_$storageKey');
 
-      // سحب بيانات السحابة (إن وجدت) لتوحيد القيم بين الأجهزة
-      await _seedFromCloud(prefs, storageKey);
-
       // لو ما فيه plan id محفوظ، استخدم الافتراضي حسب الهدف.
       final effectiveGoal = (goalFatShred || goal.trim() == 'تنشيف الدهون') ? 'تنشيف الدهون' : goal;
       macroPlanId = (macroPlanId.trim().isEmpty)
@@ -378,12 +384,34 @@ class _MyDataPageState extends State<MyDataPage> {
           : macroPlanId;
 
       await _recalculate(useStoredIfAvailable: true);
+      if (!mounted) return;
       setState(() => _loading = false);
+
+      // لا نقرأ من السحابة عند فتح الصفحة حتى لا تتأخر بياناتي.
+      if (_enableOpeningCloudRefresh) {
+        unawaited(_refreshFromCloudAfterFirstPaint(prefs, storageKey));
+      }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = 'تعذر تحميل البيانات: $e';
       });
+    }
+  }
+
+  Future<void> _refreshFromCloudAfterFirstPaint(
+    SharedPreferences prefs,
+    String storageKey,
+  ) async {
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await _seedFromCloud(prefs, storageKey).timeout(const Duration(seconds: 2));
+      await _recalculate(useStoredIfAvailable: true);
+      if (!mounted) return;
+      setState(() => _loading = false);
+    } catch (e) {
+      debugPrint('[MyDataPage] background cloud refresh skipped: $e');
     }
   }
 

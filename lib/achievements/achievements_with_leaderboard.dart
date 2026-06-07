@@ -224,7 +224,7 @@ class AchievementsRepo {
   final _db = FirebaseFirestore.instance;
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> watchMe(String uid) {
-    return _db.collection('users').doc(uid).snapshots();
+    return _db.collection('users').doc(uid).snapshots(includeMetadataChanges: true);
   }
 
   Query<Map<String, dynamic>> _leaderboardQuery({
@@ -393,7 +393,7 @@ class _AchievementsPageState extends State<AchievementsPage>
   Widget build(BuildContext context) {
     if (_uid == null) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(child: Text('الرجاء تسجيل الدخول لعرض الإنجازات')),
       );
     }
 
@@ -468,8 +468,6 @@ class _MyAchievementsTab extends StatelessWidget {
       builder: (context, snap) {
         final m = snap.data?.data() ?? const <String, dynamic>{};
         final points = readUserPoints(m);
-        final isFirstLoad = snap.connectionState == ConnectionState.waiting && !snap.hasData;
-
         final ach = (m['achievements'] as Map<String, dynamic>?) ?? const {};
         final claimed = List<String>.from(ach['claimed'] ?? const <String>[]);
         final currentTitle = (ach['title'] ?? '').toString();
@@ -482,10 +480,9 @@ class _MyAchievementsTab extends StatelessWidget {
             : ((points / target).clamp(0.0, 1.0)).toDouble();
         final claimedCount = claimed.length.clamp(0, kDefs.length).toInt();
 
-        if (isFirstLoad) {
-          return const _AchievementsLoadingView();
-        }
-
+        // ✅ لا نعرض Skeleton/لودر في أول فتح. نعرض الصفحة فورًا بقيم افتراضية،
+        // ثم تتحدث النقاط والإنجازات مباشرة عند وصول Firestore.
+        // هذا يمنع بقاء تبويب الإنجازات رمادي/معلّق في TestFlight.
         return RefreshIndicator(
           onRefresh: () async {},
           child: ListView(
@@ -953,7 +950,10 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
   void initState() {
     super.initState();
     _loadLocalHidden();
-    _subscribeLeaderboard();
+    // نؤخر تحميل المتصدرين حتى تظهر صفحة الإنجازات فورًا.
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) _subscribeLeaderboard();
+    });
   }
 
   @override
@@ -1121,10 +1121,14 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
                   ),
                 ),
               ),
-              if (!_loadedOnce)
+              if (!_loadedOnce && rows.isEmpty)
                 const SliverFillRemaining(
                   hasScrollBody: false,
-                  child: _LeaderboardLoadingView(),
+                  child: _EmptyState(
+                    icon: Icons.leaderboard_rounded,
+                    title: 'يتم تجهيز المتصدرين',
+                    subtitle: 'فتح الصفحة صار فوريًا، وقائمة المتصدرين تتحمل بعد لحظات.',
+                  ),
                 )
               else if (_lastError != null && rows.isEmpty)
                 SliverFillRemaining(
