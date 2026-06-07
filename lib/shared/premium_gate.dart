@@ -8,33 +8,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../settings/subscription_page.dart' show SubscriptionEntitlementService, SubscriptionPage;
 import '../app/app_nav.dart';
+import 'owner_feature_flags.dart';
 import 'premium_feature.dart';
 
-/// أدوات تحقق اشتراك Local-first حتى لا تتأخر الأزرار والصفحات بسبب Firestore.
+/// أدوات التحقق من الاشتراك لاستخدامها في أماكن مثل أزرار/أكشن معينة.
 class PremiumAccess {
   PremiumAccess._();
 
-  static const Set<PremiumFeature> _paidFeatures = <PremiumFeature>{
-    PremiumFeature.aiPhoto,
-    PremiumFeature.aiText,
-    PremiumFeature.restaurants,
-    PremiumFeature.coach,
-    PremiumFeature.trackingPdf,
-    PremiumFeature.virtualGym,
-    PremiumFeature.virtualClubGuide,
-    PremiumFeature.recipes,
-    PremiumFeature.regimens,
-    PremiumFeature.regimen,
-    PremiumFeature.theme,
-    PremiumFeature.notifications,
-  };
-
-  static bool _isPaidFeature(PremiumFeature feature) => _paidFeatures.contains(feature);
-
   static final Map<String, DateTime?> _localExpiryMemory = <String, DateTime?>{};
   static final Set<String> _localExpiryMemoryReady = <String>{};
-  static final Map<String, DateTime?> _remoteExpiryMemory = <String, DateTime?>{};
-  static final Map<String, DateTime> _remoteExpiryReadAt = <String, DateTime>{};
 
   static bool localExpiryMemoryReadyForCurrentUser() {
     final user = FirebaseAuth.instance.currentUser;
@@ -54,55 +36,22 @@ class PremiumAccess {
     await _readLocalExpiry(uid: user.uid, email: user.email);
   }
 
-  /// سريع جدًا: يقرأ المحلي أولًا. لا ينتظر Firestore طويلًا.
-  static Future<bool> hasActiveSubscription({bool allowRemote = true}) async {
+  static Future<bool> hasActiveSubscription() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) return false;
 
     final now = DateTime.now();
-    final uid = user.uid;
-    final localExpiry = await _readLocalExpiry(uid: uid, email: user.email);
-    if (localExpiry != null && localExpiry.isAfter(now)) return true;
-
-    final remoteCached = _remoteExpiryMemory[uid];
-    final remoteReadAt = _remoteExpiryReadAt[uid];
-    if (remoteReadAt != null && now.difference(remoteReadAt) < const Duration(minutes: 3)) {
-      return remoteCached != null && remoteCached.isAfter(now);
-    }
-    if (!allowRemote) return false;
+    final localExpiry = await _readLocalExpiry(uid: user.uid, email: user.email);
 
     DateTime? remoteExpiry;
-
-    // كاش Firestore فقط بزمن قصير جدًا.
     try {
       final snap = await FirebaseFirestore.instance
           .collection('users')
-          .doc(uid)
-          .get(const GetOptions(source: Source.cache))
-          .timeout(const Duration(milliseconds: 90));
+          .doc(user.uid)
+          .get(const GetOptions(source: Source.serverAndCache));
       remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(snap.data());
-      if (remoteExpiry != null && remoteExpiry.isAfter(now)) {
-        await _persistLocalExpiry(uid: uid, email: user.email, expiry: remoteExpiry);
-        _remoteExpiryMemory[uid] = remoteExpiry;
-        _remoteExpiryReadAt[uid] = now;
-        return true;
-      }
-    } catch (_) {}
-
-    // قراءة قصيرة جدًا من السيرفر. لا نعلّق الزر لأكثر من جزء من الثانية.
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(milliseconds: 320));
-      remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(snap.data());
-    } catch (_) {}
-
-    _remoteExpiryMemory[uid] = remoteExpiry;
-    _remoteExpiryReadAt[uid] = now;
-    if (remoteExpiry != null) {
-      await _persistLocalExpiry(uid: uid, email: user.email, expiry: remoteExpiry);
+    } catch (_) {
+      // تجاهل
     }
 
     final effective = _maxDate(localExpiry, remoteExpiry);
@@ -114,15 +63,26 @@ class PremiumAccess {
     required PremiumFeature feature,
     bool showSheet = true,
   }) async {
-    if (!_isPaidFeature(feature)) return true;
+    final enabled = await OwnerFeatureFlagsService().isEnabled(feature);
+    if (!enabled) {
+      if (showSheet && context.mounted) {
+        await showModalBottomSheet<void>(
+          context: context,
+          showDragHandle: true,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          ),
+          builder: (ctx) => _FeatureDisabledSheet(feature: feature),
+        );
+      }
+      return false;
+    }
 
-    final active = await hasActiveSubscription(allowRemote: true);
+    final active = await hasActiveSubscription();
     if (active) return true;
 
-    // حدّث بالخلفية للاستخدامات التالية بدون تعليق الضغط الحالي.
-    unawaited(hasActiveSubscription(allowRemote: true).catchError((_) => false));
-
     if (!context.mounted) return false;
+
     if (showSheet) {
       await showModalBottomSheet<void>(
         context: context,
@@ -133,6 +93,7 @@ class PremiumAccess {
         builder: (ctx) => _PremiumLockedSheet(feature: feature),
       );
     }
+
     return false;
   }
 
@@ -148,7 +109,9 @@ class PremiumAccess {
 
   static Future<DateTime?> _readLocalExpiry({required String uid, String? email}) async {
     final prefs = await SharedPreferences.getInstance();
+
     final expUid = uid.isNotEmpty ? prefs.getInt('subscriptionExpiry_uid_$uid') : null;
+
     final String? effectiveEmail = (prefs.getString('currentEmail')?.trim().isNotEmpty ?? false)
         ? prefs.getString('currentEmail')
         : (email?.trim().isNotEmpty ?? false)
@@ -165,24 +128,20 @@ class PremiumAccess {
       bestMs = expUid > expEmail ? expUid : expEmail;
     }
 
-    final expiry = bestMs != null ? DateTime.fromMillisecondsSinceEpoch(bestMs) : null;
+    if (bestMs == null) {
+      if (uid.isNotEmpty) {
+        _localExpiryMemory[uid] = null;
+        _localExpiryMemoryReady.add(uid);
+      }
+      return null;
+    }
+
+    final expiry = DateTime.fromMillisecondsSinceEpoch(bestMs);
     if (uid.isNotEmpty) {
       _localExpiryMemory[uid] = expiry;
       _localExpiryMemoryReady.add(uid);
     }
     return expiry;
-  }
-
-  static Future<void> _persistLocalExpiry({required String uid, String? email, required DateTime expiry}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final ms = expiry.millisecondsSinceEpoch;
-    if (uid.isNotEmpty) await prefs.setInt('subscriptionExpiry_uid_$uid', ms);
-    final e = (prefs.getString('currentEmail')?.trim().isNotEmpty ?? false)
-        ? prefs.getString('currentEmail')!.trim()
-        : (email ?? '').trim();
-    if (e.isNotEmpty) await prefs.setInt('subscriptionExpiry_$e', ms);
-    _localExpiryMemory[uid] = expiry;
-    _localExpiryMemoryReady.add(uid);
   }
 
   static DateTime? _maxDate(DateTime? a, DateTime? b) {
@@ -191,6 +150,8 @@ class PremiumAccess {
     return a.isAfter(b) ? a : b;
   }
 }
+
+
 
 Future<void> _leaveLockedFeature(BuildContext context) async {
   final nav = Navigator.of(context);
@@ -230,66 +191,127 @@ class PremiumGate extends StatefulWidget {
 }
 
 class _PremiumGateState extends State<PremiumGate> {
-  bool? _active;
-  bool _readyToLock = false;
+  bool _loadedLocal = false;
+  bool _mayShowLockedUi = false;
   DateTime? _localExpiry;
-  Timer? _lockDelay;
+  Timer? _lockedUiDelay;
 
   @override
   void initState() {
     super.initState();
+
+    // قراءة فورية من الذاكرة إن كانت محملة عند تشغيل التطبيق أو من دخول سابق.
+    // هذا يمنع ظهور صفحة الاشتراك أو المحتوى بشكل خاطئ عند التنقل السريع.
     _localExpiry = PremiumAccess.localExpirySyncForCurrentUser();
-    final now = DateTime.now();
-    if (_localExpiry != null && _localExpiry!.isAfter(now)) {
-      _active = true;
-    } else {
-      _refreshAccess();
-    }
-    _lockDelay = Timer(const Duration(milliseconds: 650), () {
-      if (mounted) setState(() => _readyToLock = true);
+    _loadedLocal = PremiumAccess.localExpiryMemoryReadyForCurrentUser();
+
+    // لا نظهر كرت الاشتراك فورًا من Snapshot قديم/كاش؛ ننتظر لحظة قصيرة حتى يلحق
+    // الاشتراك المحلي أو رد Firestore. هذا يلغي وميض "يتطلب الاشتراك" للمشتركين.
+    _lockedUiDelay = Timer(const Duration(milliseconds: 750), () {
+      if (mounted) setState(() => _mayShowLockedUi = true);
     });
+
+    _loadLocal();
   }
 
   @override
   void dispose() {
-    _lockDelay?.cancel();
+    _lockedUiDelay?.cancel();
     super.dispose();
   }
 
-  Future<void> _refreshAccess() async {
-    final ok = await PremiumAccess.hasActiveSubscription(allowRemote: true);
-    if (!mounted) return;
-    setState(() => _active = ok);
+  Future<void> _loadLocal() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null || user.isAnonymous) {
+        if (mounted) setState(() => _loadedLocal = true);
+        return;
+      }
+      _localExpiry = await PremiumAccess._readLocalExpiry(uid: user.uid, email: user.email);
+    } catch (_) {
+      // ignore
+    } finally {
+      if (mounted) setState(() => _loadedLocal = true);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!PremiumAccess._isPaidFeature(widget.feature)) return widget.child;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) return widget.child;
 
-    if (_active == true) return widget.child;
-    if (_active == null || !_readyToLock) return widget.child;
+    final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
 
-    if (!widget.blurPreview) {
-      return _PremiumLockedFullScreen(feature: widget.feature);
-    }
+    return StreamBuilder<Map<PremiumFeature, bool>>(
+      stream: OwnerFeatureFlagsService().watchFlags(),
+      initialData: OwnerFeatureFlagsService.defaults,
+      builder: (context, featureSnap) {
+        final enabled = featureSnap.data?[widget.feature] ?? true;
+        if (!enabled) {
+          if (!widget.blurPreview) {
+            return _FeatureDisabledFullScreen(feature: widget.feature);
+          }
+          return Stack(
+            children: [
+              widget.child,
+              Positioned.fill(
+                child: ClipRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: Container(color: Colors.black.withOpacity(.12)),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: Center(
+                  child: _FeatureDisabledCard(feature: widget.feature),
+                ),
+              ),
+            ],
+          );
+        }
 
-    return Stack(
-      children: [
-        widget.child,
-        Positioned.fill(
-          child: ClipRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(color: Colors.black.withOpacity(.12)),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: Center(child: _PremiumLockedCard(feature: widget.feature)),
-        ),
-      ],
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: userRef.snapshots(includeMetadataChanges: true),
+          builder: (context, snap) {
+            final now = DateTime.now();
+            final remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(snap.data?.data());
+            final effective = PremiumAccess._maxDate(remoteExpiry, _localExpiry);
+            final active = effective != null && effective.isAfter(now);
+            final remoteConfirmed = snap.hasData && !snap.data!.metadata.isFromCache;
+
+            // لا نعرض كرت الاشتراك أثناء الحكم الأولي؛ بعض الأجهزة تستقبل Snapshot قديم من الكاش
+            // ثم يصل اشتراك المستخدم من السيرفر بعدها بلحظة، وهذا كان يسبب الوميض.
+            final checking = !active &&
+                (!_loadedLocal || !snap.hasData || (!remoteConfirmed && !_mayShowLockedUi));
+            if (active) return widget.child;
+            if (checking) return _PremiumDecisionShell(feature: widget.feature);
+
+            if (!widget.blurPreview) {
+              return _PremiumLockedFullScreen(feature: widget.feature);
+            }
+
+            return Stack(
+              children: [
+                widget.child,
+                Positioned.fill(
+                  child: ClipRect(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Container(color: Colors.black.withOpacity(.12)),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: Center(
+                    child: _PremiumLockedCard(feature: widget.feature),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -1,11 +1,14 @@
 // lib/services/tracker_store.dart
 // سريع ومحلي: لا يقرأ ولا يكتب Firestore أثناء اليوم.
-// الحفظ محلي فقط؛ تم تعطيل أي رفع سحابي تلقائي.
+// يتم رفع لقطة اليوم للسحابة عبر DailyCloudBackupService في نهاية اليوم.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'end_of_day_cloud_backup_service.dart';
 
 class TrackerStore {
   static String _todayKey() => _keyForDate(DateTime.now());
@@ -70,6 +73,7 @@ class TrackerStore {
       await prefs.setString('intake_entries_${email}_$ymd', jsonEncode(entries));
     }
 
+    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 
   static Map<String, dynamic> _dayMapFromTotals({
@@ -228,147 +232,7 @@ class TrackerStore {
     await prefs.remove('kcal_daytotals_${email}_$yyyymmdd');
     await prefs.remove('intake_entries_${email}_$yyyymmdd');
     await prefs.setBool('eod_cloud_backup_done_${email}_$yyyymmdd', false);
-  }
-
-
-
-  /// قراءة وجبات/عناصر يوم محدد من التخزين المحلي.
-  static Future<List<Map<String, dynamic>>> getDayEntries(String yyyymmdd) async {
-    final prefs = await SharedPreferences.getInstance();
-    final email = await _email();
-    final raw = prefs.getString('intake_entries_${email}_$yyyymmdd');
-    if (raw == null || raw.trim().isEmpty) return <Map<String, dynamic>>[];
-    try {
-      final list = jsonDecode(raw);
-      if (list is! List) return <Map<String, dynamic>>[];
-      return list.whereType<Map>().map<Map<String, dynamic>>((e) {
-        final m = Map<String, dynamic>.from(e);
-        final k = _toD(m['k'] ?? m['cal'] ?? m['calories'] ?? m['kcal']);
-        final p = _toD(m['p'] ?? m['protein'] ?? m['protein_g']);
-        final c = _toD(m['c'] ?? m['carb'] ?? m['carbs'] ?? m['carbs_g']);
-        final f = _toD(m['f'] ?? m['fat'] ?? m['fat_g']);
-        return <String, dynamic>{
-          ...m,
-          'name': (m['name'] ?? m['label'] ?? 'وجبة').toString(),
-          'k': k,
-          'p': p,
-          'c': c,
-          'f': f,
-          'cal': k,
-          'protein': p,
-          'carb': c,
-          'fat': f,
-        };
-      }).toList();
-    } catch (_) {
-      return <Map<String, dynamic>>[];
-    }
-  }
-
-  static Map<String, dynamic> _normalizeEntryForDay(Map<String, dynamic> item) {
-    final p = _toD(item['p'] ?? item['protein'] ?? item['protein_g']);
-    final c = _toD(item['c'] ?? item['carb'] ?? item['carbs'] ?? item['carbs_g']);
-    final f = _toD(item['f'] ?? item['fat'] ?? item['fat_g']);
-    double k = _toD(item['k'] ?? item['cal'] ?? item['calories'] ?? item['kcal'] ?? item['calories_kcal']);
-    if (k <= 0 && (p > 0 || c > 0 || f > 0)) {
-      k = (p * 4 + c * 4 + f * 9).roundToDouble();
-    }
-    final nameRaw = (item['name'] ?? item['label'] ?? item['food_name'] ?? 'وجبة').toString().trim();
-    return <String, dynamic>{
-      ...item,
-      'name': nameRaw.isEmpty ? 'وجبة' : nameRaw,
-      'k': k,
-      'p': p,
-      'c': c,
-      'f': f,
-      'cal': k,
-      'protein': p,
-      'carb': c,
-      'fat': f,
-      'addedAt': item['addedAt'] ?? DateTime.now().toIso8601String(),
-    };
-  }
-
-  /// إضافة وجبات إلى يوم سابق أو محدد، مع إعادة حساب مجاميع ذلك اليوم.
-  static Future<void> appendEntriesToDay({
-    required String ymd,
-    required List<Map<String, dynamic>> entries,
-  }) async {
-    if (entries.isEmpty) return;
-
-    final existing = await getDayEntries(ymd);
-    final current = await getDay(DateTime.tryParse(ymd) ?? DateTime.now());
-
-    // إذا كان اليوم محفوظًا كمجاميع فقط بدون تفاصيل، نحافظ على القديم كعنصر واحد.
-    if (existing.isEmpty) {
-      final oldK = _toD(current['calories']);
-      final oldP = _toD(current['protein']);
-      final oldC = _toD(current['carb'] ?? current['carbs']);
-      final oldF = _toD(current['fat']);
-      if (oldK > 0 || oldP > 0 || oldC > 0 || oldF > 0) {
-        existing.add(<String, dynamic>{
-          'name': 'سجل سابق',
-          'k': oldK,
-          'p': oldP,
-          'c': oldC,
-          'f': oldF,
-          'cal': oldK,
-          'protein': oldP,
-          'carb': oldC,
-          'fat': oldF,
-        });
-      }
-    }
-
-    final all = <Map<String, dynamic>>[
-      ...existing.map(_normalizeEntryForDay),
-      ...entries.map(_normalizeEntryForDay),
-    ];
-
-    double k = 0, p = 0, c = 0, f = 0;
-    for (final e in all) {
-      k += _toD(e['k'] ?? e['cal']);
-      p += _toD(e['p'] ?? e['protein']);
-      c += _toD(e['c'] ?? e['carb'] ?? e['carbs']);
-      f += _toD(e['f'] ?? e['fat']);
-    }
-
-    await setDayTotals(
-      ymd: ymd,
-      cal: k,
-      protein: p,
-      carb: c,
-      fat: f,
-      entries: all,
-    );
-  }
-
-  /// حذف عنصر واحد من يوم محدد ثم إعادة حساب المجاميع.
-  static Future<void> removeEntryFromDay({
-    required String ymd,
-    required int index,
-  }) async {
-    final entries = await getDayEntries(ymd);
-    if (index < 0 || index >= entries.length) return;
-    entries.removeAt(index);
-
-    double k = 0, p = 0, c = 0, f = 0;
-    final normalized = entries.map(_normalizeEntryForDay).toList();
-    for (final e in normalized) {
-      k += _toD(e['k'] ?? e['cal']);
-      p += _toD(e['p'] ?? e['protein']);
-      c += _toD(e['c'] ?? e['carb'] ?? e['carbs']);
-      f += _toD(e['f'] ?? e['fat']);
-    }
-
-    await setDayTotals(
-      ymd: ymd,
-      cal: k,
-      protein: p,
-      carb: c,
-      fat: f,
-      entries: normalized,
-    );
+    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 
   static Future<void> resetToday() async {
@@ -379,5 +243,6 @@ class TrackerStore {
     await prefs.remove('kcal_daytotals_${email}_$ymd');
     await prefs.remove('intake_entries_${email}_$ymd');
     await prefs.setBool('eod_cloud_backup_done_${email}_$ymd', false);
+    unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 }

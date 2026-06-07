@@ -94,7 +94,6 @@ class AppRepository {
     required int steps,
     required int burned,
     required double weightKg,
-    Map<String, dynamic>? healthMetrics,
     String reason = 'scheduled',
   }) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -124,11 +123,6 @@ class AppRepository {
         'burned': burned < 0 ? 0 : burned,
         'updatedAt': now,
       },
-      if (healthMetrics != null && healthMetrics.isNotEmpty)
-        'healthMetrics': {
-          ...healthMetrics,
-          'updatedAt': now,
-        },
       'meals': meals,
       'mealsUpdatedAt': now,
       'endOfDayBackup': {

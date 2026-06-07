@@ -15,7 +15,7 @@ import '../widgets/points_earned_toast.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../shared/session_manager.dart';
-import '../services/health_data_sync_service.dart';
+import 'package:health/health.dart';
 
 
 import 'package:flutter/foundation.dart';
@@ -307,6 +307,9 @@ int _pendingLocalToday = 0;
   // نشاط Apple/Google Health
   int steps = 0;
   int burned = 0;
+
+  // health ^13.x
+  final Health health = Health();
 
   // الماء اليوم
   double todayWaterLiters = 0.0;
@@ -744,23 +747,95 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
 
 // ====== Apple/Google Health (اختياري) ======
-  Future<void> fetchHealthData({bool force = false}) async {
+  Future<void> fetchHealthData() async {
+    final List<HealthDataType> types = <HealthDataType>[
+      HealthDataType.STEPS,
+      HealthDataType.ACTIVE_ENERGY_BURNED,
+    ];
+    final DateTime now = DateTime.now();
+    final DateTime start = DateTime(now.year, now.month, now.day);
+
     try {
-      final result = await HealthDataSyncService.fetchTodayActivityQuick(
-        force: force,
-        timeout: const Duration(seconds: 5),
+      try {
+        final cfg = (health as dynamic).configure();
+        if (cfg is Future) await cfg;
+      } catch (_) {}
+
+      final bool granted = await health.requestAuthorization(types);
+      if (!granted) return;
+
+      final List<HealthDataPoint> healthData =
+          await health.getHealthDataFromTypes(
+        types: types,
+        startTime: start,
+        endTime: now,
       );
+
+      // بعض إصدارات حزمة health ترجع value كـ NumericHealthValue بدل num،
+      // لذلك نحولها بشكل آمن بدون كسر المنطق.
+      double _asDouble(dynamic v) {
+        if (v == null) return 0.0;
+        if (v is num) return v.toDouble();
+
+        // NumericHealthValue: { numericValue: <num> }
+        try {
+          final nv = (v as dynamic).numericValue;
+          if (nv is num) return nv.toDouble();
+        } catch (_) {}
+
+        // بعض الإصدارات تستخدم { value: <num> }
+        try {
+          final vv = (v as dynamic).value;
+          if (vv is num) return vv.toDouble();
+        } catch (_) {}
+
+        // آخر محاولة عبر toJson()
+        try {
+          final m = (v as dynamic).toJson();
+          if (m is Map) {
+            final nv = m['numericValue'];
+            if (nv is num) return nv.toDouble();
+            final vv = m['value'];
+            if (vv is num) return vv.toDouble();
+          }
+        } catch (_) {}
+
+        return 0.0;
+      }
+
+      int totalSteps = 0;
+      double totalBurned = 0.0;
+
+      for (final HealthDataPoint point in healthData) {
+        if (point.type == HealthDataType.STEPS) {
+          totalSteps += _asDouble(point.value).toInt();
+        } else if (point.type == HealthDataType.ACTIVE_ENERGY_BURNED) {
+          totalBurned += _asDouble(point.value);
+        }
+      }
 
       if (!mounted) return;
       setState(() {
-        steps = result.steps;
-        burned = result.activeEnergyKcal;
+        steps = totalSteps;
+        burned = totalBurned.toInt();
       });
 
-      await _maybeCelebrateStepMilestone(result.steps);
+      await _maybeCelebrateStepMilestone(totalSteps);
 
-      // لا نكتب في Firestore هنا حتى لا يعلق التطبيق.
-      // بيانات النشاط تُقرأ من تطبيق الصحة وتُحفظ محليًا فقط.
+      // خزن نشاط اليوم محليًا + فايرستور
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('currentEmail') ?? 'unknown_user';
+      final ymd = DateTime.now().toIso8601String().split('T').first;
+      await prefs.setString(
+        'activity_${ymd}_$email',
+        jsonEncode({'steps': steps, 'burned': burned}),
+      );
+
+      // 🔗 مرآة لفايرستور بدون تعطيل الواجهة
+      unawaited(
+        AppRepository.writeActivity(ymd: ymd, steps: steps, burned: burned)
+            .catchError((_) {}),
+      );
     } catch (e) {
       debugPrint('fetchHealthData error: $e');
     }

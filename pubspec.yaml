@@ -2,7 +2,7 @@ name: my_app
 description: تطبيق صحي لحساب السعرات والبروتين والكارب والدهون.
 publish_to: 'none'
 
-version: 1.13.0+48
+version: 1.13.0+49
 
 
 environment:

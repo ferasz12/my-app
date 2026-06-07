@@ -31,6 +31,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     });
 
     // إذا فعلياً عندك API:
+    // final res = await http.post(... إلى ChatGPT أو غيره)
   }
 
   @override
@@ -42,7 +43,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   @override
   Widget build(BuildContext context) {
     return PremiumGate(
-      feature: PremiumFeature.coach,
+      feature: PremiumFeature.smartCoach,
       child: Scaffold(
       appBar: AppBar(title: const Text("اسأل الذكاء الاصطناعي")),
       body: Padding(

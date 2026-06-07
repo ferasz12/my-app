@@ -203,7 +203,7 @@ class MealAnalysisResult {
 /// ==========================
 class MealAnalysisService {
   static const Duration _timeout = Duration(seconds: 25);
-  static const Duration _fastTextTimeout = Duration(seconds: 22);
+  static const Duration _fastTextTimeout = Duration(seconds: 30);
   static const int _maxRetries = 1;
 
   // نحدّد هل نستخدم البروكسي أم الفنكشن تلقائيًا
@@ -351,12 +351,7 @@ class MealAnalysisService {
         clarificationAnswers: clarificationAnswers,
       );
 
-      if (fnRes.raw?['needs_user_answers'] == true) {
-        return MealAnalysisResult.error(
-          'تعذر تحليل النص مباشرة. اكتب الوجبة باسم أوضح أو بكميات مختصرة.',
-          raw: fnRes.raw,
-        );
-      }
+      if (fnRes.raw?['needs_user_answers'] == true) return fnRes;
 
       if (fnRes.ok && !_looksBad(fnRes, desc)) {
         return fnRes;
@@ -376,12 +371,7 @@ class MealAnalysisService {
       description: desc,
       clarificationAnswers: clarificationAnswers,
     );
-    if (fnRes.raw?['needs_user_answers'] == true) {
-      return MealAnalysisResult.error(
-        'تعذر تحليل النص مباشرة. اكتب الوجبة باسم أوضح أو بكميات مختصرة.',
-        raw: fnRes.raw,
-      );
-    }
+    if (fnRes.raw?['needs_user_answers'] == true) return fnRes;
     if (fnRes.ok && _looksBad(fnRes, desc)) {
       return MealAnalysisResult.error(
         'تعذّر استخراج سعرات/ماكروز من النص. اكتب وصفًا أوضح للوجبة أو مكوناتها.',
@@ -545,33 +535,29 @@ class MealAnalysisService {
             : Map<String, dynamic>.from(res.data as Map);
         final v2 = MealAnalysisResult.fromJson(data);
 
-        // تحليل النص الآن AI-first: لا نعرض مسار الأسئلة/الخيارات في التطبيق.
-        if (v2.raw?['needs_user_answers'] == true) {
-          return MealAnalysisResult.error(
-            'تعذر تحليل النص مباشرة. اكتب الوجبة باسم أوضح أو بكميات مختصرة.',
-            raw: v2.raw,
-          );
-        }
-        return v2;
+        // إذا رجع V2 سؤال توضيحي، نعرضه للمستخدم.
+        if (v2.raw?['needs_user_answers'] == true) return v2;
+
+        // إذا رجع V2 أصفار/نتيجة سيئة، لا نوقف التحليل؛ ننزل تلقائيًا للنسخة القديمة.
+        if (v2.ok && !_looksBad(v2, description)) return v2;
       } on FirebaseFunctionsException catch (e) {
         final code = e.code.toLowerCase();
         final msg = (e.message ?? '').toLowerCase();
-        final shouldTryLegacy = code.contains('not-found') || msg.contains('not found');
-
-        if (!shouldTryLegacy) {
-          return MealAnalysisResult.error(
-            e.message?.trim().isNotEmpty == true
-                ? e.message!.trim()
-                : FriendlyErrors.message(e),
-          );
+        final isMissingV2 = code.contains('not-found') || msg.contains('not found');
+        // أي خطأ غير not-found من V2 لا نخليه يكسر التحليل النصي.
+        // نجرّب analyzeMealText القديمة لأنها أبطأ لكنها أثبت.
+        if (!isMissingV2 && kDebugMode) {
+          // ignore: avoid_print
+          print('analyzeMealTextV2 failed, falling back to legacy: ${e.code} ${e.message}');
         }
       } on TimeoutException {
-        return MealAnalysisResult.error(
-          'التحليل أخذ وقت أطول من المتوقع. حاول مرة ثانية بوصف أقصر أو تحقق من الاتصال.',
-        );
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('analyzeMealTextV2 timeout, falling back to legacy');
+        }
       }
 
-      // نستخدم الدالة القديمة فقط إذا لم تكن V2 منشورة، وليس كمسار دائم حتى لا ينتظر المستخدم مرتين.
+      // fallback آمن للنسخ التي لم تنشر analyzeMealTextV2 أو إذا فشل V2.
       final legacyCallable = fns.httpsCallable(
         'analyzeMealText',
         options: HttpsCallableOptions(timeout: _timeout),
@@ -580,14 +566,7 @@ class MealAnalysisService {
       final legacyData = (legacyRes.data is Map<String, dynamic>)
           ? legacyRes.data as Map<String, dynamic>
           : Map<String, dynamic>.from(legacyRes.data as Map);
-      final legacy = MealAnalysisResult.fromJson(legacyData);
-      if (legacy.raw?['needs_user_answers'] == true) {
-        return MealAnalysisResult.error(
-          'تعذر تحليل النص مباشرة. اكتب الوجبة باسم أوضح أو بكميات مختصرة.',
-          raw: legacy.raw,
-        );
-      }
-      return legacy;
+      return MealAnalysisResult.fromJson(legacyData);
     } on FirebaseFunctionsException catch (e) {
       return MealAnalysisResult.error(
         e.message?.trim().isNotEmpty == true
@@ -1076,7 +1055,7 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
               .toList();
         }
         if (_preQuestions.isEmpty) {
-          _error = 'تعذر تحليل النص مباشرة. اكتب الوجبة أو المكونات بكميات أوضح ثم حاول مرة ثانية.';
+          _error = 'احتجنا توضيح بسيط، لكن لم تصل الخيارات بشكل صحيح. حاول كتابة الوصف بتفصيل أكثر.';
         }
         return;
       }
@@ -2130,20 +2109,6 @@ class _MealTextAnalysisScreenState extends State<MealTextAnalysisScreen> {
 }
 
 Map<String, dynamic> _normalizeAnalysisJson(Map<String, dynamic> input) {
-  // ✅ مهم: لا نطبع/نحوّل ردود الأسئلة التوضيحية إلى نتيجة صفرية.
-  // بعض ردود V2 تحتوي meal/items/total_macros لأغراض العرض، وكان التطبيع القديم
-  // يحذف needs_user_answers فيعتبرها التطبيق تحليلًا فاشلًا بدل عرض الأسئلة.
-  if (input['needs_user_answers'] == true ||
-      input['source'] == 'wazin_pre_clarification' ||
-      input['source'] == 'wazin_text_v2_clarification') {
-    final out = Map<String, dynamic>.from(input);
-    out['ok'] = true;
-    out['needs_user_answers'] = true;
-    out['clarification_questions'] = input['clarification_questions'] ?? input['questions'] ?? const [];
-    out['clarifications'] = input['clarifications'] ?? const [];
-    return out;
-  }
-
   final meal = input['meal'];
   final itemsRaw = input['items'];
   final totalsRaw = input['total_macros'];

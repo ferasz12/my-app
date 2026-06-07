@@ -368,8 +368,8 @@ class _MyDataPageState extends State<MyDataPage> {
       _lastWeightChangeAtMs =
           prefs.getInt('${_Prefs.lastWeightChangeAt}_$storageKey');
 
-      // الاعتماد على البيانات المحلية لسرعة فتح الصفحة.
-      // مزامنة السحابة مؤجلة حاليًا.
+      // سحب بيانات السحابة (إن وجدت) لتوحيد القيم بين الأجهزة
+      await _seedFromCloud(prefs, storageKey);
 
       // لو ما فيه plan id محفوظ، استخدم الافتراضي حسب الهدف.
       final effectiveGoal = (goalFatShred || goal.trim() == 'تنشيف الدهون') ? 'تنشيف الدهون' : goal;

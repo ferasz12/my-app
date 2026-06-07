@@ -146,9 +146,8 @@ class AskWazenReportBuilder {
       final waterStr = prefs.getString('water_total_${email}_$ymd');
       final waterLiters = waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
 
-      // نشاط اليوم (steps/burned) + بيانات Apple Health الموسعة إن وجدت
+      // نشاط اليوم (steps/burned)
       final activity = _jsonMap(prefs.getString('activity_${ymd}_$email'));
-      final healthMetrics = _jsonMap(prefs.getString('health_${ymd}_$email'));
 
       final w = weightAt(ymd);
       final fasting = fastingFor(ymd);
@@ -171,12 +170,7 @@ class AskWazenReportBuilder {
         'activity': {
           'steps': _toI(activity['steps']),
           'burned_kcal': _toI(activity['burned']),
-          'distance_km': _toD(activity['distanceKm']),
-          'exercise_minutes': _toD(activity['exerciseMinutes']),
-          'sleep_hours': _toD(activity['sleepHours']),
-          'resting_heart_rate_bpm': _toI(activity['restingHeartRateBpm']),
         },
-        'health_metrics': healthMetrics,
         'weight_kg': w,
         'fasting': fasting,
       });

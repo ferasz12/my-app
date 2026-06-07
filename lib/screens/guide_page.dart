@@ -7,6 +7,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 
+import '../shared/premium_feature.dart';
+import '../shared/premium_gate.dart';
 
 // صفحات داخلية
 import 'restaurants_page.dart';
@@ -50,8 +52,10 @@ class GuidePage extends StatelessWidget {
           }
           return const _NotAllowed(reason: "الرجاء تسجيل الدخول للوصول إلى هذه الصفحة");
         }
-        // دليلك ليس ميزة مدفوعة بحد ذاته؛ افتحه مباشرة حتى لا ينتظر تحقق الاشتراك/Firestore.
-        return const GuidePageInner();
+        return PremiumGate(
+          feature: PremiumFeature.guide,
+          child: const GuidePageInner(),
+        );
       },
     );
   }
@@ -133,7 +137,7 @@ class _GuidePageState extends State<GuidePageInner> {
   bool _isOwner = false;
   bool _isAdmin = false;
   bool _isSupport = false;
-  bool _loading = false;
+  bool _loading = true;
 
   StreamSubscription<AppRole>? _roleSub;
   bool _routeOpening = false;
@@ -165,56 +169,36 @@ class _GuidePageState extends State<GuidePageInner> {
   }
 
   Future<void> _resolveEverything() async {
-    // لا نعلّق صفحة دليلك على Firestore. اعرض الصفحة فورًا ثم حدّث الصلاحيات بالخلفية.
-    final current = FirebaseAuth.instance.currentUser;
-    if (current != null) {
-      _me = AppUser(
-        uid: current.uid,
-        email: current.email ?? '',
-        displayName: current.displayName ?? '',
-        photoUrl: current.photoURL,
-      );
-    }
-
-    unawaited(_loadMeAndBadgeInBackground());
-    await _startRoleListenerFast();
-  }
-
-  Future<void> _loadMeAndBadgeInBackground() async {
     try {
-      final me = await LocalAuthRepo().currentUser().timeout(const Duration(milliseconds: 600));
-      BadgeType? badge;
-      try {
-        badge = await _badges.getBadge(me.uid).timeout(const Duration(milliseconds: 600));
-      } catch (_) {}
+      // 1) تحميل بيانات المستخدم/الشارة مرة واحدة
+      final me = await LocalAuthRepo().currentUser();
+      final badge = await _badges.getBadge(me.uid);
+
       if (!mounted) return;
       setState(() {
         _me = me;
         _myBadge = badge;
       });
-    } catch (_) {
-      // تجاهل: الصفحة تبقى مفتوحة بدون انتظار.
-    }
-  }
 
-  Future<void> _startRoleListenerFast() async {
-    try {
+      // 2) بثّ حي للدور — مهم عشان لما المالك يغير رتبة المستخدم تظهر مباشرة
       await _roleSub?.cancel();
       _roleSub = _roles.currentUserRoleStream().listen((role) {
         if (!mounted) return;
         setState(() {
           _isOwner = (role == AppRole.owner);
           _isAdmin = (role == AppRole.admin);
+          // ✅ الأدمن لازم يشوف لوحة الدعم/الإدارة مثل الدعم
           _isSupport = (role == AppRole.support || _isAdmin || _isOwner);
           _loading = false;
         });
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _isOwner = false;
         _isAdmin = false;
         _isSupport = false;
+        _myBadge = null;
         _loading = false;
       });
     }
@@ -226,7 +210,9 @@ class _GuidePageState extends State<GuidePageInner> {
     final cs = theme.colorScheme;
     final tt = theme.textTheme;
 
-    // لا نعرض لودنق لصفحة دليلك؛ الصلاحيات تُحدّث بالخلفية.
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     // منطق الإظهار حسب الرتبة (لا تغيّر)
     final showTrainerPanel = _myBadge == BadgeType.coach;

@@ -9,32 +9,32 @@ class ChangelogPage extends StatelessWidget {
     this.versionLabel,
   });
 
+  /// true لما الصفحة تنفتح تلقائيًا بعد تحديث التطبيق.
+  /// false لما تنفتح من الإعدادات > ما الجديد.
   final bool fromUpdatePrompt;
   final String? versionLabel;
 
+  // ✅ عدّل هذا القسم فقط مع كل تحديث جديد في وازن.
+  // خله مختصر وواضح للمستخدم: وش تحسّن؟ وش انضاف؟ وش صار أذكى؟
   static const List<_ReleaseHighlight> _latestHighlights = [
     _ReleaseHighlight(
-      title: 'تحسين تجربة الاستخدام',
+      title: 'تجربة أهدأ وأفخم',
       body:
-          'تحسينات على الواجهات وتجربة الدخول لتكون رحلة المستخدم أوضح وأسهل.',
+          'رتبنا واجهات البداية وتجربة الدخول حتى تبدأ رحلتك في وازن بشكل أوضح وأنظف.',
     ),
     _ReleaseHighlight(
       title: 'تحسين بياناتك الصحية',
       body:
-          'تحسينات على صفحة البيانات والخطة لعرض الوزن والطول والهدف بشكل أوضح.',
+          'تحسينات على صفحة البيانات والخطة عشان تكون قراءة الوزن والطول والهدف أوضح للمستخدم.',
     ),
     _ReleaseHighlight(
-      title: 'تحسينات التتبع اليومي',
+      title: 'جاهزية أفضل لتتبع يومك',
       body:
-          'تحسينات تساعد على متابعة السعرات والماكروز والبيانات اليومية بشكل أكثر تنظيمًا.',
+          'تحسينات عامة تساعد وازن يعرض تجربتك اليومية بشكل مرتب من السعرات إلى الماكروز.',
     ),
     _ReleaseHighlight(
-      title: 'مجتمع وازن',
-      body: 'تم إطلاق مجتمع وازن لمشاركة الأسئلة، المعلومات، الوصفات، التجارب والإنجازات.',
-    ),
-    _ReleaseHighlight(
-      title: 'تبويب صحتي',
-      body: 'عرض بيانات النشاط، النوم، المسافة، نبض الراحة ودقائق التمرين عند توفرها من تطبيق الصحة.',
+      title: ' مجتمع وازن',
+      body: ' أضفنا مجتمع لمستخدمين وازن تقدر من خلاله تشارك أفكارك.',
     ),
   ];
 
@@ -75,7 +75,7 @@ class ChangelogPage extends StatelessWidget {
       child: Scaffold(
         extendBodyBehindAppBar: true,
         appBar: AppBar(
-          title: const Text('ما الجديد'),
+          title: Text(fromUpdatePrompt ? 'وش الجديد؟' : 'ما الجديد'),
           centerTitle: true,
           elevation: 0,
           backgroundColor: Colors.transparent,
@@ -99,9 +99,9 @@ class ChangelogPage extends StatelessWidget {
                   isDark: isDark,
                   versionLabel:
                       readableVersion.isEmpty ? null : readableVersion,
-                  title: 'ما الجديد في وازن',
+                  title: 'وش الجديييييد في وازن .؟',
                   subtitle:
-                      'تحديثات جديدة لتحسين المتابعة اليومية وتجربة الاستخدام داخل وازن.',
+                      'حدثنا لك التجربة حتى تكون رحلتك الصحية أوضح، أهدأ، وأسهل في المتابعة اليومية.',
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -128,7 +128,7 @@ class ChangelogPage extends StatelessWidget {
                     height: 54,
                     child: FilledButton(
                       onPressed: () => Navigator.of(context).maybePop(),
-                      child: const Text('متابعة'),
+                      child: const Text('تمام، خلني أبدأ'),
                       style: FilledButton.styleFrom(
                         backgroundColor: primary,
                         foregroundColor: Colors.white,

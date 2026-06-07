@@ -44,7 +44,7 @@ class ThemeSettingsPage extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
                       child: _HeaderCard(
                         title: 'اختَر مظهر يناسب يومك',
-                        subtitle: 'مظهر وازن الأصلي هو الافتراضي عند الدخول، وباقي المظاهر اختيارية لتخصيص التجربة.',
+                        subtitle: 'مظهر وازن الأصلي هو الافتراضي عند الدخول، وباقي المظاهر اختيارية لتجربة صحية أفخم.',
                         icon: Icons.spa_rounded,
                       ),
                     ),

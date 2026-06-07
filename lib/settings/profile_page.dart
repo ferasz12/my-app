@@ -132,22 +132,18 @@ class _ProfilePageState extends State<ProfilePage> {
       return;
     }
 
+    // Best-effort: تأكيد وجود الجذر + مهاجرة أي بيانات ناقصة (إن وجدت)
+    try {
+      await const LegacyUserRepository().ensureLegacyUserDocExists();
+    } catch (_) {}
+
     final userRef = FirebaseFirestore.instance.doc('users/${user.uid}');
 
-    // اعرض الصفحة فورًا من بيانات FirebaseAuth/الكاش، ولا تنتظر Firestore.
     setState(() {
       _userRef = userRef;
       _email = user.email ?? '';
       _photoUrl = user.photoURL;
-      _displayName = (user.displayName ?? '').trim();
-      if (!_dirtyName && _displayName.isNotEmpty) {
-        _nameCtrl.text = _displayName;
-      }
-      _loading = false;
     });
-
-    // Best-effort بالخلفية: لا يوقف فتح الملف الشخصي.
-    unawaited(const LegacyUserRepository().ensureLegacyUserDocExists().catchError((_) {}));
 
     // استمع للتغييرات الحية واملأ الحقول من الجذر
     _userSub = userRef.snapshots().listen((snap) {
