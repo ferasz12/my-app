@@ -161,7 +161,12 @@ class TrackerStore {
     final ymd = key.replaceFirst('diet_', '');
 
     final totals = _decodeMap(prefs.getString('kcal_daytotals_${email}_$ymd'));
-    if (totals != null) return _dayMapFromTotals(ymd: ymd, totals: totals);
+    if (totals != null) {
+      return {
+        ..._dayMapFromTotals(ymd: ymd, totals: totals),
+        'locked': prefs.getBool('kcal_day_locked_${email}_$ymd') ?? false,
+      };
+    }
 
     final raw = prefs.getString(key);
     if (raw != null) {
@@ -172,6 +177,7 @@ class TrackerStore {
         'protein': _toD(m['protein']),
         'carb': _toD(m['carb']),
         'fat': _toD(m['fat']),
+        'locked': prefs.getBool('kcal_day_locked_${email}_$ymd') ?? false,
       };
     }
 
@@ -181,6 +187,167 @@ class TrackerStore {
       'protein': 0.0,
       'carb': 0.0,
       'fat': 0.0,
+      'locked': prefs.getBool('kcal_day_locked_${email}_$ymd') ?? false,
+    };
+  }
+
+  static List<Map<String, dynamic>> _decodeListOfMaps(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return <Map<String, dynamic>>[];
+    try {
+      final v = jsonDecode(raw);
+      if (v is List) {
+        return v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    } catch (_) {}
+    return <Map<String, dynamic>>[];
+  }
+
+  static String normalizeYmd(String value) {
+    final raw = value.trim();
+    if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(raw)) return raw;
+    final d = DateTime.tryParse(raw);
+    if (d == null) return _ymd(DateTime.now());
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
+
+  static Future<List<Map<String, dynamic>>> getDayEntries(String ymd) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = await _email();
+    final date = normalizeYmd(ymd);
+    return _decodeListOfMaps(prefs.getString('intake_entries_${email}_$date'));
+  }
+
+  static Future<bool> isDayLocked(String ymd) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = await _email();
+    final date = normalizeYmd(ymd);
+    return prefs.getBool('kcal_day_locked_${email}_$date') ?? false;
+  }
+
+  static Future<void> setDayLocked(String ymd, bool locked) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = await _email();
+    final date = normalizeYmd(ymd);
+    await prefs.setBool('kcal_day_locked_${email}_$date', locked);
+  }
+
+  static Future<Map<String, dynamic>> addEntryToDay({
+    required String ymd,
+    required String name,
+    required double cal,
+    required double protein,
+    required double carb,
+    required double fat,
+    String source = 'manual',
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = await _email();
+    final date = normalizeYmd(ymd);
+    final entriesKey = 'intake_entries_${email}_$date';
+    final entries = _decodeListOfMaps(prefs.getString(entriesKey));
+
+    // إذا كان اليوم محفوظًا بالمجاميع فقط بدون تفاصيل وجبات، نحافظ على المجاميع القديمة
+    // كعنصر سابق حتى لا تضيع عند إضافة وجبة جديدة ليوم قديم.
+    if (entries.isEmpty) {
+      final existingTotals = _decodeMap(prefs.getString('kcal_daytotals_${email}_$date'));
+      final existingDiet = _decodeMap(prefs.getString('diet_$date'));
+      final oldK = _toD(existingTotals?['k'] ?? existingDiet?['calories']);
+      final oldP = _toD(existingTotals?['p'] ?? existingDiet?['protein']);
+      final oldC = _toD(existingTotals?['c'] ?? existingDiet?['carb'] ?? existingDiet?['carbs']);
+      final oldF = _toD(existingTotals?['f'] ?? existingDiet?['fat']);
+      if (oldK > 0 || oldP > 0 || oldC > 0 || oldF > 0) {
+        entries.add({
+          'name': 'الوجبات السابقة',
+          'k': oldK,
+          'p': oldP,
+          'c': oldC,
+          'f': oldF,
+          'source': 'previous_total',
+          'lockedBaseline': true,
+        });
+      }
+    }
+
+    final safeName = name.trim().isEmpty ? 'وجبة' : name.trim();
+    final safeCal = cal.isFinite && cal > 0 ? cal : 0.0;
+    final safeP = protein.isFinite && protein > 0 ? protein : 0.0;
+    final safeC = carb.isFinite && carb > 0 ? carb : 0.0;
+    final safeF = fat.isFinite && fat > 0 ? fat : 0.0;
+
+    entries.add({
+      'name': safeName,
+      'k': safeCal,
+      'p': safeP,
+      'c': safeC,
+      'f': safeF,
+      'source': source,
+      'addedAt': DateTime.now().toIso8601String(),
+    });
+
+    double k = 0, p = 0, c = 0, f = 0;
+    for (final e in entries) {
+      k += _toD(e['k'] ?? e['cal'] ?? e['calories']);
+      p += _toD(e['p'] ?? e['protein']);
+      c += _toD(e['c'] ?? e['carb'] ?? e['carbs']);
+      f += _toD(e['f'] ?? e['fat']);
+    }
+
+    await _cacheDay(
+      prefs: prefs,
+      email: email,
+      ymd: date,
+      cal: k,
+      protein: p,
+      carb: c,
+      fat: f,
+      entries: entries,
+    );
+    await prefs.setBool('eod_cloud_backup_done_${email}_$date', false);
+
+    return {
+      'date': date,
+      'calories': k,
+      'protein': p,
+      'carb': c,
+      'fat': f,
+      'entries': entries,
+      'locked': prefs.getBool('kcal_day_locked_${email}_$date') ?? false,
+    };
+  }
+
+  static Future<Map<String, dynamic>> recomputeDayFromEntries(String ymd) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = await _email();
+    final date = normalizeYmd(ymd);
+    final entries = _decodeListOfMaps(prefs.getString('intake_entries_${email}_$date'));
+    double k = 0, p = 0, c = 0, f = 0;
+    for (final e in entries) {
+      k += _toD(e['k'] ?? e['cal'] ?? e['calories']);
+      p += _toD(e['p'] ?? e['protein']);
+      c += _toD(e['c'] ?? e['carb'] ?? e['carbs']);
+      f += _toD(e['f'] ?? e['fat']);
+    }
+    await _cacheDay(
+      prefs: prefs,
+      email: email,
+      ymd: date,
+      cal: k,
+      protein: p,
+      carb: c,
+      fat: f,
+      entries: entries,
+    );
+    return {
+      'date': date,
+      'calories': k,
+      'protein': p,
+      'carb': c,
+      'fat': f,
+      'entries': entries,
+      'locked': prefs.getBool('kcal_day_locked_${email}_$date') ?? false,
     };
   }
 
@@ -231,6 +398,7 @@ class TrackerStore {
     await prefs.remove('diet_$yyyymmdd');
     await prefs.remove('kcal_daytotals_${email}_$yyyymmdd');
     await prefs.remove('intake_entries_${email}_$yyyymmdd');
+    await prefs.remove('kcal_day_locked_${email}_$yyyymmdd');
     await prefs.setBool('eod_cloud_backup_done_${email}_$yyyymmdd', false);
     unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }

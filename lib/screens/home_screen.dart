@@ -396,10 +396,13 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   // نخلي الهوم محلي وسريع، والعمليات الثقيلة تصير مؤجلة أو بالخلفية.
   Timer? _homeDeferredTimer;
   Timer? _homePersistDebounce;
+  Timer? _healthLiveTimer;
   DateTime? _lastHomeResumeWorkAt;
   DateTime? _lastTargetsRemoteFetchAt;
   bool _initialLoadDone = false;
   bool _homeBackgroundWorkRunning = false;
+  bool _healthFetchRunning = false;
+  DateTime? _lastHealthFetchAt;
 
   // اشتراكات
   StreamSubscription? _achSub;       // (اختياري) لو حبيت تتابع الإجمالي
@@ -531,6 +534,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     await _ensureTodaySnapshot();
     await _rollToNewDayIfNeeded();
     await _loadTodayWater();
+    await _loadCachedActivity();
     await loadMeals();
 
     // المرحلة الثانية: أشياء غير ضرورية لأول فريم، نشغلها بعد ظهور الهوم.
@@ -565,6 +569,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       Future.delayed(const Duration(milliseconds: 1400), () {
         if (!mounted) return;
         unawaited(fetchHealthData());
+        _startHealthLiveUpdates();
       });
       Future.delayed(const Duration(milliseconds: 1700), () {
         if (!mounted) return;
@@ -595,6 +600,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   void dispose() {
     _homeDeferredTimer?.cancel();
     _homePersistDebounce?.cancel();
+    _healthLiveTimer?.cancel();
     _dayPointsSub?.cancel();
     _achSub?.cancel();
     MacroTargetsController.revision.removeListener(_macroTargetsListener);
@@ -638,6 +644,9 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     unawaited(refreshTargets());
     unawaited(_ensureTodaySnapshot());
     unawaited(_loadTodayWater());
+    unawaited(_loadCachedActivity());
+    unawaited(fetchHealthData(force: true));
+    _startHealthLiveUpdates();
     _persistHomeSnapshotDebounced();
     _runHomeDeferredWork(delay: const Duration(milliseconds: 650));
   }
@@ -746,8 +755,50 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   }
 
 
+  Future<void> _loadCachedActivity() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('currentEmail') ??
+          FirebaseAuth.instance.currentUser?.email ??
+          'unknown_user';
+      final ymd = DateTime.now().toIso8601String().split('T').first;
+      final raw = prefs.getString('activity_${ymd}_$email');
+      if (raw == null || raw.trim().isEmpty) return;
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final cachedSteps = _toD(decoded['steps']).round();
+      final cachedBurned = _toD(decoded['burned']).round();
+      if (!mounted) return;
+      if (cachedSteps != steps || cachedBurned != burned) {
+        setState(() {
+          steps = cachedSteps;
+          burned = cachedBurned;
+        });
+      }
+    } catch (e) {
+      debugPrint('[HomeScreen] cached activity load skipped: $e');
+    }
+  }
+
+  void _startHealthLiveUpdates() {
+    _healthLiveTimer ??= Timer.periodic(const Duration(seconds: 75), (_) {
+      if (!mounted) return;
+      unawaited(fetchHealthData());
+    });
+  }
+
 // ====== Apple/Google Health (اختياري) ======
-  Future<void> fetchHealthData() async {
+  Future<void> fetchHealthData({bool force = false}) async {
+    if (_healthFetchRunning) return;
+    final requestStartedAt = DateTime.now();
+    if (!force &&
+        _lastHealthFetchAt != null &&
+        requestStartedAt.difference(_lastHealthFetchAt!) < const Duration(seconds: 45)) {
+      return;
+    }
+    _healthFetchRunning = true;
+
     final List<HealthDataType> types = <HealthDataType>[
       HealthDataType.STEPS,
       HealthDataType.ACTIVE_ENERGY_BURNED,
@@ -838,6 +889,9 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       );
     } catch (e) {
       debugPrint('fetchHealthData error: $e');
+    } finally {
+      _healthFetchRunning = false;
+      _lastHealthFetchAt = DateTime.now();
     }
   }
 
@@ -3841,14 +3895,14 @@ IconButton(
               const SizedBox(height: 8),
               _MiniStatCard(
                 title: 'الخطوات',
-                value: '$steps',
+                value: steps,
                 icon: Icons.directions_walk,
                 color: Colors.green,
               ),
               const SizedBox(height: 6),
               _MiniStatCard(
                 title: 'المحروق',
-                value: '$burned',
+                value: burned,
                 icon: Icons.local_fire_department_outlined,
                 color: Colors.red,
               ),
@@ -4299,7 +4353,7 @@ class _SectionHeader extends StatelessWidget {
 
 class _MiniStatCard extends StatelessWidget {
   final String title;
-  final String value;
+  final int value;
   final IconData icon;
   final Color color;
   const _MiniStatCard({
@@ -4329,7 +4383,13 @@ class _MiniStatCard extends StatelessWidget {
                 style: TextStyle(
                     color: color, fontWeight: FontWeight.w700, fontSize: 13)),
           ),
-          Text(value, style: const TextStyle(fontSize: 13.5)),
+          _Countup(
+            value: value.toDouble(),
+            decimals: 0,
+            duration: const Duration(milliseconds: 850),
+            curve: Curves.easeOutCubic,
+            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+          ),
         ],
       ),
     );

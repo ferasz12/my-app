@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 
 import '../shared/premium_feature.dart';
@@ -121,8 +122,8 @@ class GuidePageInner extends StatefulWidget {
 }
 
 class _GuidePageState extends State<GuidePageInner> {
-  // ✅ أداء سريع: دليلك لا يفتح أي Stream من Firestore عند الدخول.
-  static const bool _enableOpeningRoleAndBadgeFetch = false;
+  // ✅ أداء سريع: دليلك يفتح فورًا، ثم يقرأ الدور/الشارة بالخلفية بدون تعليق.
+  static const bool _enableOpeningRoleAndBadgeFetch = true;
   final RolesService _roles = RolesService();
   final UserBadgesStore _badges = UserBadgesStore(); // غيّرها لو عندك Singleton مختلف
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -166,9 +167,11 @@ class _GuidePageState extends State<GuidePageInner> {
   }
 
   Future<void> _resolveEverything() async {
-    // ✅ لا نستخدم LocalAuthRepo().currentUser لأنه يقرأ Firestore مباشرة.
+    // ✅ دليلك يفتح فورًا من FirebaseAuth والكاش المحلي.
     final u = FirebaseAuth.instance.currentUser;
-    if (u != null && mounted) {
+    if (u == null) return;
+
+    if (mounted) {
       setState(() {
         _me = AppUser(
           uid: u.uid,
@@ -180,31 +183,92 @@ class _GuidePageState extends State<GuidePageInner> {
       });
     }
 
-    if (!_enableOpeningRoleAndBadgeFetch) return;
+    // 1) أظهر لوحات المالك/الدعم فورًا لو كان عندنا كاش سابق.
+    await _loadGuideAccessFromCache(u.uid);
 
+    // 2) لا نعلّق الصفحة؛ نحدّث الدور والشارة من السحابة بالخلفية فقط.
+    if (_enableOpeningRoleAndBadgeFetch) {
+      unawaited(_refreshGuideAccessInBackground(u.uid));
+    }
+  }
+
+  Future<void> _loadGuideAccessFromCache(String uid) async {
     try {
-      final me = await LocalAuthRepo().currentUser().timeout(const Duration(seconds: 1));
-      final badge = await _badges.getBadge(me.uid).timeout(const Duration(seconds: 1));
+      final prefs = await SharedPreferences.getInstance();
+      final roleRaw = prefs.getString('guide_role_$uid');
+      final badgeRaw = prefs.getString('guide_badge_$uid');
+      final badge = badgeRaw == null ? null : badgeFromString(badgeRaw);
+
       if (!mounted) return;
       setState(() {
-        _me = me;
-        _myBadge = badge;
+        if (roleRaw != null) _applyRole(_roleFromString(roleRaw));
+        if (badge != null && badge != BadgeType.none) _myBadge = badge;
       });
     } catch (e) {
-      debugPrint('[GuidePage] optional user/badge fetch skipped: $e');
+      debugPrint('[GuidePage] cache role/badge skipped: $e');
+    }
+  }
+
+  Future<void> _refreshGuideAccessInBackground(String uid) async {
+    try {
+      // الدور أولًا حتى تظهر لوحة المالك/الدعم بأسرع وقت، خصوصًا للحسابات المصرّح لها.
+      final role = await _roles.currentUserRoleOnce().timeout(const Duration(seconds: 2));
+      if (mounted) setState(() => _applyRole(role));
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('guide_role_$uid', _roleToString(role));
+    } catch (e) {
+      debugPrint('[GuidePage] background role fetch skipped: $e');
     }
 
     try {
-      final role = await _roles.currentUserRoleOnce().timeout(const Duration(seconds: 1));
-      if (!mounted) return;
-      setState(() {
-        _isOwner = (role == AppRole.owner);
-        _isAdmin = (role == AppRole.admin);
-        _isSupport = (role == AppRole.support || _isAdmin || _isOwner);
-        _loading = false;
-      });
+      final badge = await _badges.getBadge(uid).timeout(const Duration(seconds: 2));
+      if (mounted) setState(() => _myBadge = badge);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('guide_badge_$uid', badge.name);
     } catch (e) {
-      debugPrint('[GuidePage] optional role fetch skipped: $e');
+      debugPrint('[GuidePage] background badge fetch skipped: $e');
+    }
+
+    // تحديث اختياري لاسم/صورة المستخدم من Firestore، بدون أن يؤثر على فتح الصفحة.
+    try {
+      final me = await LocalAuthRepo().currentUser().timeout(const Duration(seconds: 2));
+      if (mounted) setState(() => _me = me);
+    } catch (e) {
+      debugPrint('[GuidePage] background user fetch skipped: $e');
+    }
+  }
+
+  void _applyRole(AppRole role) {
+    _isOwner = role == AppRole.owner;
+    _isAdmin = role == AppRole.admin;
+    _isSupport = role == AppRole.support || _isAdmin || _isOwner;
+  }
+
+  AppRole _roleFromString(String value) {
+    switch (value.toLowerCase()) {
+      case 'owner':
+        return AppRole.owner;
+      case 'admin':
+        return AppRole.admin;
+      case 'support':
+        return AppRole.support;
+      default:
+        return AppRole.user;
+    }
+  }
+
+  String _roleToString(AppRole role) {
+    switch (role) {
+      case AppRole.owner:
+        return 'owner';
+      case AppRole.admin:
+        return 'admin';
+      case AppRole.support:
+        return 'support';
+      case AppRole.user:
+        return 'user';
     }
   }
 

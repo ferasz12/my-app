@@ -1126,8 +1126,8 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
                   hasScrollBody: false,
                   child: _EmptyState(
                     icon: Icons.leaderboard_rounded,
-                    title: 'يتم تجهيز المتصدرين',
-                    subtitle: 'فتح الصفحة صار فوريًا، وقائمة المتصدرين تتحمل بعد لحظات.',
+                    title: 'يتم تجهيز البيانات',
+                    subtitle: 'انتظر لحظات بسيطة حتى تكتمل البيانات.',
                   ),
                 )
               else if (_lastError != null && rows.isEmpty)
@@ -1144,8 +1144,8 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
                   hasScrollBody: false,
                   child: _EmptyState(
                     icon: Icons.emoji_events_outlined,
-                    title: 'لا يوجد متسابقون بعد',
-                    subtitle: 'ابدأ بجمع النقاط وكن أول اسم في القائمة.',
+                    title: 'يتم تجهيز البيانات',
+                    subtitle: 'انتظر لحظات بسيطة حتى تظهر بيانات الإنجازات.',
                   ),
                 )
               else ...[
