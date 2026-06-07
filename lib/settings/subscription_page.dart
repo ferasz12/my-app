@@ -88,6 +88,7 @@ class _SubscriptionEntitlementGateState extends State<SubscriptionEntitlementGat
   void initState() {
     super.initState();
     _loadLocal();
+    unawaited(_refreshLocalFromRemoteQuietly());
   }
 
   @override
@@ -122,6 +123,77 @@ class _SubscriptionEntitlementGateState extends State<SubscriptionEntitlementGat
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadedLocal = true);
+    }
+  }
+
+
+  Future<void> _refreshLocalFromRemoteQuietly() async {
+    if (_refreshStarted) return;
+    _refreshStarted = true;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return;
+
+    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    try {
+      final snap = await ref
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 3));
+      final data = snap.data();
+
+      // تنظيف بيانات fallback القديمة بالخلفية فقط، بدون تعطيل فتح التطبيق.
+      if (!_sanitizedRemoteFallback && data != null) {
+        _sanitizedRemoteFallback = true;
+        try {
+          final subAny = data['subscription'];
+          if (subAny is Map) {
+            final sub = Map<String, dynamic>.from(subAny);
+            final source = (sub['source'] ?? '').toString().toUpperCase();
+            final isFallback = source.contains('FALLBACK') || source.contains('NO_APP_RECEIPT');
+            final exp = SubscriptionEntitlementService.readExpiryFromUserDoc(data);
+            final tooFarFuture = exp != null &&
+                exp.isAfter(DateTime.now().add(const Duration(days: 366 * 3)));
+            if (sub['active'] == true && (isFallback || tooFarFuture)) {
+              unawaited(ref.update({
+                'subscription.active': false,
+                'subscription.expiry': FieldValue.delete(),
+                'subscription.productId': FieldValue.delete(),
+                'subscription.source': 'CLIENT_CLEARED_INVALID',
+                'subscription.updatedAt': FieldValue.serverTimestamp(),
+              }));
+            }
+          }
+        } catch (_) {}
+      }
+
+      final remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(data);
+      final remoteStart = SubscriptionEntitlementService.readStartFromUserDoc(data);
+      final remotePid = SubscriptionEntitlementService.readProductIdFromUserDoc(data);
+      _lastRemoteExpiry = remoteExpiry;
+
+      if (remoteExpiry == null) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final email = prefs.getString('currentEmail') ?? (user.email ?? 'unknown_user');
+      await SubscriptionEntitlementService._writeLocalForUser(
+        prefs,
+        uid: user.uid,
+        email: email,
+        start: remoteStart,
+        expiry: remoteExpiry,
+        productId: remotePid,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        if (_localExpiry == null || remoteExpiry.isAfter(_localExpiry!)) {
+          _localExpiry = remoteExpiry;
+        }
+        if ((remotePid ?? '').isNotEmpty) _localProductId = remotePid;
+        _loadedLocal = true;
+      });
+    } catch (_) {
+      // الشبكة لا تعطل التطبيق؛ الكاش المحلي هو المصدر السريع.
     }
   }
 
@@ -292,82 +364,37 @@ class _SubscriptionEntitlementGateState extends State<SubscriptionEntitlementGat
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) return widget.child;
-    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ref.snapshots(includeMetadataChanges: true),
-      builder: (context, snap) {
-        final data = snap.data?.data();
+    // Cache-first: لا ننتظر Firestore Snapshot عند فتح أي صفحة.
+    // هذا يمنع شاشة "جاري التحقق" والصفحات الفارغة الطويلة.
+    final now = DateTime.now();
+    final effectiveExpiry = _localExpiry;
+    final active = effectiveExpiry != null && effectiveExpiry.isAfter(now);
 
-        //  إذا كان عندك بيانات اشتراك خاطئة قديمة مكتوبة بـ FALLBACK (بدون شراء حقيقي),
-        // نلغيها مرة واحدة حتى لا يعتبرك التطبيق "مشترك" بالغلط.
-        if (!_sanitizedRemoteFallback && data != null) {
-          _sanitizedRemoteFallback = true;
-          try {
-            final subAny = data['subscription'];
-            if (subAny is Map) {
-              final sub = Map<String, dynamic>.from(subAny);
-              final source = (sub['source'] ?? '').toString().toUpperCase();
-              final isFallback = source.contains('FALLBACK') || source.contains('NO_APP_RECEIPT');
-              final exp = SubscriptionEntitlementService.readExpiryFromUserDoc(data);
-              final tooFarFuture = exp != null &&
-                  exp.isAfter(DateTime.now().add(const Duration(days: 366 * 3))); // أكثر من 3 سنوات = غير منطقي
-              if (sub['active'] == true && (isFallback || tooFarFuture)) {
-                // لا ننتظر هنا (build)، نخليها بالخلفية.
-                Future.microtask(() async {
-                  try {
-                    await ref.update({
-                      'subscription.active': false,
-                      'subscription.expiry': FieldValue.delete(),
-                      'subscription.productId': FieldValue.delete(),
-                      'subscription.source': 'CLIENT_CLEARED_INVALID',
-                      'subscription.updatedAt': FieldValue.serverTimestamp(),
-                    });
-                  } catch (_) {}
-                });
-              }
-            }
-          } catch (_) {}
-        }
+    _scheduleExpiryTimer(effectiveExpiry);
+    unawaited(_handleExpiryMessageIfNeeded(active: active, ready: _loadedLocal));
 
-        final remoteExpiry = SubscriptionEntitlementService.readExpiryFromUserDoc(data);
-        _lastRemoteExpiry = remoteExpiry;
+    // أثناء قراءة SharedPreferences لأول مرة، اعرض التطبيق ولا تجمّد الواجهة.
+    if (!_loadedLocal) {
+      return widget.child;
+    }
 
-        // ✅ أثناء الإقلاع: لا نقفل ولا نعرض رسالة انتهاء قبل ما يكون عندنا إشارة من (المحلي أو السحابة).
-        final checking = !_loadedLocal || (_localExpiry == null && !snap.hasData);
-        if (checking) {
-          return _EntitlementCheckingOverlay(child: widget.child);
-        }
+    final locked = !active;
+    _maybeOpenPaywall(context, locked: locked);
 
-        final now = DateTime.now();
-        final effectiveExpiry = _maxDate(remoteExpiry, _localExpiry);
-        final active = effectiveExpiry != null && effectiveExpiry.isAfter(now);
+    if (!locked) return widget.child;
 
-        // ✅ جدولة قفل عند الانتهاء
-        _scheduleExpiryTimer(effectiveExpiry);
-        // ✅ رسالة انتهاء الفترة التجريبية
-        _handleExpiryMessageIfNeeded(active: active, ready: true);
-
-        final locked = !active;
-        _maybeOpenPaywall(context, locked: locked);
-
-        if (!locked) return widget.child;
-
-        //  مقفل: نعرض الشاشة خلف تغبيش + قائمة صغيرة للاشتراك
-        return _LockedAppShell(
-          child: widget.child,
-          loading: !_loadedLocal,
-          expiry: effectiveExpiry,
-          onSubscribe: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (_) => const SubscriptionPage(force: true),
-              ),
-            );
-          },
-        );
-
+    return _LockedAppShell(
+      child: widget.child,
+      loading: false,
+      expiry: effectiveExpiry,
+      onSubscribe: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => const SubscriptionPage(force: true),
+          ),
+        ).then((_) => _loadLocal());
       },
     );
   }

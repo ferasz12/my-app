@@ -6471,7 +6471,13 @@ type Entitlement = {
   updatedAt: FirebaseFirestore.FieldValue;
 };
 
+let _appleRootCertsCache: Buffer[] | null = null;
+const _appleVerifierCache = new Map<string, SignedDataVerifier>();
+const _appleClientCache = new Map<string, AppStoreServerAPIClient>();
+
 function loadAppleRootCerts(): Buffer[] {
+  // الكاش مهم: قراءة ملفات الشهادات من القرص مع كل تحقق كانت تزيد بطء Cold/Warm calls.
+  if (_appleRootCertsCache) return _appleRootCertsCache;
   // عند البناء: index.js داخل lib/ لذلك certs/ تكون ../certs/...
   const base = path.join(__dirname, "../certs/apple");
   const files = [
@@ -6479,29 +6485,73 @@ function loadAppleRootCerts(): Buffer[] {
     "AppleRootCA-G2.cer",
     "AppleRootCA-G3.cer",
   ];
-  return files.map((f) => fs.readFileSync(path.join(base, f)));
+  _appleRootCertsCache = files.map((f) => fs.readFileSync(path.join(base, f)));
+  return _appleRootCertsCache;
 }
 
 function makeVerifier(env: Environment): SignedDataVerifier {
-  const roots = loadAppleRootCerts();
   const bundleId = APPLE_BUNDLE_ID.value();
   const appAppleIdStr = APPLE_APP_APPLE_ID.value();
 
   // في Sandbox غالبًا خله undefined لتفادي مشاكل بيئية
   const appAppleId = env === Environment.SANDBOX ? undefined : Number(appAppleIdStr);
+  const cacheKey = `${env}:${bundleId}:${appAppleId ?? ""}`;
+  const cached = _appleVerifierCache.get(cacheKey);
+  if (cached) return cached;
 
-  const enableOnlineChecks = true;
-  return new SignedDataVerifier(roots, enableOnlineChecks, env, bundleId, appAppleId);
+  const roots = loadAppleRootCerts();
+  // إيقاف onlineChecks يزيل انتظار OCSP/شبكة إضافية عند فك JWS.
+  // التحقق الأساسي من توقيع Apple موجود، والتحقق الكامل من الاشتراك يتم عبر App Store Server API.
+  const enableOnlineChecks = false;
+  const verifier = new SignedDataVerifier(roots, enableOnlineChecks, env, bundleId, appAppleId);
+  _appleVerifierCache.set(cacheKey, verifier);
+  return verifier;
 }
 
 function makeClient(env: Environment): AppStoreServerAPIClient {
-  return new AppStoreServerAPIClient(
+  const cacheKey = `${env}:${APPLE_ISSUER_ID.value()}:${APPLE_KEY_ID.value()}:${APPLE_BUNDLE_ID.value()}`;
+  const cached = _appleClientCache.get(cacheKey);
+  if (cached) return cached;
+
+  const client = new AppStoreServerAPIClient(
     APPLE_PRIVATE_KEY_P8.value(),
     APPLE_KEY_ID.value(),
     APPLE_ISSUER_ID.value(),
     APPLE_BUNDLE_ID.value(),
     env
   );
+  _appleClientCache.set(cacheKey, client);
+  return client;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+function appleEnvironmentAttempts(preferredEnvironment?: string): Array<{env: Environment; label: "Production" | "Sandbox"}> {
+  const preferred = String(preferredEnvironment ?? "").toLowerCase().trim();
+  if (preferred.includes("sandbox") || preferred.includes("testflight") || preferred === "test") {
+    return [
+      {env: Environment.SANDBOX, label: "Sandbox"},
+      {env: Environment.PRODUCTION, label: "Production"},
+    ];
+  }
+  return [
+    {env: Environment.PRODUCTION, label: "Production"},
+    {env: Environment.SANDBOX, label: "Sandbox"},
+  ];
 }
 
 function computeEntitlement(args: {
@@ -6588,13 +6638,8 @@ async function pickBestEntitlementFromStatusResponse(
   return best?.entitlement ?? null;
 }
 
-async function verifyTransactionAndSync(uid: string, transactionId: string) {
-  // جرّب Production ثم Sandbox
-  const attempts: Array<{env: Environment; label: "Production" | "Sandbox"}> = [
-    {env: Environment.PRODUCTION, label: "Production"},
-    {env: Environment.SANDBOX, label: "Sandbox"},
-  ];
-
+async function verifyTransactionAndSync(uid: string, transactionId: string, preferredEnvironment?: string) {
+  const attempts = appleEnvironmentAttempts(preferredEnvironment);
   let lastError: any = null;
 
   for (const a of attempts) {
@@ -6602,21 +6647,45 @@ async function verifyTransactionAndSync(uid: string, transactionId: string) {
       const client = makeClient(a.env);
       const verifier = makeVerifier(a.env);
 
-      const statusResponse = await client.getAllSubscriptionStatuses(transactionId, undefined);
-      const ent = await pickBestEntitlementFromStatusResponse(statusResponse, verifier, a.label);
+      const statusResponse = await withTimeout(
+        client.getAllSubscriptionStatuses(transactionId, undefined),
+        9000,
+        `${a.label} App Store status lookup`
+      );
+      const ent = await withTimeout(
+        pickBestEntitlementFromStatusResponse(statusResponse, verifier, a.label),
+        6000,
+        `${a.label} Apple JWS decode`
+      );
 
       if (!ent) throw new Error("No subscription transactions found.");
 
+      const isActive = ent.status === "active" || ent.status === "grace" || ent.status === "billing_retry";
       const cleanedEnt = stripUndefinedDeep({
         ...ent,
-        active: ent.status === "active" || ent.status === "grace" || ent.status === "billing_retry",
+        active: isActive,
         expiry: ent.expiryMillis ? new Date(ent.expiryMillis) : undefined,
         start: ent.startMillis ? new Date(ent.startMillis) : undefined,
+        source: "APP_STORE_SERVER",
       });
-      await db.collection("users").doc(uid).set({subscription: cleanedEnt}, {merge: true});
+
+      // اكتب الحقول القديمة والجديدة معًا عشان كل صفحات التطبيق تقرأ بسرعة وبدون انتظار تحويلات.
+      await db.collection("users").doc(uid).set(stripUndefinedDeep({
+        premium: isActive,
+        isPremium: isActive,
+        premiumSource: "APP_STORE_SERVER",
+        subscriptionExpiry: ent.expiryMillis ? new Date(ent.expiryMillis) : undefined,
+        subscriptionProductId: ent.productId,
+        subscriptionUpdatedAt: FieldValue.serverTimestamp(),
+        subscription: cleanedEnt,
+      }), {merge: true});
       return ent;
    } catch (e) {
       lastError = e;
+      logger.warn(`[verifyTransactionAndSync] ${a.label} attempt failed`, {
+        uid,
+        error: String((e as any)?.message ?? e),
+      });
    }
  }
 
@@ -6628,7 +6697,7 @@ export const verifyApplePurchase = onCall(
   {
     region: "europe-west1",
     secrets: [APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY_P8, APPLE_BUNDLE_ID, APPLE_APP_APPLE_ID],
-    timeoutSeconds: 120,
+    timeoutSeconds: 35,
     memory: "512MiB",
     enforceAppCheck: false,
     cors: true,
@@ -6639,8 +6708,12 @@ export const verifyApplePurchase = onCall(
     const transactionId = String(req.data?.transactionId ?? "").trim();
     if (!transactionId) throw new HttpsError("invalid-argument", "transactionId مطلوب");
 
+    const preferredEnvironment = req.data?.preferSandbox === true
+      ? "Sandbox"
+      : String(req.data?.environment ?? req.data?.appleEnvironment ?? req.data?.storeEnvironment ?? "").trim();
+
     try {
-      const ent = await verifyTransactionAndSync(req.auth.uid, transactionId);
+      const ent = await verifyTransactionAndSync(req.auth.uid, transactionId, preferredEnvironment);
       return {ok: true, subscription: ent};
    } catch (e: any) {
       logger.error("[verifyApplePurchase] failed", e);
@@ -6656,7 +6729,7 @@ export const verifyAppleReceipt = onCall(
   {
     region: "europe-west1",
     secrets: [APPLE_ISSUER_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY_P8, APPLE_BUNDLE_ID, APPLE_APP_APPLE_ID],
-    timeoutSeconds: 120,
+    timeoutSeconds: 35,
     memory: "512MiB",
     enforceAppCheck: false,
     cors: true,
@@ -6672,8 +6745,12 @@ export const verifyAppleReceipt = onCall(
       );
    }
 
+    const preferredEnvironment = req.data?.preferSandbox === true
+      ? "Sandbox"
+      : String(req.data?.environment ?? req.data?.appleEnvironment ?? req.data?.storeEnvironment ?? "").trim();
+
     try {
-      const ent = await verifyTransactionAndSync(req.auth.uid, transactionId);
+      const ent = await verifyTransactionAndSync(req.auth.uid, transactionId, preferredEnvironment);
       return {ok: true, subscription: ent};
    } catch (e: any) {
       logger.error("[verifyAppleReceipt] failed", e);

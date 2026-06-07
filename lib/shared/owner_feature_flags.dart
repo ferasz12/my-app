@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'premium_feature.dart';
@@ -31,18 +33,57 @@ class OwnerFeatureFlagsService {
     PremiumFeature.notifications: true,
   };
 
-  Stream<Map<PremiumFeature, bool>> watchFlags() {
-    return _doc.snapshots().map((snap) => _decode(snap.data()));
+  Map<PremiumFeature, bool> _memoryFlags = defaults;
+  bool _refreshing = false;
+
+  Map<PremiumFeature, bool> get cachedFlags => _memoryFlags;
+
+  Stream<Map<PremiumFeature, bool>> watchFlags() async* {
+    yield _memoryFlags;
+    try {
+      await for (final snap in _doc.snapshots(includeMetadataChanges: true)) {
+        final flags = _decode(snap.data());
+        _memoryFlags = flags;
+        yield flags;
+      }
+    } catch (_) {
+      yield _memoryFlags;
+    }
   }
 
   Future<Map<PremiumFeature, bool>> loadFlags() async {
-    final snap = await _doc.get();
-    return _decode(snap.data());
+    // Cache-first: لا نعلّق فتح الصفحة على Firestore.
+    unawaited(_refreshFromServer());
+    try {
+      final snap = await _doc
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(milliseconds: 250));
+      _memoryFlags = _decode(snap.data());
+    } catch (_) {
+      // إذا ما فيه كاش، نستخدم الافتراضي/آخر قيمة في الذاكرة.
+    }
+    return _memoryFlags;
   }
 
   Future<bool> isEnabled(PremiumFeature feature) async {
-    final flags = await loadFlags();
-    return flags[feature] ?? true;
+    // يرجع فورًا من الذاكرة، ويحدّث بالخلفية بدون تعطيل التنقل.
+    unawaited(_refreshFromServer());
+    return _memoryFlags[feature] ?? true;
+  }
+
+  Future<void> _refreshFromServer() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      final snap = await _doc
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 3));
+      _memoryFlags = _decode(snap.data());
+    } catch (_) {
+      // تجاهل مشاكل الشبكة حتى لا تؤثر على سرعة التطبيق.
+    } finally {
+      _refreshing = false;
+    }
   }
 
   Future<void> setFlag(PremiumFeature feature, bool enabled) async {
@@ -59,6 +100,7 @@ class OwnerFeatureFlagsService {
     }
 
     await _doc.set(updates, SetOptions(merge: true));
+    _memoryFlags = Map<PremiumFeature, bool>.from(_memoryFlags)..[feature] = enabled;
   }
 
   Map<PremiumFeature, bool> _decode(Map<String, dynamic>? data) {
