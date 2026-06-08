@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/app_repository.dart';
+import '../core/data/wazen_identity_store.dart';
 
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
@@ -25,9 +26,17 @@ class UserDataProvider extends ChangeNotifier {
 
   String _normEmail(String email) => email.trim().toLowerCase();
 
+  Future<String> _canonicalKey(SharedPreferences prefs, String email) async {
+    final id = await WazenIdentityStore.currentIdentity();
+    final aliases = <String>{id.storageKey, id.emailKey, _normEmail(email), ...id.aliases}
+      ..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+    await WazenIdentityStore.mirrorKnownLocalKeys(prefs, id);
+    return id.storageKey.isNotEmpty ? id.storageKey : (aliases.isNotEmpty ? aliases.first : _normEmail(email));
+  }
+
   Future<void> loadUserData(String email) async {
     final prefs = await SharedPreferences.getInstance();
-    final e = _normEmail(email);
+    final e = await _canonicalKey(prefs, email);
 
     weight = prefs.getDouble('weight_$e') ?? 60.0;
     height = prefs.getDouble('height_$e') ?? 170.0;
@@ -78,11 +87,11 @@ class UserDataProvider extends ChangeNotifier {
 
   Future<void> updateWeight(String email, double newWeight) async {
     final prefs = await SharedPreferences.getInstance();
-    final e = _normEmail(email);
+    final e = await _canonicalKey(prefs, email);
     final today = DateTime.now().toIso8601String().split('T').first;
 
     weight = newWeight;
-    await prefs.setDouble('weight_$e', newWeight);
+    await WazenIdentityStore.writeToAllAliases(prefs, (await WazenIdentityStore.currentIdentity(migrate: false)).aliases, (a) => 'weight_$a', newWeight);
 
     // حفظ قراءة الوزن في سجل محلي + سحابي حتى تظهر في صفحة التتبع بعد إعادة تثبيت التطبيق.
     try {
@@ -106,10 +115,10 @@ class UserDataProvider extends ChangeNotifier {
 
   Future<void> updateHeight(String email, double newHeight) async {
     final prefs = await SharedPreferences.getInstance();
-    final e = _normEmail(email);
+    final e = await _canonicalKey(prefs, email);
 
     height = newHeight;
-    await prefs.setDouble('height_$e', newHeight);
+    await WazenIdentityStore.writeToAllAliases(prefs, (await WazenIdentityStore.currentIdentity(migrate: false)).aliases, (a) => 'height_$a', newHeight);
     await _calculateMacros(e);
   }
 
@@ -169,6 +178,17 @@ class UserDataProvider extends ChangeNotifier {
     await prefs.setString('macroMode_$e', MacroPlanEngine.modeAuto);
     await prefs.setString('macroPlanId_$e', selected.id);
     await prefs.setInt('macrosUpdatedAt_$e', DateTime.now().millisecondsSinceEpoch);
+
+    final id = await WazenIdentityStore.currentIdentity(migrate: false);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'caloriesNeeded_$a', calories);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'maintenanceCalories_$a', maintenanceCalories);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'protein_$a', protein);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'fat_$a', fat);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'carbs_$a', carbs);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'activityFactor_$a', activityFactor);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macroMode_$a', MacroPlanEngine.modeAuto);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macroPlanId_$a', selected.id);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macrosUpdatedAt_$a', DateTime.now().millisecondsSinceEpoch);
 
     notifyListeners();
   }

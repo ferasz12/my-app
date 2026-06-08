@@ -8,6 +8,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../core/data/wazen_identity_store.dart';
+
 class AppRepository {
   AppRepository._();
 
@@ -36,9 +38,13 @@ class AppRepository {
   static Future<void> _ensureUserMeta() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    final id = await WazenIdentityStore.currentIdentity(user: user, migrate: false);
     await _userDoc().set({
       'uid': user.uid,
-      'email': user.email,
+      'email': id.email.isNotEmpty ? id.email : user.email,
+      'emailKey': id.emailKey,
+      'localStorageKey': id.storageKey,
+      'schema': {'identity': 1, 'daily': 2},
       'updatedAt': Timestamp.now(),
     }, SetOptions(merge: true));
   }
@@ -53,7 +59,7 @@ class AppRepository {
       try {
         _touchUserMetaInBackground();
         await _dayDoc(ymd)
-            .set({...patch, 'updatedAt': Timestamp.now()}, SetOptions(merge: true))
+            .set({...patch, 'schema': 2, 'updatedAt': Timestamp.now()}, SetOptions(merge: true))
             .timeout(const Duration(seconds: 4));
       } catch (_) {}
     }());

@@ -8,6 +8,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
@@ -48,6 +49,7 @@ import 'restaurants_page.dart';
 
 // التخزين اليومي للاستهلاك
 import '../services/tracker_store.dart';
+import '../services/health_data_sync_service.dart';
 
 // الماء
 import '../water/water_store.dart';
@@ -55,6 +57,8 @@ import '../water/water_pages.dart';
 
 // نصيحة اليوم
 import '../core/daily_health_tips.dart';
+import '../core/data/wazen_identity_store.dart';
+import '../core/data/wazen_daily_store.dart';
 
 // ✅ استدعاء مخزن الإنجازات (يُستخدم للـ total فقط)
 import 'achievements_page.dart' show AchievementsStore;
@@ -244,9 +248,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   /// إلحاق مكافأة معلّقة لليوم الحالي (مع إزالة التكرارات بالـ id)
   Future<void> _appendPendingToday(Map<String, dynamic> reward) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
     final ymd = DateTime.now().toIso8601String().split('T').first;
     final pendingKey = 'pending_rewards_${email}_$ymd';
     List<Map<String, dynamic>> list = [];
@@ -354,15 +357,15 @@ int _pendingLocalToday = 0;
 // ===== فحص ومنح مكافآت اليوم الكبرى فورًا (سعرات/ماكروز + ماء) =====
 Future<void> _maybeAwardDailyBonusesNow() async {
   final prefs = await SharedPreferences.getInstance();
-  final email = prefs.getString('currentEmail') ?? FirebaseAuth.instance.currentUser?.email ?? 'unknown_user';
+  final identity = await WazenIdentityStore.currentIdentity();
+  final email = identity.storageKey;
   final ymd = DateTime.now().toIso8601String().split('T').first;
 
-  Map<String, dynamic> totals = {};
-  try { final raw = prefs.getString('kcal_daytotals_${email}_$ymd'); if (raw != null) totals = json.decode(raw); } catch (_) {}
-  final double sumK = _toD(totals['k']);
-  final double sumP = _toD(totals['p']);
-  final double sumC = _toD(totals['c']);
-  final double sumF = _toD(totals['f']);
+  final totalsObj = await WazenDailyStore.readTotals(ymd);
+  final double sumK = totalsObj.calories;
+  final double sumP = totalsObj.protein;
+  final double sumC = totalsObj.carbs;
+  final double sumF = totalsObj.fat;
 
   Map<String, dynamic> history = {};
   try { final rawHist = prefs.getString('dailyNutritionHistory_$email'); if (rawHist != null) history = json.decode(rawHist); } catch (_) {}
@@ -372,8 +375,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   final double tC = _toD(m?['carbs']);
   final double tF = _toD(m?['fat']);
 
-  final String? waterStr = prefs.getString('water_total_${email}_$ymd');
-  final double waterLiters = waterStr != null ? _parseLocalizedDouble(waterStr) : 0.0;
+  final double waterLiters = await WazenDailyStore.readWaterLiters(ymd);
 
   final reachedCalories = (tK > 0) && (sumK >= (tK * _kCalorieCompletionRatio));
   final closeMacros = _macrosClose(targetP: tP, targetC: tC, targetF: tF, sumP: sumP, sumC: sumC, sumF: sumF);
@@ -655,13 +657,12 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
   Future<bool> _hasLocalMacros() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'local';
-    final k = prefs.getDouble('caloriesNeeded_$email');
-    final p = prefs.getDouble('protein_$email');
-    final c = prefs.getDouble('carbs_$email');
-    final f = prefs.getDouble('fat_$email');
+    final identity = await WazenIdentityStore.currentIdentity();
+    final key = identity.storageKey;
+    final k = prefs.getDouble('caloriesNeeded_$key');
+    final p = prefs.getDouble('protein_$key');
+    final c = prefs.getDouble('carbs_$key');
+    final f = prefs.getDouble('fat_$key');
     return k != null && p != null && c != null && f != null;
   }
 
@@ -676,6 +677,9 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
     // ✅ هذا يحل مشكلة تبديل الحسابات: يحدّث currentUid/currentEmail حتى لو كانت موجودة من قبل
     await SessionManager.syncFromFirebaseUser(user);
+    final prefs = await SharedPreferences.getInstance();
+    final identity = await WazenIdentityStore.currentIdentity(user: user, migrate: false);
+    await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
   }
 
   // ====== حارس الأونبوردنغ (مرن) ======
@@ -757,18 +761,11 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
   Future<void> _loadCachedActivity() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final email = prefs.getString('currentEmail') ??
-          FirebaseAuth.instance.currentUser?.email ??
-          'unknown_user';
       final ymd = DateTime.now().toIso8601String().split('T').first;
-      final raw = prefs.getString('activity_${ymd}_$email');
-      if (raw == null || raw.trim().isEmpty) return;
-
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) return;
-      final cachedSteps = _toD(decoded['steps']).round();
-      final cachedBurned = _toD(decoded['burned']).round();
+      final activity = await WazenDailyStore.readActivity(ymd);
+      final cachedSteps = activity['steps'] ?? 0;
+      final cachedBurned = activity['burned'] ?? 0;
+      if (cachedSteps <= 0 && cachedBurned <= 0) return;
       if (!mounted) return;
       if (cachedSteps != steps || cachedBurned != burned) {
         setState(() {
@@ -797,94 +794,39 @@ Future<void> _maybeAwardDailyBonusesNow() async {
         requestStartedAt.difference(_lastHealthFetchAt!) < const Duration(seconds: 45)) {
       return;
     }
+
     _healthFetchRunning = true;
-
-    final List<HealthDataType> types = <HealthDataType>[
-      HealthDataType.STEPS,
-      HealthDataType.ACTIVE_ENERGY_BURNED,
-    ];
-    final DateTime now = DateTime.now();
-    final DateTime start = DateTime(now.year, now.month, now.day);
-
     try {
-      try {
-        final cfg = (health as dynamic).configure();
-        if (cfg is Future) await cfg;
-      } catch (_) {}
-
-      final bool granted = await health.requestAuthorization(types);
-      if (!granted) return;
-
-      final List<HealthDataPoint> healthData =
-          await health.getHealthDataFromTypes(
-        types: types,
-        startTime: start,
-        endTime: now,
+      // قراءة الهوم من خدمة Health الموحدة بدل الطلب اليدوي المزدوج.
+      // السبب: بعض أجهزة iOS تعطي صلاحية الخطوات وترفض المحروق أو العكس،
+      // والطلب اليدوي السابق كان ممكن يرجع خطوات فقط أو يصفر المحروق.
+      final result = await HealthDataSyncService.fetchTodayActivityQuick(
+        force: force,
+        timeout: const Duration(seconds: 6),
       );
 
-      // بعض إصدارات حزمة health ترجع value كـ NumericHealthValue بدل num،
-      // لذلك نحولها بشكل آمن بدون كسر المنطق.
-      double _asDouble(dynamic v) {
-        if (v == null) return 0.0;
-        if (v is num) return v.toDouble();
+      final totalSteps = result.steps < 0 ? 0 : result.steps;
+      var totalBurned = result.activeEnergyKcal < 0 ? 0 : result.activeEnergyKcal;
 
-        // NumericHealthValue: { numericValue: <num> }
-        try {
-          final nv = (v as dynamic).numericValue;
-          if (nv is num) return nv.toDouble();
-        } catch (_) {}
-
-        // بعض الإصدارات تستخدم { value: <num> }
-        try {
-          final vv = (v as dynamic).value;
-          if (vv is num) return vv.toDouble();
-        } catch (_) {}
-
-        // آخر محاولة عبر toJson()
-        try {
-          final m = (v as dynamic).toJson();
-          if (m is Map) {
-            final nv = m['numericValue'];
-            if (nv is num) return nv.toDouble();
-            final vv = m['value'];
-            if (vv is num) return vv.toDouble();
-          }
-        } catch (_) {}
-
-        return 0.0;
-      }
-
-      int totalSteps = 0;
-      double totalBurned = 0.0;
-
-      for (final HealthDataPoint point in healthData) {
-        if (point.type == HealthDataType.STEPS) {
-          totalSteps += _asDouble(point.value).toInt();
-        } else if (point.type == HealthDataType.ACTIVE_ENERGY_BURNED) {
-          totalBurned += _asDouble(point.value);
-        }
+      // بعض أجهزة iOS ترجع الخطوات فقط إذا كانت صلاحية/نوع Active Energy غير متاح.
+      // بدل أن يبقى المحروق صفرًا في الهوم، نعرض تقديرًا محافظًا من الخطوات إلى أن تصل قراءة Health الفعلية.
+      if (totalBurned <= 0 && totalSteps > 0) {
+        totalBurned = math.max(1, (totalSteps * 0.04).round());
       }
 
       if (!mounted) return;
       setState(() {
         steps = totalSteps;
-        burned = totalBurned.toInt();
+        burned = totalBurned;
       });
 
       await _maybeCelebrateStepMilestone(totalSteps);
 
-      // خزن نشاط اليوم محليًا + فايرستور
-      final prefs = await SharedPreferences.getInstance();
-      final email = prefs.getString('currentEmail') ?? 'unknown_user';
       final ymd = DateTime.now().toIso8601String().split('T').first;
-      await prefs.setString(
-        'activity_${ymd}_$email',
-        jsonEncode({'steps': steps, 'burned': burned}),
-      );
+      await WazenDailyStore.writeActivity(ymd, steps: totalSteps, burned: totalBurned);
 
-      // 🔗 مرآة لفايرستور بدون تعطيل الواجهة
       unawaited(
-        AppRepository.writeActivity(ymd: ymd, steps: steps, burned: burned)
+        AppRepository.writeActivity(ymd: ymd, steps: totalSteps, burned: totalBurned)
             .catchError((_) {}),
       );
     } catch (e) {
@@ -909,21 +851,16 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   // نخزن الماء لليوم الحالي كي نستخدمه عند تقييم نهاية اليوم
   Future<void> _snapshotTodayForEOD() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final email = prefs.getString('currentEmail') ??
-          FirebaseAuth.instance.currentUser?.email ??
-          'unknown_user';
       final ymd = DateTime.now().toIso8601String().split('T').first;
-      await prefs.setString('water_total_${email}_$ymd',
-          (todayWaterLiters).toStringAsFixed(6));
+      await WazenDailyStore.writeWaterLiters(ymd, todayWaterLiters);
     } catch (_) {}
   }
   // ====== ترحيل قديم -> المفاتيح الموحّدة لكل مستخدم ======
   Future<void> _migrateLegacyMacrosToPerUser() async {
     final prefs = await SharedPreferences.getInstance();
-    String? email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email;
-    if (email == null) { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
+    if (email.isEmpty || email == 'unknown_user') { debugPrint('[FoodAnalyze] camera:cancelled'); return; }
 
     final hasNew = prefs.getDouble('protein_$email') != null ||
         prefs.getDouble('carbs_$email') != null ||
@@ -948,16 +885,18 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     if (legacyCals != null) {
       await prefs.setDouble('caloriesNeeded_$email', legacyCals);
     }
+    await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
   }
 
   // ====== تحميل الأهداف: محلي فورًا، والسحابة بالخلفية عند الحاجة فقط ======
   Future<void> refreshTargets() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email;
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
+    await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
 
-    if (email == null) {
-      debugPrint('[HomeScreen] refreshTargets skipped: no email');
+    if (email.isEmpty || email == 'unknown_user') {
+      debugPrint('[HomeScreen] refreshTargets skipped: no identity');
       return;
     }
 
@@ -1003,6 +942,11 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       await prefs.setDouble('protein_$email', fp);
       await prefs.setDouble('carbs_$email', fc);
       await prefs.setDouble('fat_$email', ff);
+      final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'caloriesNeeded_$a', fk);
+      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'protein_$a', fp);
+      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'carbs_$a', fc);
+      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'fat_$a', ff);
 
       if (!mounted) return;
       setState(() {
@@ -1068,9 +1012,8 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   // ====== إنشاء لقطة اليوم (أهداف اليوم تحفظ في dailyNutritionHistory) ======
   Future<void> _ensureTodaySnapshot() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
 
     final today = DateTime.now().toIso8601String().split('T').first;
     final last = prefs.getString('lastSnapshotDate_$email');
@@ -1173,25 +1116,19 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   // ====== توليد مكافآت معلّقة ليوم معيّن ======
   Future<void> _queueEndOfDayRewardsFor(String ymd) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
 
     final claimedKey = 'rewards_resolved_${email}_$ymd';
     if (_prefBool(prefs, claimedKey)) return; // سبق معالجتها (جمع/رفض)
 
     // إجماليات اليوم (k,p,c,f)
-    final totalsKey = 'kcal_daytotals_${email}_$ymd';
-    Map<String, dynamic> totals = {};
-    try {
-      final rawTotals = prefs.getString(totalsKey);
-      if (rawTotals != null) totals = json.decode(rawTotals);
-    } catch (_) {}
+    final totalsObj = await WazenDailyStore.readTotals(ymd);
 
-    final double sumK = _toD(totals['k']);
-    final double sumP = _toD(totals['p']);
-    final double sumC = _toD(totals['c']);
-    final double sumF = _toD(totals['f']);
+    final double sumK = totalsObj.calories;
+    final double sumP = totalsObj.protein;
+    final double sumC = totalsObj.carbs;
+    final double sumF = totalsObj.fat;
 
     // أهداف اليوم
     Map<String, dynamic> history = {};
@@ -1206,9 +1143,7 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     final double tF = _toD(m?['fat']);
 
     // ماء اليوم
-    final String? waterStr = prefs.getString('water_total_${email}_$ymd');
-    final double waterLiters =
-        waterStr != null ? _parseLocalizedDouble(waterStr) : 0.0;
+    final double waterLiters = await WazenDailyStore.readWaterLiters(ymd);
 
     final List<Map<String, dynamic>> pending = [];
 
@@ -1257,9 +1192,8 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   // ====== قراءة/حلّ مكافآت تاريخ معيّن ======
   Future<List<Map<String, dynamic>>> _loadPendingRewardsForDate(String ymd) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
     final pendingKey = 'pending_rewards_${email}_$ymd';
     final resolvedKey = 'rewards_resolved_${email}_$ymd';
     if (_prefBool(prefs, resolvedKey)) return [];
@@ -1278,9 +1212,8 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
   Future<void> _resolveRewardsForDate(String ymd, {required bool claim}) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
     final pendingKey = 'pending_rewards_${email}_$ymd';
     final resolvedKey = 'rewards_resolved_${email}_$ymd';
 
@@ -2916,9 +2849,8 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
   // ====== مزامنة إدخالات اليوم + المجاميع (محلي فقط وسريع) ======
   Future<void> _syncTodayEntriesAndTotals() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
     final ymd = DateTime.now().toIso8601String().split('T').first;
 
     final entriesKey = 'intake_entries_${email}_$ymd';
@@ -2954,6 +2886,8 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
       'kcal_daytotals_${email}_$ymd',
       jsonEncode({'k': k, 'p': p, 'c': c, 'f': f}),
     );
+    await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'intake_entries_${a}_$ymd', jsonEncode(entries));
+    await WazenDailyStore.writeTotals(ymd, WazenDailyTotals(calories: k, protein: p, carbs: c, fat: f));
 
     await TrackerStore.setDayTotals(
       ymd: ymd,
@@ -2968,9 +2902,8 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
   // ====== فهرس أيام "سجل السعرات" (محلي فقط للعرض السريع) ======
   Future<void> _refreshDailyLogIndex() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final email = identity.storageKey;
 
     final rawHistory = prefs.getString('dailyNutritionHistory_$email');
     Map<String, dynamic> history = {};

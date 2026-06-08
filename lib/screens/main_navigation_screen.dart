@@ -217,12 +217,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     _switchLocked = true;
     FocusManager.instance.primaryFocus?.unfocus();
 
-    // عند التنقل بين صفحات ثقيلة مثل الرجيم/الهوم/التصوير، نفرّغ كاش الصور
-    // حتى لا يضغط iOS الذاكرة ويقفل التطبيق بعد عدة انتقالات.
-    try {
-      PaintingBinding.instance.imageCache.clear();
-      PaintingBinding.instance.imageCache.clearLiveImages();
-    } catch (_) {}
+    // لا نمسح كاش الصور عند كل تنقل؛ هذا كان يعيد تحميل صور المجتمع/الوصفات
+    // ويجعل الصفحات تبدو أبطأ. يتم التفريغ فقط في الشاشات الثقيلة مثل الكاميرا.
 
     HapticFeedback.selectionClick();
     if (!mounted) return;

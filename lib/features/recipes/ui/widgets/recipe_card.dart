@@ -90,6 +90,8 @@ class _RecipeCardState extends State<RecipeCard> {
                     child: Image.network(
                       url,
                       fit: BoxFit.contain,
+                      cacheWidth: 1400,
+                      filterQuality: FilterQuality.low,
                       errorBuilder: (_, __, ___) => const Center(
                         child: Padding(
                           padding: EdgeInsets.all(18),
@@ -456,6 +458,8 @@ class _RecipeCardState extends State<RecipeCard> {
                           child: Image.network(
                             imageUrl,
                             fit: BoxFit.cover,
+                            cacheWidth: 900,
+                            filterQuality: FilterQuality.low,
                             errorBuilder: (_, __, ___) => Container(
                               color: Colors.black.withOpacity(0.05),
                               child: const Center(

@@ -11,6 +11,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../shared/session_manager.dart';
+import '../core/data/wazen_identity_store.dart';
 
 class SmartCloudSyncProgress {
   const SmartCloudSyncProgress({
@@ -156,17 +157,13 @@ class SmartCloudSyncService {
     }
   }
 
+  Future<WazenIdentity> _identity(SharedPreferences prefs, User user) async {
+    return WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs);
+  }
+
   Future<String> _emailKey(SharedPreferences prefs, User user) async {
-    // أغلب مفاتيح السعرات/الماء/الوزن القديمة في التطبيق مبنية على currentEmail،
-    // بينما الوجبات الحالية مبنية على currentUid عبر SessionManager.currentStorageKey.
-    // لذلك نستخدم البريد هنا لمفاتيح السجل، ونستخدم currentStorageKey فقط عند قراءة meals الحالية.
-    final emailKey = (prefs.getString('currentEmail') ?? user.email ?? '').trim().toLowerCase();
-    if (emailKey.isNotEmpty && emailKey != 'unknown_user') return emailKey;
-
-    final fromSession = (await SessionManager.currentStorageKey()).trim();
-    if (fromSession.isNotEmpty && fromSession != 'unknown_user') return fromSession;
-
-    return user.uid.trim();
+    final id = await _identity(prefs, user);
+    return id.emailKey;
   }
 
   Future<SmartCloudSyncStatus> status() async {
@@ -209,7 +206,8 @@ class SmartCloudSyncService {
         message: 'جاري تجهيز البيانات المحلية...',
       ));
 
-      final email = await _emailKey(prefs, user);
+      final id = await _identity(prefs, user);
+      final email = id.emailKey;
       final safeLimit = dayLimit.clamp(1, maxDayLimit).toInt();
       final localDays = _discoverLocalDays(prefs).take(safeLimit).toList();
       final profile = await _buildProfilePatch(prefs: prefs, user: user, email: email);
@@ -235,7 +233,12 @@ class SmartCloudSyncService {
           message: 'جاري مزامنة يوم $ymd...',
         ));
 
-        final day = await _buildDaySnapshot(prefs: prefs, email: email, ymd: ymd);
+        final day = await _buildDaySnapshot(
+          prefs: prefs,
+          email: email,
+          uid: user.uid,
+          ymd: ymd,
+        );
         if (day == null) {
           step++;
           continue;
@@ -308,7 +311,8 @@ class SmartCloudSyncService {
     try {
       final user = _requireUser();
       final prefs = await SharedPreferences.getInstance();
-      final email = await _emailKey(prefs, user);
+      final id = await _identity(prefs, user);
+      final email = id.emailKey;
       final safeLimit = dayLimit.clamp(1, maxDayLimit).toInt();
 
       onProgress?.call(const SmartCloudSyncProgress(
@@ -355,6 +359,8 @@ class SmartCloudSyncService {
         await Future<void>.delayed(const Duration(milliseconds: 16));
       }
 
+      final identityAfterRestore = await WazenIdentityStore.currentIdentity(user: user, migrate: false);
+      await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identityAfterRestore);
       await prefs.setString('manual_cloud_sync_last_restore_at', DateTime.now().toIso8601String());
 
       return SmartCloudSyncResult(
@@ -411,6 +417,8 @@ class SmartCloudSyncService {
     final patch = <String, dynamic>{
       'uid': uid,
       'email': user.email ?? email,
+      'emailKey': email,
+      'localStorageKey': uid,
       'cloudSync': {
         'enabled': true,
         'schema': schemaVersion,
@@ -481,16 +489,29 @@ class SmartCloudSyncService {
   Future<Map<String, dynamic>?> _buildDaySnapshot({
     required SharedPreferences prefs,
     required String email,
+    required String uid,
     required String ymd,
   }) async {
-    final totals = _readTotals(prefs, email, ymd);
-    final entries = _decodeListOfMaps(prefs.getString('intake_entries_${email}_$ymd'));
-    final waterLiters = _readWaterLiters(prefs, email, ymd);
-    final activity = _decodeMap(prefs.getString('activity_${ymd}_$email')) ?? <String, dynamic>{};
+    final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+    final sessionKey = await SessionManager.currentStorageKey();
+    final aliases = <String>{
+      identity.storageKey.trim(),
+      identity.emailKey.trim(),
+      ...identity.aliases,
+      email.trim(),
+      uid.trim(),
+      sessionKey.trim(),
+      'unknown_user',
+    }.where((e) => e.isNotEmpty).toList(growable: false);
+
+    final totals = _readTotals(prefs, aliases, ymd);
+    final entries = _firstListForKeys(prefs, aliases.map((a) => 'intake_entries_${a}_$ymd'));
+    final waterLiters = _readWaterLiters(prefs, aliases, ymd);
+    final activity = _firstMapForKeys(prefs, aliases.map((a) => 'activity_${ymd}_$a'));
     final steps = _toI(activity['steps']);
     final burned = _toI(activity['burned']);
-    final weightKg = _readWeightKg(prefs, email, ymd);
-    final meals = await _readMealsForDay(prefs, email, ymd);
+    final weightKg = _readWeightKg(prefs, aliases, ymd);
+    final meals = await _readMealsForDay(prefs, aliases, ymd);
 
     final hasData = _toD(totals['k']) > 0 ||
         _toD(totals['p']) > 0 ||
@@ -542,15 +563,17 @@ class SmartCloudSyncService {
     return day;
   }
 
-  Map<String, dynamic> _readTotals(SharedPreferences prefs, String email, String ymd) {
-    final modern = _decodeMap(prefs.getString('kcal_daytotals_${email}_$ymd'));
-    if (modern != null) {
-      return {
-        'k': _toD(modern['k'] ?? modern['calories']),
-        'p': _toD(modern['p'] ?? modern['protein']),
-        'c': _toD(modern['c'] ?? modern['carb'] ?? modern['carbs']),
-        'f': _toD(modern['f'] ?? modern['fat']),
-      };
+  Map<String, dynamic> _readTotals(SharedPreferences prefs, List<String> aliases, String ymd) {
+    for (final key in aliases.map((a) => 'kcal_daytotals_${a}_$ymd')) {
+      final modern = _decodeMap(prefs.getString(key));
+      if (modern != null) {
+        return {
+          'k': _toD(modern['k'] ?? modern['calories']),
+          'p': _toD(modern['p'] ?? modern['protein']),
+          'c': _toD(modern['c'] ?? modern['carb'] ?? modern['carbs']),
+          'f': _toD(modern['f'] ?? modern['fat']),
+        };
+      }
     }
 
     final legacy = _decodeMap(prefs.getString('diet_$ymd'));
@@ -571,51 +594,83 @@ class SmartCloudSyncService {
     };
   }
 
-  double _readWaterLiters(SharedPreferences prefs, String email, String ymd) {
-    final direct = prefs.getDouble('water_${ymd}_$email');
-    if (direct != null && direct > 0) return direct;
+  double _readWaterLiters(SharedPreferences prefs, List<String> aliases, String ymd) {
+    for (final a in aliases) {
+      final direct = prefs.getDouble('water_${ymd}_$a');
+      if (direct != null && direct > 0) return direct;
 
-    final waterString = prefs.getString('water_total_${email}_$ymd');
-    final fromString = double.tryParse(waterString ?? '');
-    if (fromString != null && fromString > 0) return fromString;
+      final waterString = prefs.getString('water_total_${a}_$ymd');
+      final fromString = double.tryParse(waterString ?? '');
+      if (fromString != null && fromString > 0) return fromString;
 
-    final mlDouble = prefs.getDouble('water_ml_${ymd}_$email');
-    if (mlDouble != null && mlDouble > 0) return mlDouble / 1000.0;
+      final mlDouble = prefs.getDouble('water_ml_${ymd}_$a');
+      if (mlDouble != null && mlDouble > 0) return mlDouble / 1000.0;
 
-    final mlInt = prefs.getInt('water_ml_${ymd}_$email');
-    if (mlInt != null && mlInt > 0) return mlInt / 1000.0;
+      final mlInt = prefs.getInt('water_ml_${ymd}_$a');
+      if (mlInt != null && mlInt > 0) return mlInt / 1000.0;
 
-    final log = _decodeMap(prefs.getString('water_log_$email')) ?? <String, dynamic>{};
-    return _toD(log[ymd]);
-  }
-
-  double _readWeightKg(SharedPreferences prefs, String email, String ymd) {
-    final list = _decodeListOfMaps(prefs.getString('weight_log_$email'));
-    for (final row in list) {
-      if ((row['date'] ?? '').toString() == ymd) {
-        return _toD(row['kg'] ?? row['weight'] ?? row['weightKg']);
-      }
-    }
-
-    if (ymd == _ymd(DateTime.now())) {
-      return prefs.getDouble('current_weight_$email') ??
-          prefs.getDouble('weight_$email') ??
-          prefs.getDouble('goal_current_$email') ??
-          0.0;
+      final log = _decodeMap(prefs.getString('water_log_$a')) ?? <String, dynamic>{};
+      final fromLog = _toD(log[ymd]);
+      if (fromLog > 0) return fromLog;
     }
     return 0.0;
   }
 
-  Future<List<Map<String, dynamic>>> _readMealsForDay(SharedPreferences prefs, String email, String ymd) async {
-    final specific = _decodeListOfMaps(prefs.getString('meals_${email}_$ymd'));
-    if (specific.isNotEmpty) return specific;
+  double _readWeightKg(SharedPreferences prefs, List<String> aliases, String ymd) {
+    for (final a in aliases) {
+      final list = _decodeListOfMaps(prefs.getString('weight_log_$a'));
+      for (final row in list) {
+        if ((row['date'] ?? '').toString() == ymd) {
+          final kg = _toD(row['kg'] ?? row['weight'] ?? row['weightKg']);
+          if (kg > 0) return kg;
+        }
+      }
+    }
 
     if (ymd == _ymd(DateTime.now())) {
+      for (final a in aliases) {
+        final kg = prefs.getDouble('current_weight_$a') ??
+            prefs.getDouble('weight_$a') ??
+            prefs.getDouble('goal_current_$a') ??
+            0.0;
+        if (kg > 0) return kg;
+      }
+    }
+    return 0.0;
+  }
+
+  Future<List<Map<String, dynamic>>> _readMealsForDay(SharedPreferences prefs, List<String> aliases, String ymd) async {
+    for (final a in aliases) {
+      final specific = _decodeListOfMaps(prefs.getString('meals_${a}_$ymd'));
+      if (specific.isNotEmpty) return specific;
+    }
+
+    if (ymd == _ymd(DateTime.now())) {
+      for (final a in aliases) {
+        final current = _decodeListOfMaps(prefs.getString('meals_$a'));
+        if (current.isNotEmpty) return current;
+      }
       final storageKey = await SessionManager.currentStorageKey();
       final current = _decodeListOfMaps(prefs.getString('meals_$storageKey'));
       if (current.isNotEmpty) return current;
     }
 
+    return <Map<String, dynamic>>[];
+  }
+
+  Map<String, dynamic> _firstMapForKeys(SharedPreferences prefs, Iterable<String> keys) {
+    for (final key in keys) {
+      final map = _decodeMap(prefs.getString(key));
+      if (map != null && map.isNotEmpty) return map;
+    }
+    return <String, dynamic>{};
+  }
+
+  List<Map<String, dynamic>> _firstListForKeys(SharedPreferences prefs, Iterable<String> keys) {
+    for (final key in keys) {
+      final list = _decodeListOfMaps(prefs.getString(key));
+      if (list.isNotEmpty) return list;
+    }
     return <Map<String, dynamic>>[];
   }
 

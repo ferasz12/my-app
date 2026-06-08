@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/data/wazen_identity_store.dart';
 
 /// يدير مفاتيح الجلسة بشكل موحّد حتى لا تختلط بيانات حسابين.
 /// الفكرة: نخزّن currentUid (الأفضل) + currentEmail (كـ"مفتاح" أيضاً)،
@@ -17,41 +18,22 @@ class SessionManager {
   static const String kCurrentUid = 'currentUid';
 
   /// مزامنة الشيرد مع المستخدم الحالي من FirebaseAuth.
-  /// مهم جدًا عند تبديل الحسابات (حتى لو كان currentEmail موجود من حساب سابق).
+  /// المصدر الرسمي للمفاتيح الآن هو WazenIdentityStore:
+  /// - currentUid = UID الحقيقي
+  /// - currentEmail = البريد الحقيقي للتوافق
+  /// - wazen_current_storage_key = UID كمفتاح بيانات محلي موحد
   static Future<void> syncFromFirebaseUser(User user) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final uid = user.uid.trim();
-    final email = (user.email ?? '').trim().toLowerCase();
-    final emailKey = email.isNotEmpty ? email : uid;
-
-    final oldUid = prefs.getString(kCurrentUid);
-    final oldEmail = prefs.getString(kCurrentEmail);
-
-    if (oldUid != uid) {
-      await prefs.setString(kCurrentUid, uid);
-    }
-    if (oldEmail != emailKey) {
-      // نخزّن email إن وجد، وإلا نخزّن uid كبديل آمن كمفتاح
-      await prefs.setString(kCurrentEmail, emailKey);
-    }
-
-    await prefs.setBool(kIsLoggedIn, true);
+    await WazenIdentityStore.syncFromFirebaseUser(user);
   }
 
-  /// مفاتيح التخزين الموصى بها: uid إن وجد، وإلا currentEmail (والذي قد يكون uid أيضًا).
+  /// مفتاح التخزين الرسمي: UID دائمًا إن وجد.
+  /// المفاتيح القديمة بالإيميل تبقى موجودة ويتم عكسها تلقائيًا حتى لا تتأثر بيانات المستخدمين الحاليين.
   static Future<String> currentStorageKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(kCurrentUid) ??
-        prefs.getString(kCurrentEmail) ??
-        'unknown_user';
+    return WazenIdentityStore.currentStorageKey();
   }
 
   static Future<void> clearSessionKeys() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(kIsLoggedIn, false);
-    await prefs.remove(kCurrentEmail);
-    await prefs.remove(kCurrentUid);
+    await WazenIdentityStore.clearIdentity();
   }
 
   /// (اختياري) تنظيف كاش Firestore لمنع ظهور بيانات مستخدم قديم عند تبديل الحسابات.

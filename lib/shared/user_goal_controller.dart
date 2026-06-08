@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'session_manager.dart';
+import '../core/data/wazen_identity_store.dart';
 
 class UserGoalController {
   static final ValueNotifier<String> userGoal = ValueNotifier('نمط حياة صحي');
@@ -26,6 +27,8 @@ class UserGoalController {
     final k = 'user_goal_$storageKey';
 
     await prefs.setString(k, newGoal);
+    final id = await WazenIdentityStore.currentIdentity(migrate: false);
+    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'user_goal_$a', newGoal);
     userGoal.value = newGoal;
   }
 }

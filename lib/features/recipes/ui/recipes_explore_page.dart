@@ -15,7 +15,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../shared/premium_feature.dart';
 import '../../../shared/premium_gate.dart';
@@ -93,12 +92,12 @@ class RecipesExplorePage extends StatefulWidget {
 class _RecipesExplorePageState extends State<RecipesExplorePage>
     with SingleTickerProviderStateMixin {
   // ---- publishing guard ----
-  bool _loadingGuard = true;
+  bool _loadingGuard = false;
   _GuardState _guard = const _GuardState(allowed: true);
 
   // ---- role ----
   String? _myRole; // 'user' | 'support' | 'admin' | 'owner'
-  bool _loadingRole = true;
+  bool _loadingRole = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _roleSub;
 
   // ---- explore state ----
@@ -151,8 +150,6 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
   }
 
   void _listenMyRole() {
-    setState(() => _loadingRole = true);
-
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       setState(() {
@@ -161,18 +158,6 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
       });
       return;
     }
-
-    // لا نعلّق صفحة الوصفات على الدور؛ نعرضها فورًا ونحدّث أدوات المشرف بالخلفية.
-    SharedPreferences.getInstance().then((prefs) {
-      if (!mounted) return;
-      final cached = prefs.getString('guide_role_$uid') ?? prefs.getString('cached_role_$uid');
-      if (cached != null && cached.trim().isNotEmpty) {
-        setState(() {
-          _myRole = cached.toLowerCase().trim();
-          _loadingRole = false;
-        });
-      }
-    }).catchError((_) {});
 
     _roleSub?.cancel();
     _roleSub = FirebaseFirestore.instance.doc('users/$uid').snapshots().listen(
@@ -184,9 +169,6 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
           _myRole = role;
           _loadingRole = false;
         });
-        SharedPreferences.getInstance()
-            .then((prefs) => prefs.setString('guide_role_$uid', role))
-            .catchError((_) {});
       },
       onError: (_) {
         if (!mounted) return;
@@ -456,8 +438,10 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
             ],
           ),
         ),
-        floatingActionButton: (!_loadingGuard && _guard.allowed)
-            ? FloatingActionButton.extended(
+        floatingActionButton: _loadingGuard
+            ? null
+            : (_guard.allowed
+                ? FloatingActionButton.extended(
                     onPressed: _onTapAdd,
                     icon: const Icon(Icons.add_rounded),
                     label: const Text(
@@ -465,7 +449,7 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                       style: TextStyle(fontWeight: FontWeight.w900),
                     ),
                   )
-            : null,
+                : null),
         body: TabBarView(
                 controller: _tabs,
                 children: [
@@ -598,8 +582,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                             return StreamBuilder<List<Recipe>>(
                               stream: repo.streamMyFavorites(uid),
                               builder: (context, favsSnap) {
-                                if (favsSnap.connectionState == ConnectionState.waiting && !favsSnap.hasData) {
-                                  return const Center(child: Text('جاري تجهيز المفضلات...'));
+                                if (favsSnap.connectionState == ConnectionState.waiting) {
+                                  return const Center(child: CircularProgressIndicator());
                                 }
                                 if (favsSnap.hasError) {
                                   return Center(child: Text('حصل خطأ: ${favsSnap.error}'));

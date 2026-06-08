@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../shared/session_manager.dart';
+import '../core/data/wazen_identity_store.dart';
 
 /// تخزين سريع محلي لوجبات اليوم (لكل مستخدم).
 /// كان سابقًا مفتاح واحد للجهاز (dailyMealHistory) وهذا يسبب اختلاط حسابين.
@@ -38,7 +39,10 @@ Future<void> saveMealForToday(String name, double calories) async {
 
   data[today] = todayData;
 
-  await prefs.setString(k, json.encode(data));
+  final encoded = json.encode(data);
+  await prefs.setString(k, encoded);
+  final id = await WazenIdentityStore.currentIdentity(migrate: false);
+  await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'dailyMealHistory_$a', encoded);
 }
 
 Future<Map<String, dynamic>> getTodayMeals() async {

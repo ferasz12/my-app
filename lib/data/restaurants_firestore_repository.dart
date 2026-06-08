@@ -53,6 +53,8 @@ class RestaurantsFirestoreRepository {
 
   /// بثّ حي للمطاعم/المقاهي حسب النوع.
   /// يعرض آخر كاش محفوظ فورًا ثم يحدّثه من Firestore.
+  /// ملاحظة: لا نستخدم where('type') هنا لأن البيانات القديمة في السيرفر
+  /// قد تكون بدون type أو بقيم مثل restaurants / مطعم. فلترة النوع تتم محليًا.
   Stream<List<Venue>> streamVenuesByType(VenueType type) async* {
     final typeKey = _typeToString(type);
     final memory = _venuesCache[typeKey] ?? const <Venue>[];
@@ -61,20 +63,12 @@ class RestaurantsFirestoreRepository {
     final persisted = await _readVenuesCache(type);
     if (persisted.isNotEmpty && memory.isEmpty) yield persisted;
 
-    yield* _col
-        .where('type', isEqualTo: typeKey)
-        .snapshots(includeMetadataChanges: true)
-        .map((q) {
-      final list = q.docs.map((d) {
-        final data = d.data();
-        return Venue(
-          id: d.id,
-          name: (data['name'] ?? '').toString().trim(),
-          type: _stringToType(data['type']?.toString()),
-          meals: const <Meal>[],
-          imageUrl: data['imageUrl']?.toString(),
-        );
-      }).where((v) => v.name.isNotEmpty).toList();
+    yield* _col.snapshots(includeMetadataChanges: true).map((q) {
+      final list = <Venue>[];
+      for (final d in q.docs) {
+        final venue = _venueFromFirestoreDoc(d, requestedType: type);
+        if (venue != null && venue.name.isNotEmpty) list.add(venue);
+      }
 
       list.sort((a, b) => a.name.compareTo(b.name));
       final out = List<Venue>.unmodifiable(list);
@@ -82,6 +76,80 @@ class RestaurantsFirestoreRepository {
       unawaited(_saveVenuesCache(type, out));
       return out;
     });
+  }
+
+  Venue? _venueFromFirestoreDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    required VenueType requestedType,
+  }) {
+    final data = doc.data();
+    final rawType = _firstNotEmpty([
+      data['type'],
+      data['venueType'],
+      data['kind'],
+      data['category'],
+    ]);
+    if (!_matchesRequestedType(rawType, requestedType)) return null;
+
+    final name = _firstNotEmpty([
+      data['name'],
+      data['title'],
+      data['restaurantName'],
+      data['venueName'],
+      data['brand'],
+      data['nameAr'],
+    ]).trim();
+
+    return Venue(
+      id: doc.id,
+      name: name,
+      type: requestedType,
+      meals: const <Meal>[],
+      imageUrl: _firstNotEmpty([
+        data['imageUrl'],
+        data['imageURL'],
+        data['photoUrl'],
+        data['logoUrl'],
+        data['coverUrl'],
+        data['image'],
+      ]),
+    );
+  }
+
+  bool _matchesRequestedType(String rawType, VenueType requested) {
+    final t = rawType.toLowerCase().trim();
+
+    // بيانات المطاعم القديمة كانت غالبًا بدون type، لذلك نعتبرها مطاعم.
+    if (t.isEmpty || t == 'null') return requested == VenueType.restaurant;
+
+    const restaurantAliases = <String>{
+      'restaurant',
+      'restaurants',
+      'food',
+      'مطعم',
+      'مطاعم',
+    };
+    const cafeAliases = <String>{
+      'cafe',
+      'cafes',
+      'coffee',
+      'coffee_shop',
+      'coffee shop',
+      'مقهى',
+      'مقاهي',
+      'كافيه',
+    };
+
+    if (requested == VenueType.cafe) return cafeAliases.contains(t);
+    return restaurantAliases.contains(t) || !cafeAliases.contains(t);
+  }
+
+  String _firstNotEmpty(Iterable<dynamic> values) {
+    for (final v in values) {
+      final s = (v ?? '').toString().trim();
+      if (s.isNotEmpty && s.toLowerCase() != 'null') return s;
+    }
+    return '';
   }
 
   /// بثّ حي لوجبات مطعم/مقهى واحد.

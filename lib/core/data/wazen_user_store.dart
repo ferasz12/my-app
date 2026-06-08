@@ -12,6 +12,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'wazen_identity_store.dart';
+
 class WazenUserStore {
   WazenUserStore._();
 
@@ -155,6 +157,9 @@ class WazenUserStore {
     User? authUser,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    if (authUser != null) {
+      await WazenIdentityStore.syncFromFirebaseUser(authUser, prefs: prefs, migrate: false);
+    }
     final data = normalize(raw, authUser: authUser, uid: uid);
     await prefs.setString(cacheKey(uid), jsonEncode(_jsonSafeMap(data)));
 
@@ -208,6 +213,11 @@ class WazenUserStore {
       await prefs.setInt('userPoints', pts);
       await prefs.setInt('points_total_$uid', pts);
       await prefs.setInt('wazen_points_$uid', pts);
+    }
+
+    if (authUser != null) {
+      final id = await WazenIdentityStore.currentIdentity(user: authUser, migrate: false);
+      await WazenIdentityStore.mirrorKnownLocalKeys(prefs, id);
     }
   }
 

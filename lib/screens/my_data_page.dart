@@ -11,6 +11,7 @@ import '../data/legacy_user_repository.dart';
 import '../utils/calorie_calculator.dart'; // calculateCalories(...)
 import '../utils/macro_plan_engine.dart';
 import '../shared/macro_targets_controller.dart';
+import '../core/data/wazen_identity_store.dart';
 
 class MyDataPage extends StatefulWidget {
   const MyDataPage({super.key});
@@ -327,41 +328,16 @@ class _MyDataPageState extends State<MyDataPage> {
     });
     try {
       final prefs = await SharedPreferences.getInstance();
-      final authEmail = (_auth.currentUser?.email ?? '').trim();
-      final uid = (_auth.currentUser?.uid ?? '').trim();
-      final legacyKey = (prefs.getString(_Prefs.currentEmail) ?? '').trim();
-      final candidates = <String>[authEmail, uid, legacyKey]
-        ..removeWhere((k) => k.trim().isEmpty || k == 'unknown_user');
+      final user = _auth.currentUser;
+      final identity = user != null
+          ? await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs)
+          : await WazenIdentityStore.currentIdentity(migrate: false);
+      final authEmail = identity.email;
+      final uid = identity.uid;
+      final storageKey = identity.storageKey;
+      await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
 
-      bool hasSavedData(String k) {
-        return prefs.getDouble('${_Prefs.height}_$k') != null ||
-            prefs.getDouble('${_Prefs.weight}_$k') != null ||
-            prefs.getDouble('${_Prefs.caloriesNeeded}_$k') != null ||
-            prefs.getString('macroMode_$k') != null;
-      }
-
-      int savedStamp(String k) => math.max(
-            prefs.getInt('profileUpdatedAt_$k') ?? 0,
-            prefs.getInt('macrosUpdatedAt_$k') ?? 0,
-          );
-
-      String storageKey = candidates.isNotEmpty ? candidates.first : 'unknown_user';
-      for (final k in candidates) {
-        final currentHas = hasSavedData(storageKey);
-        final nextStamp = savedStamp(k);
-        final currentStamp = savedStamp(storageKey);
-        if ((!currentHas && hasSavedData(k)) || nextStamp > currentStamp) {
-          storageKey = k;
-        }
-      }
-
-      // نخلي المفتاح ثابت ونحفظ UID كذلك حتى لا تضيع القيم بين تسجيل الدخول/الخروج.
-      if (prefs.getString(_Prefs.currentEmail) != storageKey) {
-        await prefs.setString(_Prefs.currentEmail, storageKey);
-      }
-      if (uid.isNotEmpty) await prefs.setString('currentUid', uid);
-
-      email = authEmail.isNotEmpty ? authEmail : storageKey;
+      email = authEmail.isNotEmpty ? authEmail : identity.emailKey;
       displayName = _auth.currentUser?.displayName ?? email;
       gender = prefs.getString('${_Prefs.gender}_$storageKey') ?? gender;
       age = prefs.getInt('${_Prefs.age}_$storageKey') ?? age;
@@ -419,14 +395,10 @@ class _MyDataPageState extends State<MyDataPage> {
   Future<void> _refreshMacrosFromPrefs({bool force = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      // ✅ نختار أفضل مفتاح تخزين متاح (Email/UID/legacy) حتى تتزامن القيم فورًا.
-      final emailKey = (email ?? '').trim();
-      final legacyEmail = (prefs.getString(_Prefs.currentEmail) ?? '').trim();
-      final uidKey = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-      final legacyUid = (prefs.getString('currentUid') ?? '').trim();
-      final candidates = <String>[emailKey, uidKey, legacyEmail, legacyUid]
-        ..removeWhere((k) => k.isEmpty || k == 'unknown_user');
-      String storageKey = candidates.isNotEmpty ? candidates.first : 'unknown_user';
+      final identity = await WazenIdentityStore.currentIdentity();
+      await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
+      final candidates = identity.aliases.where((k) => k.isNotEmpty && k != 'unknown_user').toList();
+      String storageKey = identity.storageKey;
       int stamp = prefs.getInt('macrosUpdatedAt_$storageKey') ?? 0;
       for (final k in candidates) {
         final s = prefs.getInt('macrosUpdatedAt_$k') ?? 0;
@@ -461,7 +433,8 @@ class _MyDataPageState extends State<MyDataPage> {
 
   Future<void> _recalculate({bool useStoredIfAvailable = false}) async {
     final prefs = await SharedPreferences.getInstance();
-    final activityKey = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity();
+    final activityKey = identity.storageKey;
     final activityFactor = prefs.getDouble('activityFactor_$activityKey') ?? _activityFromScore(lifestyleScore);
 
     maintenanceCalories = calculateCalories(
@@ -535,7 +508,7 @@ class _MyDataPageState extends State<MyDataPage> {
 
     if (useStoredIfAvailable) {
       final prefs = await SharedPreferences.getInstance();
-      final currentEmail = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
+      final currentEmail = identity.storageKey;
       targetCalories =
           prefs.getDouble('${_Prefs.caloriesNeeded}_$currentEmail') ?? targetCalories;
       proteinG = prefs.getDouble('${_Prefs.protein}_$currentEmail') ?? proteinG;
@@ -582,14 +555,19 @@ class _MyDataPageState extends State<MyDataPage> {
 
   Future<void> _persistAll() async {
     final prefs = await SharedPreferences.getInstance();
-    final currentEmail = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
-    final uid = (_auth.currentUser?.uid ?? '').trim();
-    final authEmail = (_auth.currentUser?.email ?? '').trim();
+    final user = _auth.currentUser;
+    final identity = user != null
+        ? await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs)
+        : await WazenIdentityStore.currentIdentity(migrate: false);
+    final currentEmail = identity.storageKey;
+    final uid = identity.uid;
+    final authEmail = identity.email;
     final stamp = DateTime.now().millisecondsSinceEpoch;
     _lastProfileUpdatedAtMs = stamp;
     _lastMacrosUpdatedAtMs = stamp;
 
-    await prefs.setString(_Prefs.currentEmail, currentEmail);
+    await prefs.setString(_Prefs.currentEmail, identity.emailKey);
+    await prefs.setString(WazenIdentityStore.kCurrentStorageKey, currentEmail);
     if (uid.isNotEmpty) await prefs.setString('currentUid', uid);
     await prefs.setString('${_Prefs.gender}_$currentEmail', gender);
     await prefs.setInt('${_Prefs.age}_$currentEmail', age);
@@ -619,6 +597,7 @@ class _MyDataPageState extends State<MyDataPage> {
     if (uid.isNotEmpty && uid != currentEmail) {
       await _mirrorCorePrefs(prefs, uid, stamp: stamp);
     }
+    await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
 
     try {
       if (uid.isNotEmpty) {

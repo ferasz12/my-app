@@ -26,6 +26,7 @@ class RolesService {
 
   static const Set<String> _hardOwnerUids = <String>{
     'fQwIV1wg5pUsz9zVMLpyqAdUAFL2',
+    '7CYI66sIq3UbOHwq2qi85bpFL7x2',
   };
 
   // =========================

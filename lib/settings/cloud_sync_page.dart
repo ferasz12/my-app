@@ -60,13 +60,22 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
   Future<void> _loadStatus() async {
     setState(() => _loadingStatus = true);
-    final s = await SmartCloudSyncService.instance.status();
-    if (!mounted) return;
-    setState(() {
-      _status = s;
-      _enabled = s.enabled;
-      _loadingStatus = false;
-    });
+    try {
+      final s = await SmartCloudSyncService.instance.status();
+      if (!mounted) return;
+      setState(() {
+        _status = s;
+        _enabled = s.enabled;
+        _loadingStatus = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _status = null;
+        _loadingStatus = false;
+      });
+      _showSnack('تعذر قراءة حالة المزامنة حاليًا.');
+    }
   }
 
   Future<void> _setEnabled(bool value) async {
