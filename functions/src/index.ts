@@ -7177,6 +7177,23 @@ export const listLaunchAttendees = onCall(
 );
 
 
+
+function wazenApnsPayload(title: string, body: string, badge = 1) {
+  return {
+    headers: {
+      "apns-priority": "10",
+      "apns-push-type": "alert",
+    },
+    payload: {
+      aps: {
+        alert: {title, body},
+        sound: "default",
+        badge,
+      },
+    },
+  };
+}
+
 // =============================================================
 // ✅ Marketing Push (Firestore → FCM Topic) using Functions (1st gen)
 // Why 1st gen? Firestore Gen2 triggers rely on Eventarc, and Eventarc
@@ -7220,16 +7237,7 @@ async function _sendMarketingToTopic(args: {
         channelId: "wazen_marketing_fcm_v2",
       },
     },
-    apns: {
-      headers: {
-        "apns-priority": "10",
-      },
-      payload: {
-        aps: {
-          sound: "default",
-        },
-      },
-    },
+    apns: wazenApnsPayload(args.title || "Wazen", args.body || ""),
   };
 
   return await getMessaging().send(message as any);
@@ -8406,29 +8414,121 @@ function isRecentActivity(data: any, windowMs: number): boolean {
   return !!d && Date.now() - d.getTime() <= windowMs;
 }
 
+const USER_FCM_TOKEN_COLLECTIONS = [
+  "fcmTokens",
+  "deviceTokens",
+  "pushTokens",
+  "notificationTokens",
+  "tokens",
+  "devices",
+  "userDevices",
+];
+
+const USER_FCM_TOKEN_FIELDS = [
+  "token",
+  "fcmToken",
+  "fcm_token",
+  "deviceToken",
+  "device_token",
+  "pushToken",
+  "push_token",
+  "registrationToken",
+  "messagingToken",
+  "firebaseMessagingToken",
+  "value",
+];
+
+function normalizeUserFcmTokenCandidate(value: any): string | null {
+  const token = String(value || "").trim();
+  if (!token || token.length < 20 || token.length > 4096) return null;
+  if (/\s/.test(token)) return null;
+
+  // APNs raw device tokens and SHA-256 hashes are often pure hex strings.
+  // FCM send APIs need the FCM registration token, not the APNs token/hash.
+  if (/^[a-f0-9]{40,128}$/i.test(token) && !token.includes(":")) return null;
+  return token;
+}
+
+function addUserFcmToken(out: Set<string>, value: any) {
+  const token = normalizeUserFcmTokenCandidate(value);
+  if (token) out.add(token);
+}
+
+function addUserFcmTokensFromObject(out: Set<string>, value: any) {
+  if (!value) return;
+  if (typeof value === "string") {
+    addUserFcmToken(out, value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => addUserFcmTokensFromObject(out, item));
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  USER_FCM_TOKEN_FIELDS.forEach((field) => addUserFcmTokensFromObject(out, value?.[field]));
+
+  [
+    value?.fcmTokens,
+    value?.deviceTokens,
+    value?.pushTokens,
+    value?.notificationTokens,
+    value?.tokens,
+    value?.devices,
+    value?.push,
+    value?.messaging,
+    value?.notifications,
+  ].forEach((nested) => addUserFcmTokensFromObject(out, nested));
+}
+
+async function collectTokensFromSubcollection(
+  parentRef: FirebaseFirestore.DocumentReference,
+  collectionName: string,
+  out: Set<string>
+) {
+  try {
+    const snap = await parentRef.collection(collectionName).limit(1000).get();
+    snap.docs.forEach((doc) => {
+      const data = doc.data() as any;
+      addUserFcmTokensFromObject(out, data);
+      addUserFcmToken(out, doc.id);
+    });
+  } catch (e: any) {
+    logger.warn("collectTokensFromSubcollection skipped", {
+      parentPath: parentRef.path,
+      collectionName,
+      error: String(e?.message ?? e).slice(0, 220),
+    });
+  }
+}
+
 async function collectUserFcmTokens(uid: string): Promise<string[]> {
+  const safeUid = cleanSmallText(uid, 140);
   const out = new Set<string>();
-  const userRef = db.collection("users").doc(uid);
-  const userSnap = await userRef.get();
-  const user = userSnap.exists ? (userSnap.data() as any) : {};
-  const direct = [
-    user?.fcmToken,
-    user?.fcm_token,
-    user?.deviceToken,
-    user?.pushToken,
-    ...(Array.isArray(user?.fcmTokens) ? user.fcmTokens : []),
-    ...(Array.isArray(user?.deviceTokens) ? user.deviceTokens : []),
-  ];
-  direct.forEach((t) => {
-    const v = String(t || "").trim();
-    if (v.length > 20) out.add(v);
-  });
-  const sub = await userRef.collection("fcmTokens").limit(500).get();
-  sub.docs.forEach((d) => {
-    const x = d.data() as any;
-    const v = String(x?.token || d.id || "").trim();
-    if (v.length > 20) out.add(v);
-  });
+  if (!safeUid) return [];
+
+  const userRef = db.collection("users").doc(safeUid);
+  try {
+    const userSnap = await userRef.get();
+    const user = userSnap.exists ? (userSnap.data() as any) : {};
+    addUserFcmTokensFromObject(out, user);
+  } catch (e: any) {
+    logger.warn("collectUserFcmTokens user doc failed", {
+      uid: safeUid,
+      error: String(e?.message ?? e).slice(0, 220),
+    });
+  }
+
+  await Promise.allSettled(USER_FCM_TOKEN_COLLECTIONS.map((name) =>
+    collectTokensFromSubcollection(userRef, name, out)
+  ));
+
+  // بعض نسخ التطبيق تحفظ أجهزة الإشعارات تحت notifications/{uid}/...
+  const notificationRef = db.collection("notifications").doc(safeUid);
+  await Promise.allSettled(USER_FCM_TOKEN_COLLECTIONS.map((name) =>
+    collectTokensFromSubcollection(notificationRef, name, out)
+  ));
+
   return Array.from(out).slice(0, 500);
 }
 
@@ -8861,9 +8961,7 @@ export const adminSendUserPushNotification = onRequest(
             priority: "high",
             notification: {channelId: "wazen_marketing_fcm_v2", sound: "default"},
           },
-          apns: {
-            payload: {aps: {sound: "default", badge: 1}},
-          },
+          apns: wazenApnsPayload(title, body),
         });
         successCount = response.successCount;
         failureCount = response.failureCount;
@@ -8954,8 +9052,30 @@ function defaultDeeplinkForNotification(data: any): string {
 }
 
 async function deleteInvalidUserFcmTokens(uid: string, tokens: string[]) {
-  await Promise.allSettled(tokens.map(async (token) => {
-    await db.collection("users").doc(uid).collection("fcmTokens").doc(token).delete();
+  const safeUid = cleanSmallText(uid, 140);
+  if (!safeUid || !tokens.length) return;
+  const userRef = db.collection("users").doc(safeUid);
+  const notificationRef = db.collection("notifications").doc(safeUid);
+  const unique = Array.from(new Set(tokens.map((t) => String(t || "").trim()).filter(Boolean)));
+
+  await Promise.allSettled(unique.map(async (token) => {
+    const hash = hashPushToken(token);
+    const parents = [userRef, notificationRef];
+    await Promise.allSettled(parents.flatMap((parent) => USER_FCM_TOKEN_COLLECTIONS.flatMap((collectionName) => [
+      parent.collection(collectionName).doc(token).delete().catch(() => undefined),
+      parent.collection(collectionName).doc(hash).delete().catch(() => undefined),
+    ])));
+
+    await userRef.set({
+      fcmToken: FieldValue.delete(),
+      fcm_token: FieldValue.delete(),
+      deviceToken: FieldValue.delete(),
+      pushToken: FieldValue.delete(),
+      fcmTokens: FieldValue.arrayRemove(token),
+      deviceTokens: FieldValue.arrayRemove(token),
+      pushTokens: FieldValue.arrayRemove(token),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true}).catch(() => undefined);
   }));
 }
 
@@ -8995,10 +9115,7 @@ async function sendWazenPushToUser(args: {
         sound: "default",
       },
     },
-    apns: {
-      headers: {"apns-priority": "10"},
-      payload: {aps: {sound: "default", badge: 1}},
-    },
+    apns: wazenApnsPayload(title, body),
   });
 
   const invalidTokens: string[] = [];
