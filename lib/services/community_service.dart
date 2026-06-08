@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import '../core/data/wazen_user_store.dart';
 import '../models/community_models.dart';
 
 class CommunityService {
@@ -32,13 +31,8 @@ class CommunityService {
           code: 'not-signed-in', message: 'يجب تسجيل الدخول');
     }
 
-    // لا ننتظر Firestore قبل النشر. نقرأ آخر كاش موحّد أولًا، ثم نحدّثه بالخلفية.
-    final data = await WazenUserStore.readCachedUser(
-      user.uid,
-      authUser: user,
-      email: user.email,
-    );
-    unawaited(WazenUserStore.readUserDocFast(user.uid));
+    final snap = await _db.doc('users/${user.uid}').get();
+    final data = snap.data() ?? const <String, dynamic>{};
 
     final role = (data['role'] ?? 'user').toString().toLowerCase().trim();
     final showAsSupport =
@@ -99,8 +93,8 @@ class CommunityService {
       'commentsCount': 0,
       'trendScore': 0,
       'isDeleted': false,
-      'createdAt': Timestamp.now(),
-      'updatedAt': Timestamp.now(),
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
       if ((recipeId ?? '').trim().isNotEmpty) 'recipeId': recipeId!.trim(),
       if ((recipeTitle ?? '').trim().isNotEmpty)
         'recipeTitle': recipeTitle!.trim(),
@@ -112,7 +106,7 @@ class CommunityService {
     return _posts
         .orderBy(sort.orderField, descending: true)
         .limit(160)
-        .snapshots(includeMetadataChanges: true)
+        .snapshots()
         .map((snap) => snap.docs
             .map(CommunityPost.fromDoc)
             .where((p) => !p.isDeleted && p.content.trim().isNotEmpty)
@@ -181,58 +175,6 @@ class CommunityService {
     }
   }
 
-
-  Future<void> setLike(CommunityPost post, bool shouldLike) async {
-    final uid = currentUid;
-    if (uid == null) {
-      throw FirebaseAuthException(
-          code: 'not-signed-in', message: 'يجب تسجيل الدخول');
-    }
-
-    final likeRef = _posts.doc(post.id).collection('likes').doc(uid);
-    final mirrorRef = _db.doc('users/$uid/communityLikes/${post.id}');
-    final batch = _db.batch();
-    if (shouldLike) {
-      batch.set(likeRef, {
-        'uid': uid,
-        'postId': post.id,
-        'authorUid': post.authorUid,
-        'createdAt': Timestamp.now(),
-      }, SetOptions(merge: true));
-      batch.set(mirrorRef, {
-        'postId': post.id,
-        'authorUid': post.authorUid,
-        'createdAt': Timestamp.now(),
-      }, SetOptions(merge: true));
-      batch.set(_posts.doc(post.id), {
-        'likesCount': FieldValue.increment(1),
-        'trendScore': FieldValue.increment(2),
-        'updatedAt': Timestamp.now(),
-      }, SetOptions(merge: true));
-    } else {
-      batch.delete(likeRef);
-      batch.delete(mirrorRef);
-      batch.set(_posts.doc(post.id), {
-        'likesCount': FieldValue.increment(-1),
-        'trendScore': FieldValue.increment(-2),
-        'updatedAt': Timestamp.now(),
-      }, SetOptions(merge: true));
-    }
-    await batch.commit();
-
-    if (shouldLike) {
-      unawaited(_safeSendCommunityNotification(
-        toUid: post.authorUid,
-        senderUid: uid,
-        senderName: 'مستخدم وازن',
-        type: 'community_post_like',
-        title: 'إعجاب جديد في مجتمع وازن',
-        body: 'شخص أعجب بمنشورك في مجتمع وازن.',
-        postId: post.id,
-      ));
-    }
-  }
-
   Future<void> addComment({required CommunityPost post, required String text}) async {
     final trimmed = text.trim();
     if (trimmed.length < 2) throw ArgumentError('اكتب تعليقًا أوضح');
@@ -253,14 +195,14 @@ class CommunityService {
       'text': trimmed,
       'isDeleted': false,
       'isPinned': false,
-      'createdAt': Timestamp.now(),
-      'updatedAt': Timestamp.now(),
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
-    batch.set(postRef, {
+    batch.update(postRef, {
       'commentsCount': FieldValue.increment(1),
       'trendScore': FieldValue.increment(3),
-      'updatedAt': Timestamp.now(),
-    }, SetOptions(merge: true));
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
     await batch.commit();
 
     unawaited(_notifyAfterNewComment(
@@ -275,9 +217,9 @@ class CommunityService {
     Query<Map<String, dynamic>> q = _posts
         .doc(postId)
         .collection('comments')
-        .orderBy('createdAt', descending: limit > 0);
+        .orderBy('createdAt', descending: false);
     if (limit > 0) q = q.limit(limit);
-    return q.snapshots(includeMetadataChanges: true).map((snap) {
+    return q.snapshots().map((snap) {
       final list = snap.docs
           .map((d) => CommunityComment.fromDoc(postId: postId, doc: d))
           .where((c) => !c.isDeleted && c.text.trim().isNotEmpty)
@@ -651,31 +593,8 @@ class CommunityService {
   }
 
   Future<void> _assertAllowedToPost(String uid) async {
-    // فحص خفيف لا يعلّق النشر. القواعد في Firestore تبقى خط الدفاع النهائي.
-    Future<void> check(Source source, Duration timeout) async {
-      final snap = await _db
-          .doc('users/$uid')
-          .get(GetOptions(source: source))
-          .timeout(timeout);
-      _throwIfPostingBlocked(snap.data() ?? const <String, dynamic>{});
-    }
-
-    try {
-      await check(Source.cache, const Duration(milliseconds: 280));
-      unawaited(check(Source.server, const Duration(seconds: 2)).catchError((_) {}));
-      return;
-    } catch (e) {
-      if (e is StateError) rethrow;
-    }
-
-    try {
-      await check(Source.server, const Duration(milliseconds: 850));
-    } catch (e) {
-      if (e is StateError) rethrow;
-    }
-  }
-
-  void _throwIfPostingBlocked(Map<String, dynamic> data) {
+    final snap = await _db.doc('users/$uid').get();
+    final data = snap.data() ?? const <String, dynamic>{};
     if (data['isBanned'] == true) {
       throw StateError('حسابك محظور من النشر في وازن');
     }

@@ -29,12 +29,37 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _verifyAccessAndLoad());
   }
 
-  Future<void> _verifyAccessAndLoad() async {
-    final allowed = await PremiumAccess.ensureSubscribed(
+  Future<bool> _checkPremiumAccess({bool showSheet = false}) async {
+    var allowed = await PremiumAccess.ensureSubscribed(
       context,
       feature: PremiumFeature.cloudSync,
       showSheet: false,
     );
+
+    // في iPhone قد يكون كاش الاشتراك فاضي بعد التحديث، لذلك نحدّثه مرة
+    // ثم نعيد التحقق قبل إظهار صفحة الاشتراك أو قفل المزامنة.
+    if (!allowed) {
+      await PremiumAccess.refreshLocalFromRemoteQuietly();
+      allowed = await PremiumAccess.ensureSubscribed(
+        context,
+        feature: PremiumFeature.cloudSync,
+        showSheet: false,
+      );
+    }
+
+    if (!allowed && showSheet && mounted) {
+      allowed = await PremiumAccess.ensureSubscribed(
+        context,
+        feature: PremiumFeature.cloudSync,
+        showSheet: true,
+      );
+    }
+
+    return allowed;
+  }
+
+  Future<void> _verifyAccessAndLoad() async {
+    final allowed = await _checkPremiumAccess(showSheet: false);
     if (!mounted) return;
     setState(() {
       _hasAccess = allowed;
@@ -48,11 +73,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   }
 
   Future<bool> _requireAccess({bool showSheet = true}) async {
-    final allowed = await PremiumAccess.ensureSubscribed(
-      context,
-      feature: PremiumFeature.cloudSync,
-      showSheet: showSheet,
-    );
+    final allowed = await _checkPremiumAccess(showSheet: showSheet);
     if (!mounted) return false;
     setState(() => _hasAccess = allowed);
     return allowed;
@@ -287,7 +308,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                                 children: [
                                   Expanded(
                                     child: FilledButton.icon(
-                                      onPressed: (!_enabled || _busy) ? null : _upload,
+                                      onPressed: _busy ? null : _upload,
                                       icon: _busy
                                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                                           : const Icon(Icons.cloud_upload_rounded),
@@ -298,7 +319,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: (!_enabled || _busy) ? null : _restore,
+                                      onPressed: _busy ? null : _restore,
                                       icon: const Icon(Icons.cloud_download_rounded),
                                       label: const Text('استرجاع'),
                                       style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),

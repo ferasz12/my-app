@@ -198,46 +198,34 @@ class _CommunityPageState extends State<CommunityPage> {
               }
               final posts = _applyLocalFilters(
                   postsSnap.data ?? const <CommunityPost>[], uid);
-              return _postsSliver(posts, uid, ids.toSet());
+              return _postsSliver(posts, uid);
             },
           );
         },
       );
     }
 
-    Widget postsStream(Set<String> likedIds) {
-      return StreamBuilder<List<CommunityPost>>(
-        stream: _service.streamPosts(sort: _sort),
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-            return const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator()));
-          }
-          if (snap.hasError) {
-            return SliverFillRemaining(
+    return StreamBuilder<List<CommunityPost>>(
+      stream: _service.streamPosts(sort: _sort),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const SliverFillRemaining(
               hasScrollBody: false,
-              child: _EmptyCommunityState(
-                title: 'تعذر تحميل المجتمع',
-                message: 'تأكد من اتصالك أو قواعد Firestore ثم حاول مرة أخرى.',
-                details: snap.error.toString(),
-              ),
-            );
-          }
-          final posts =
-              _applyLocalFilters(snap.data ?? const <CommunityPost>[], uid);
-          return _postsSliver(posts, uid, likedIds);
-        },
-      );
-    }
-
-    if (uid == null) return postsStream(const <String>{});
-
-    // Stream واحد لإعجابات المستخدم بدل Stream منفصل داخل كل بطاقة بوست.
-    return StreamBuilder<List<String>>(
-      stream: _service.streamMyLikedPostIds(uid),
-      builder: (context, likedSnap) {
-        return postsStream((likedSnap.data ?? const <String>[]).toSet());
+              child: Center(child: CircularProgressIndicator()));
+        }
+        if (snap.hasError) {
+          return SliverFillRemaining(
+            hasScrollBody: false,
+            child: _EmptyCommunityState(
+              title: 'تعذر تحميل المجتمع',
+              message: 'تأكد من اتصالك أو قواعد Firestore ثم حاول مرة أخرى.',
+              details: snap.error.toString(),
+            ),
+          );
+        }
+        final posts =
+            _applyLocalFilters(snap.data ?? const <CommunityPost>[], uid);
+        return _postsSliver(posts, uid);
       },
     );
   }
@@ -268,7 +256,7 @@ class _CommunityPageState extends State<CommunityPage> {
     return list;
   }
 
-  Widget _postsSliver(List<CommunityPost> posts, String? uid, Set<String> likedIds) {
+  Widget _postsSliver(List<CommunityPost> posts, String? uid) {
     if (posts.isEmpty) {
       return SliverFillRemaining(
         hasScrollBody: false,
@@ -289,7 +277,6 @@ class _CommunityPageState extends State<CommunityPage> {
           return _CommunityPostCard(
             post: post,
             currentUid: uid,
-            likedByMe: likedIds.contains(post.id),
             service: _service,
           );
         },
@@ -495,13 +482,11 @@ class _FiltersBar extends StatelessWidget {
 class _CommunityPostCard extends StatelessWidget {
   final CommunityPost post;
   final String? currentUid;
-  final bool likedByMe;
   final CommunityService service;
 
   const _CommunityPostCard({
     required this.post,
     required this.currentUid,
-    required this.likedByMe,
     required this.service,
   });
 
@@ -626,7 +611,7 @@ class _CommunityPostCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            _PostActions(post: post, currentUid: currentUid, likedByMe: likedByMe, service: service),
+            _PostActions(post: post, currentUid: currentUid, service: service),
             if (post.commentsCount > 0) ...[
               const SizedBox(height: 10),
               _CommentsPreview(post: post, service: service, currentUid: currentUid),
@@ -678,15 +663,10 @@ class _CommunityPostCard extends StatelessWidget {
 class _PostActions extends StatelessWidget {
   final CommunityPost post;
   final String? currentUid;
-  final bool likedByMe;
   final CommunityService service;
 
-  const _PostActions({
-    required this.post,
-    required this.currentUid,
-    required this.likedByMe,
-    required this.service,
-  });
+  const _PostActions(
+      {required this.post, required this.currentUid, required this.service});
 
   @override
   Widget build(BuildContext context) {
@@ -711,33 +691,40 @@ class _PostActions extends StatelessWidget {
       );
     }
 
-    final liked = likedByMe;
-    return _ActionsShell(
-      children: [
-        _ActionItem(
-          icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-          label: '${post.likesCount}',
-          color: liked ? cs.primary : null,
-          onTap: () async {
-            try {
-              await service.setLike(post, !liked);
-            } catch (e) {
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('تعذر حفظ الإعجاب: $e')));
-            }
-          },
-        ),
-        _ActionItem(
-            icon: Icons.mode_comment_outlined,
-            label: '${post.commentsCount}',
-            onTap: () => _openComments(context)),
-        _ActionItem(
-            icon: Icons.flag_outlined,
-            label: 'إبلاغ',
-            color: cs.error,
-            onTap: () => _openReport(context)),
-      ],
+    return StreamBuilder<bool>(
+      stream: service.streamIsLiked(post.id, currentUid!),
+      builder: (context, snap) {
+        final liked = snap.data ?? false;
+        return _ActionsShell(
+          children: [
+            _ActionItem(
+              icon: liked
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              label: '${post.likesCount}',
+              color: liked ? cs.primary : null,
+              onTap: () async {
+                try {
+                  await service.toggleLike(post);
+                } catch (e) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('تعذر حفظ الإعجاب: $e')));
+                }
+              },
+            ),
+            _ActionItem(
+                icon: Icons.mode_comment_outlined,
+                label: '${post.commentsCount}',
+                onTap: () => _openComments(context)),
+            _ActionItem(
+                icon: Icons.flag_outlined,
+                label: 'إبلاغ',
+                color: cs.error,
+                onTap: () => _openReport(context)),
+          ],
+        );
+      },
     );
   }
 
@@ -980,31 +967,26 @@ class _CommentsPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: () => _PostActions(
-        post: post,
-        currentUid: currentUid,
-        likedByMe: false,
-        service: service,
-      )._openComments(context),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerHighest.withOpacity(0.45),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.outlineVariant.withOpacity(0.45)),
-        ),
-        child: Text(
-          'عرض التعليقات (${post.commentsCount})',
-          style: TextStyle(
-            color: cs.onSurface.withOpacity(0.70),
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ),
+    return StreamBuilder<List<CommunityComment>>(
+      stream: service.streamComments(post.id, limit: 2),
+      builder: (context, snap) {
+        final comments = snap.data ?? const <CommunityComment>[];
+        if (comments.isEmpty) return const SizedBox.shrink();
+        return Column(
+          children: comments
+              .map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _CommentTile(
+                      comment: c,
+                      post: post,
+                      service: service,
+                      currentUid: currentUid,
+                      compact: true,
+                    ),
+                  ))
+              .toList(),
+        );
+      },
     );
   }
 }

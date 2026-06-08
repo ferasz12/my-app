@@ -92,12 +92,12 @@ class RecipesExplorePage extends StatefulWidget {
 class _RecipesExplorePageState extends State<RecipesExplorePage>
     with SingleTickerProviderStateMixin {
   // ---- publishing guard ----
-  bool _loadingGuard = false;
+  bool _loadingGuard = true;
   _GuardState _guard = const _GuardState(allowed: true);
 
   // ---- role ----
   String? _myRole; // 'user' | 'support' | 'admin' | 'owner'
-  bool _loadingRole = false;
+  bool _loadingRole = true;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _roleSub;
 
   // ---- explore state ----
@@ -150,6 +150,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
   }
 
   void _listenMyRole() {
+    setState(() => _loadingRole = true);
+
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       setState(() {
@@ -438,7 +440,7 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
             ],
           ),
         ),
-        floatingActionButton: _loadingGuard
+        floatingActionButton: (_loadingGuard || _loadingRole)
             ? null
             : (_guard.allowed
                 ? FloatingActionButton.extended(
@@ -450,7 +452,9 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                     ),
                   )
                 : null),
-        body: TabBarView(
+        body: (_loadingGuard || _loadingRole)
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
                 controller: _tabs,
                 children: [
                   // ===================== Explore =====================

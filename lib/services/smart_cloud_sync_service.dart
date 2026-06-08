@@ -93,6 +93,25 @@ class SmartCloudSyncService {
 
   FirebaseFirestore get _db => FirebaseFirestore.instance;
 
+  Future<T> _withFirestoreRetry<T>(
+    Future<T> Function() task, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    Object? lastError;
+    StackTrace? lastStack;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await task().timeout(timeout);
+      } catch (e, st) {
+        lastError = e;
+        lastStack = st;
+        if (attempt == 1) break;
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      }
+    }
+    Error.throwWithStackTrace(lastError!, lastStack ?? StackTrace.current);
+  }
+
   User _requireUser() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -219,7 +238,7 @@ class SmartCloudSyncService {
         message: 'جاري رفع بيانات الحساب...',
       ));
 
-      await _writeUserProfile(user.uid, profile).timeout(const Duration(seconds: 8));
+      await _withFirestoreRetry<void>(() => _writeUserProfile(user.uid, profile));
       await Future<void>.delayed(Duration.zero);
 
       int uploaded = 0;
@@ -244,13 +263,12 @@ class SmartCloudSyncService {
           continue;
         }
 
-        await _db
+        await _withFirestoreRetry<void>(() => _db
             .collection('users')
             .doc(user.uid)
             .collection('days')
             .doc(ymd)
-            .set(day, SetOptions(merge: true))
-            .timeout(const Duration(seconds: 8));
+            .set(day, SetOptions(merge: true)));
         uploaded++;
         writes++;
         step++;
@@ -322,20 +340,23 @@ class SmartCloudSyncService {
         message: 'جاري قراءة البيانات السحابية...',
       ));
 
-      final userSnap = await _db.collection('users').doc(user.uid).get(const GetOptions(source: Source.serverAndCache)).timeout(const Duration(seconds: 8));
+      final userSnap = await _withFirestoreRetry<DocumentSnapshot<Map<String, dynamic>>>(
+        () => _db.collection('users').doc(user.uid).get(const GetOptions(source: Source.serverAndCache)),
+      );
       final userData = userSnap.data();
       if (userData != null) {
         await _applyProfileToPrefs(prefs: prefs, email: email, data: userData, overwriteLocal: overwriteLocal);
       }
 
-      final q = await _db
-          .collection('users')
-          .doc(user.uid)
-          .collection('days')
-          .orderBy('date', descending: true)
-          .limit(safeLimit)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 10));
+      final q = await _withFirestoreRetry<QuerySnapshot<Map<String, dynamic>>>(
+        () => _db
+            .collection('users')
+            .doc(user.uid)
+            .collection('days')
+            .orderBy('date', descending: true)
+            .limit(safeLimit)
+            .get(const GetOptions(source: Source.serverAndCache)),
+      );
 
       int restored = 0;
       int step = 0;

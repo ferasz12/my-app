@@ -5,7 +5,6 @@
 // - يضمن وجود users/{uid} عبر _ensureUserDocMinimal (create vs update آمن).
 // - يدعم رفع صورة (كاميرا/معرض) بشكل اختياري وحفظ رابطها داخل Firestore.
 
-import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -257,11 +256,10 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
 
     setState(() => _submitting = true);
     try {
-      // تأكيد المستخدم يكون خفيفًا. إذا تأخر لا نعلّق النشر؛ قواعد Firestore تبقى خط الدفاع النهائي.
-      try {
-        await _ensureUserDocMinimal(user).timeout(const Duration(seconds: 2));
-      } catch (_) {}
+      // 1) تأكيد users/{uid} حسب القواعد
+      await _ensureUserDocMinimal(user);
 
+      // 2) تجهيز البيانات + رفع الصورة (إن وجدت)
       final ingredients = _ingredientsCtrl.text
           .split('\n')
           .map((e) => e.trim())
@@ -273,9 +271,18 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
       final carbs = _tryParseDouble(_carbsCtrl.text)!;
       final calories = _tryParseDouble(_caloriesCtrl.text)!;
 
+      // ننشئ docId مسبقًا حتى نستخدمه كاسم ملف للصورة
       final docRef = FirebaseFirestore.instance.collection('recipes').doc();
       final recipeId = docRef.id;
-      final pendingImage = _imageFile;
+
+      String? imageUrl;
+      if (_imageFile != null) {
+        imageUrl = await _uploadRecipeImage(
+          uid: user.uid,
+          recipeId: recipeId,
+          file: _imageFile!,
+        );
+      }
 
       final caption = _captionCtrl.text.trim().isEmpty
           ? null
@@ -285,6 +292,7 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
         'userId': user.uid,
         'title': _titleCtrl.text.trim(),
         if (caption != null) 'caption': caption,
+        if (imageUrl != null) 'imageUrl': imageUrl,
         'ingredients': ingredients,
         'method': _methodCtrl.text.trim(),
         'protein': protein,
@@ -293,49 +301,22 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
         'calories': calories,
         'goal': _selectedGoal,
         'likeCount': 0,
-        if (pendingImage != null) 'imagePending': true,
         'createdAt': Timestamp.now(),
         'updatedAt': Timestamp.now(),
       };
 
+      // حقول اختيارية فقط إذا لها قيمة نصية غير فاضية
       final dn = (user.displayName ?? '').trim();
       if (dn.isNotEmpty) data['userName'] = dn;
       final pu = (user.photoURL ?? '').trim();
       if (pu.isNotEmpty) data['userPhotoUrl'] = pu;
 
-      // ننشر الوصفة فورًا حتى تظهر في الاستكشاف، ثم نرفع الصورة بالخلفية.
+      // 3) الإرسال
       await docRef.set(data);
-
-      if (pendingImage != null) {
-        unawaited(() async {
-          try {
-            final imageUrl = await _uploadRecipeImage(
-              uid: user.uid,
-              recipeId: recipeId,
-              file: pendingImage,
-            );
-            await docRef.set({
-              'imageUrl': imageUrl,
-              'imagePending': false,
-              'updatedAt': Timestamp.now(),
-            }, SetOptions(merge: true));
-          } catch (e) {
-            await docRef.set({
-              'imagePending': false,
-              'imageUploadError': e.toString(),
-              'updatedAt': Timestamp.now(),
-            }, SetOptions(merge: true));
-          }
-        }());
-      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(pendingImage == null
-              ? 'تم نشر الوصفة بنجاح'
-              : 'تم نشر الوصفة، وسيتم إظهار الصورة بعد اكتمال الرفع'),
-        ),
+        const SnackBar(content: Text('تم نشر الوصفة بنجاح')),
       );
       Navigator.of(context).pop();
     } on FirebaseException catch (e) {

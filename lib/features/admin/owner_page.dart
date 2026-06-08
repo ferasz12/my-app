@@ -25,53 +25,15 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
   final _searchCtrl = TextEditingController();
   String _search = '';
   bool _savingRevenue = false;
-  late Future<_OwnerDashboardData> _ownerDataFuture;
-  late Future<List<_OwnerUserRow>> _grantUsersFuture;
 
   final _currency = NumberFormat.currency(locale: 'ar', symbol: 'ر.س', decimalDigits: 2);
   final _intFmt = NumberFormat.decimalPattern('ar');
-
-  @override
-  void initState() {
-    super.initState();
-    _ownerDataFuture = _loadOwnerDashboardData();
-    _grantUsersFuture = _loadGrantUsers();
-  }
 
   @override
   void dispose() {
     _tab.dispose();
     _searchCtrl.dispose();
     super.dispose();
-  }
-
-  Future<_OwnerDashboardData> _loadOwnerDashboardData() async {
-    final results = await Future.wait([
-      _db.collection('users').get(),
-      _db.collection('appConfig').doc('owner_metrics').get(),
-    ]);
-    final usersSnap = results[0] as QuerySnapshot<Map<String, dynamic>>;
-    final metricsSnap = results[1] as DocumentSnapshot<Map<String, dynamic>>;
-    final metrics = metricsSnap.data() ?? const <String, dynamic>{};
-    return _OwnerDashboardData(
-      stats: _OwnerStats.fromDocs(usersSnap.docs),
-      revenueTotalSar: _toDouble(metrics['revenueTotalSar']),
-    );
-  }
-
-  Future<List<_OwnerUserRow>> _loadGrantUsers() async {
-    final snap = await _db.collection('users').get();
-    final rows = snap.docs.map((d) => _OwnerUserRow.fromDoc(d)).toList()
-      ..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
-    return rows;
-  }
-
-  Future<void> _refreshOwnerData() async {
-    setState(() {
-      _ownerDataFuture = _loadOwnerDashboardData();
-      _grantUsersFuture = _loadGrantUsers();
-    });
-    await Future.wait([_ownerDataFuture, _grantUsersFuture]);
   }
 
   @override
@@ -126,129 +88,141 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
   }
 
   Widget _buildOverviewTab() {
-    return FutureBuilder<_OwnerDashboardData>(
-      future: _ownerDataFuture,
-      builder: (context, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    final usersStream = _db.collection('users').snapshots();
+    final metricsStream = _db.collection('appConfig').doc('owner_metrics').snapshots();
 
-        final stats = snap.data!.stats;
-        final revenueTotalSar = snap.data!.revenueTotalSar;
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: usersStream,
+      builder: (context, usersSnap) {
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: metricsStream,
+          builder: (context, metricsSnap) {
+            if (!usersSnap.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-        return RefreshIndicator(
-          onRefresh: _refreshOwnerData,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
+            final docs = usersSnap.data!.docs;
+            final stats = _OwnerStats.fromDocs(docs);
+            final metrics = metricsSnap.data?.data() ?? const <String, dynamic>{};
+            final revenueTotalSar = _toDouble(metrics['revenueTotalSar']);
+
+            return RefreshIndicator(
+              onRefresh: () async {
+                await _db.collection('users').get();
+                await _db.collection('appConfig').doc('owner_metrics').get();
+              },
+              child: ListView(
+                padding: const EdgeInsets.all(16),
                 children: [
-                  _MetricCard(
-                    title: 'المشتركون النشطون الآن',
-                    value: _intFmt.format(stats.activeTotal),
-                    icon: Icons.people_alt_outlined,
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _MetricCard(
+                        title: 'المشتركون النشطون الآن',
+                        value: _intFmt.format(stats.activeTotal),
+                        icon: Icons.people_alt_outlined,
+                      ),
+                      _MetricCard(
+                        title: 'اشتراكات شهرية',
+                        value: _intFmt.format(stats.monthlyCount),
+                        icon: Icons.calendar_view_month_outlined,
+                      ),
+                      _MetricCard(
+                        title: 'اشتراكات سنوية',
+                        value: _intFmt.format(stats.yearlyCount),
+                        icon: Icons.calendar_month_outlined,
+                      ),
+                      _MetricCard(
+                        title: 'اشتراكات أونر مجانية',
+                        value: _intFmt.format(stats.ownerGrantCount),
+                        icon: Icons.card_giftcard_outlined,
+                      ),
+                      _MetricCard(
+                        title: 'الدخل التقديري الحالي',
+                        value: _currency.format(stats.estimatedActiveRevenueSar),
+                        icon: Icons.insights_outlined,
+                        subtitle: 'مبني على المشتركين النشطين حاليًا',
+                      ),
+                      _MetricCard(
+                        title: 'إجمالي الربح المسجل',
+                        value: _currency.format(revenueTotalSar),
+                        icon: Icons.payments_outlined,
+                        subtitle: 'قيمة تحفظها أنت من لوحة الأونر',
+                        trailing: IconButton(
+                          tooltip: 'تعديل الربح الإجمالي',
+                          onPressed: _savingRevenue ? null : () => _editRevenueTotal(context, current: revenueTotalSar),
+                          icon: _savingRevenue
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.edit_outlined),
+                        ),
+                      ),
+                    ],
                   ),
-                  _MetricCard(
-                    title: 'إجمالي المستخدمين',
-                    value: _intFmt.format(stats.totalUsers),
-                    icon: Icons.group_outlined,
+                  const SizedBox(height: 18),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'المشتركين حسب الباقة',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 10),
+                          if (stats.breakdown.isEmpty)
+                            const Text('لا يوجد مشتركون نشطون حاليًا')
+                          else
+                            ...stats.breakdown.entries.map(
+                              (entry) => ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.label_important_outline),
+                                title: Text(entry.key),
+                                trailing: Text(_intFmt.format(entry.value)),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
-                  _MetricCard(
-                    title: 'اشتراكات شهرية',
-                    value: _intFmt.format(stats.monthlyCount),
-                    icon: Icons.calendar_view_month_outlined,
-                  ),
-                  _MetricCard(
-                    title: 'اشتراكات سنوية',
-                    value: _intFmt.format(stats.yearlyCount),
-                    icon: Icons.calendar_month_outlined,
-                  ),
-                  _MetricCard(
-                    title: 'اشتراكات أونر مجانية',
-                    value: _intFmt.format(stats.ownerGrantCount),
-                    icon: Icons.card_giftcard_outlined,
-                  ),
-                  _MetricCard(
-                    title: 'الدخل التقديري الحالي',
-                    value: _currency.format(stats.estimatedActiveRevenueSar),
-                    icon: Icons.insights_outlined,
-                    subtitle: 'مبني على المشتركين النشطين حاليًا',
-                  ),
-                  _MetricCard(
-                    title: 'إجمالي الربح المسجل',
-                    value: _currency.format(revenueTotalSar),
-                    icon: Icons.payments_outlined,
-                    subtitle: 'قيمة تحفظها أنت من لوحة الأونر',
-                    trailing: IconButton(
-                      tooltip: 'تعديل الربح الإجمالي',
-                      onPressed: _savingRevenue ? null : () => _editRevenueTotal(context, current: revenueTotalSar),
-                      icon: _savingRevenue
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.edit_outlined),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'أحدث المشتركين النشطين',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 10),
+                          if (stats.latestActiveUsers.isEmpty)
+                            const Text('لا يوجد مشتركون نشطون لعرضهم')
+                          else
+                            ...stats.latestActiveUsers.map(
+                              (u) => ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: CircleAvatar(child: Text(u.initial)),
+                                title: Text(u.displayName),
+                                subtitle: Text('${u.email}\n${u.planLabel} • ينتهي ${u.expiryLabel}'),
+                                isThreeLine: true,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'المشتركين حسب الباقة',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 10),
-                      if (stats.breakdown.isEmpty)
-                        const Text('لا يوجد مشتركون نشطون حاليًا')
-                      else
-                        ...stats.breakdown.entries.map(
-                          (entry) => ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.label_important_outline),
-                            title: Text(entry.key),
-                            trailing: Text(_intFmt.format(entry.value)),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'أحدث المشتركين النشطين',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 10),
-                      if (stats.latestActiveUsers.isEmpty)
-                        const Text('لا يوجد مشتركون نشطون لعرضهم')
-                      else
-                        ...stats.latestActiveUsers.map(
-                          (u) => ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: CircleAvatar(child: Text(u.initial)),
-                            title: Text(u.displayName),
-                            subtitle: Text('${u.email}\n${u.planLabel} • ينتهي ${u.expiryLabel}'),
-                            isThreeLine: true,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -270,30 +244,30 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
           ),
         ),
         Expanded(
-          child: FutureBuilder<List<_OwnerUserRow>>(
-            future: _grantUsersFuture,
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _db.collection('users').snapshots(),
             builder: (context, snap) {
               if (!snap.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final items = snap.data!
+              final items = snap.data!.docs
+                  .map((d) => _OwnerUserRow.fromDoc(d))
                   .where((u) => u.matches(_search))
-                  .toList();
+                  .toList()
+                ..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
 
               if (items.isEmpty) {
                 return const Center(child: Text('لا يوجد مستخدمون مطابقون'));
               }
 
-              return RefreshIndicator(
-                onRefresh: _refreshOwnerData,
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final user = items[index];
-                    return Card(
+              return ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final user = items[index];
+                  return Card(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
                       child: Column(
@@ -347,8 +321,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
                       ),
                     ),
                   );
-                  },
-                ),
+                },
               );
             },
           ),
@@ -376,7 +349,6 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
           PremiumFeature.regimen,
           PremiumFeature.theme,
           PremiumFeature.notifications,
-          PremiumFeature.cloudSync,
         ];
 
         return ListView.separated(
@@ -601,14 +573,7 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-class _OwnerDashboardData {
-  final _OwnerStats stats;
-  final double revenueTotalSar;
-  const _OwnerDashboardData({required this.stats, required this.revenueTotalSar});
-}
-
 class _OwnerStats {
-  final int totalUsers;
   final int activeTotal;
   final int monthlyCount;
   final int yearlyCount;
@@ -618,7 +583,6 @@ class _OwnerStats {
   final List<_OwnerUserSummary> latestActiveUsers;
 
   const _OwnerStats({
-    required this.totalUsers,
     required this.activeTotal,
     required this.monthlyCount,
     required this.yearlyCount,
@@ -660,7 +624,6 @@ class _OwnerStats {
     activeUsers.sort((a, b) => b.expiry.compareTo(a.expiry));
 
     return _OwnerStats(
-      totalUsers: docs.length,
       activeTotal: activeTotal,
       monthlyCount: monthlyCount,
       yearlyCount: yearlyCount,
@@ -751,27 +714,10 @@ class _OwnerUserRow {
     final sub = (data['subscription'] is Map)
         ? Map<String, dynamic>.from(data['subscription'] as Map)
         : const <String, dynamic>{};
-    final entitlement = (data['entitlement'] is Map)
-        ? Map<String, dynamic>.from(data['entitlement'] as Map)
-        : const <String, dynamic>{};
-
-    // لا نستبعد الاشتراك بسبب source قديم؛ نقرأ كل صيغ الاشتراك الموجودة حتى لا يظهر العدد ناقصًا.
-    subscriptionOnlyExpiry = _maxDate(
-      _coerceDate(sub['expiry'], sub['expiryMillis']),
-      _maxDate(
-        _coerceDate(sub['expiresAt'], sub['expiryAt']),
-        _maxDate(
-          _coerceDate(entitlement['expiryAt'], entitlement['expiresAt']),
-          _maxDate(
-            _coerceDate(data['subscriptionExpiry'], data['subscriptionExpiryMillis']),
-            _maxDate(
-              _coerceDate(data['premiumUntil'], data['premiumExpiry']),
-              _coerceDate(data['expiresAt'], data['expiry']),
-            ),
-          ),
-        ),
-      ),
-    );
+    final source = (sub['source'] ?? '').toString().toUpperCase();
+    if (!source.contains('FALLBACK') && !source.contains('NO_APP_RECEIPT')) {
+      subscriptionOnlyExpiry = _coerceDate(sub['expiry'], sub['expiryMillis']);
+    }
 
     final effectiveExpiry = _maxDate(subscriptionOnlyExpiry, ownerGrantExpiry);
     final activePlan = _resolvePlan(data, subscriptionOnlyExpiry, ownerGrantExpiry, effectiveExpiry);
@@ -828,10 +774,7 @@ class _OwnerUserRow {
     final sub = (data['subscription'] is Map)
         ? Map<String, dynamic>.from(data['subscription'] as Map)
         : const <String, dynamic>{};
-    final entitlement = (data['entitlement'] is Map)
-        ? Map<String, dynamic>.from(data['entitlement'] as Map)
-        : const <String, dynamic>{};
-    final pid = (sub['productId'] ?? entitlement['productId'] ?? data['productId'] ?? '').toString().trim();
+    final pid = (sub['productId'] ?? '').toString().trim();
     if (pid.startsWith('vip_monthly')) return _PlanInfo(pid.isEmpty ? 'الباقة الشهرية' : pid, _PlanType.monthly);
     if (pid.startsWith('vip_yearly')) return _PlanInfo(pid.isEmpty ? 'الباقة السنوية' : pid, _PlanType.yearly);
     if (pid.isNotEmpty) return _PlanInfo(pid, _PlanType.other);
