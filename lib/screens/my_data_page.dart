@@ -11,6 +11,7 @@ import '../data/legacy_user_repository.dart';
 import '../utils/calorie_calculator.dart'; // calculateCalories(...)
 import '../utils/macro_plan_engine.dart';
 import '../shared/macro_targets_controller.dart';
+import '../shared/weight_sync_service.dart';
 import '../core/data/wazen_identity_store.dart';
 
 class MyDataPage extends StatefulWidget {
@@ -168,6 +169,10 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setInt('${_Prefs.age}_$storageKey', age);
     await prefs.setDouble('${_Prefs.height}_$storageKey', height);
     await prefs.setDouble('${_Prefs.weight}_$storageKey', weight);
+    await prefs.setDouble('current_weight_$storageKey', weight);
+    await prefs.setDouble('currentWeight_$storageKey', weight);
+    await prefs.setDouble('weightKg_$storageKey', weight);
+    await prefs.setDouble('user_weight_$storageKey', weight);
     await prefs.setString('${_Prefs.goal}_$storageKey', goal);
     await prefs.setBool('${_Prefs.goalFatShred}_$storageKey', goalFatShred);
     await prefs.setInt('${_Prefs.lifestyleScore}_$storageKey', lifestyleScore);
@@ -573,6 +578,10 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setInt('${_Prefs.age}_$currentEmail', age);
     await prefs.setDouble('${_Prefs.height}_$currentEmail', height);
     await prefs.setDouble('${_Prefs.weight}_$currentEmail', weight);
+    await prefs.setDouble('current_weight_$currentEmail', weight);
+    await prefs.setDouble('currentWeight_$currentEmail', weight);
+    await prefs.setDouble('weightKg_$currentEmail', weight);
+    await prefs.setDouble('user_weight_$currentEmail', weight);
     await prefs.setString('${_Prefs.goal}_$currentEmail', goal);
     await prefs.setBool('${_Prefs.goalFatShred}_$currentEmail', goalFatShred);
     await prefs.setInt('${_Prefs.lifestyleScore}_$currentEmail', lifestyleScore);
@@ -598,6 +607,11 @@ class _MyDataPageState extends State<MyDataPage> {
       await _mirrorCorePrefs(prefs, uid, stamp: stamp);
     }
     await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
+
+    // ✅ توحيد الوزن مع صفحة التتبع فورًا: current_weight + weight_log + uid/email aliases.
+    // مهم: يحدث قبل أي كتابة Firestore حتى صفحة التتبع تتحدث مباشرة حتى لو الشبكة بطيئة.
+    await WeightSyncService.saveCurrentWeight(kg: weight);
+    MacroTargetsController.bump();
 
     try {
       if (uid.isNotEmpty) {
@@ -933,6 +947,9 @@ class _MyDataPageState extends State<MyDataPage> {
               }
             } else {
               weight = upd.weight;
+              // ✅ حفظ فوري للوزن بدون انتظار تغيير الهدف أو انتهاء حفظ Firestore.
+              await WeightSyncService.saveCurrentWeight(kg: weight);
+              MacroTargetsController.bump();
               _lastWeightChangeAtMs = now;
               final prefs = await SharedPreferences.getInstance();
               final currentEmail =

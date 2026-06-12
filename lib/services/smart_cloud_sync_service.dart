@@ -86,6 +86,7 @@ class SmartCloudSyncService {
   static const int schemaVersion = 3;
   static const int defaultDayLimit = 90;
   static const int maxDayLimit = 180;
+  static const String _deletedDaysKey = 'wazen_deleted_calorie_days';
 
   bool _running = false;
 
@@ -176,6 +177,38 @@ class SmartCloudSyncService {
     }
   }
 
+
+  Set<String> _readDeletedDays(SharedPreferences prefs) {
+    return (prefs.getStringList(_deletedDaysKey) ?? const <String>[])
+        .map((e) => e.trim())
+        .where(_looksLikeYmd)
+        .toSet();
+  }
+
+  Future<void> _writeDeletedDays(SharedPreferences prefs, Set<String> days) async {
+    final list = days.where(_looksLikeYmd).toList()..sort((a, b) => b.compareTo(a));
+    await prefs.setStringList(_deletedDaysKey, list);
+  }
+
+  Future<void> _deleteCloudDay(String uid, String ymd) async {
+    final userRef = _db.collection('users').doc(uid);
+    final batch = _db.batch();
+    batch.delete(userRef.collection('days').doc(ymd));
+    batch.set(
+      userRef,
+      {
+        'cloudDeletedCalorieDays': FieldValue.arrayUnion([ymd]),
+        'cloudSync': {
+          'deletedDaysUpdatedAt': FieldValue.serverTimestamp(),
+          'schema': schemaVersion,
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+  }
+
   Future<WazenIdentity> _identity(SharedPreferences prefs, User user) async {
     return WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs);
   }
@@ -228,13 +261,18 @@ class SmartCloudSyncService {
       final id = await _identity(prefs, user);
       final email = id.emailKey;
       final safeLimit = dayLimit.clamp(1, maxDayLimit).toInt();
-      final localDays = _discoverLocalDays(prefs).take(safeLimit).toList();
+      final deletedDays = _readDeletedDays(prefs).take(safeLimit).toList();
+      final deletedSet = deletedDays.toSet();
+      final localDays = _discoverLocalDays(prefs)
+          .where((ymd) => !deletedSet.contains(ymd))
+          .take(safeLimit)
+          .toList();
       final profile = await _buildProfilePatch(prefs: prefs, user: user, email: email);
 
       onProgress?.call(SmartCloudSyncProgress(
         stage: 'profile',
         current: 0,
-        total: math.max(1, localDays.length + 1),
+        total: math.max(1, localDays.length + deletedDays.length + 1),
         message: 'جاري رفع بيانات الحساب...',
       ));
 
@@ -244,11 +282,25 @@ class SmartCloudSyncService {
       int uploaded = 0;
       int writes = 1;
       int step = 1;
+
+      for (final ymd in deletedDays) {
+        onProgress?.call(SmartCloudSyncProgress(
+          stage: 'delete',
+          current: step,
+          total: localDays.length + deletedDays.length + 1,
+          message: 'جاري حذف يوم $ymd من السحابة...',
+        ));
+        await _withFirestoreRetry<void>(() => _deleteCloudDay(user.uid, ymd));
+        writes++;
+        step++;
+        await Future<void>.delayed(const Duration(milliseconds: 16));
+      }
+
       for (final ymd in localDays) {
         onProgress?.call(SmartCloudSyncProgress(
           stage: 'days',
           current: step,
-          total: localDays.length + 1,
+          total: localDays.length + deletedDays.length + 1,
           message: 'جاري مزامنة يوم $ymd...',
         ));
 
@@ -263,12 +315,20 @@ class SmartCloudSyncService {
           continue;
         }
 
-        await _withFirestoreRetry<void>(() => _db
-            .collection('users')
-            .doc(user.uid)
-            .collection('days')
-            .doc(ymd)
-            .set(day, SetOptions(merge: true)));
+        await _withFirestoreRetry<void>(() async {
+          final userRef = _db.collection('users').doc(user.uid);
+          final batch = _db.batch();
+          batch.set(userRef.collection('days').doc(ymd), day, SetOptions(merge: true));
+          batch.set(
+            userRef,
+            {
+              'cloudDeletedCalorieDays': FieldValue.arrayRemove([ymd]),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+          await batch.commit();
+        });
         uploaded++;
         writes++;
         step++;
@@ -283,14 +343,14 @@ class SmartCloudSyncService {
 
       onProgress?.call(SmartCloudSyncProgress(
         stage: 'done',
-        current: localDays.length + 1,
-        total: localDays.length + 1,
-        message: uploaded == 0 ? 'لا توجد أيام محلية جديدة للرفع.' : 'تم رفع $uploaded يوم بنجاح.',
+        current: localDays.length + deletedDays.length + 1,
+        total: localDays.length + deletedDays.length + 1,
+        message: uploaded == 0 && deletedDays.isEmpty ? 'لا توجد أيام محلية جديدة للرفع.' : 'تم رفع $uploaded يوم وحذف ${deletedDays.length} يوم من السحابة.',
       ));
 
       return SmartCloudSyncResult(
         success: true,
-        message: uploaded == 0 ? 'تم تحديث بيانات الحساب. لا توجد أيام جديدة للرفع.' : 'تمت المزامنة بنجاح.',
+        message: uploaded == 0 && deletedDays.isEmpty ? 'تم تحديث بيانات الحساب. لا توجد أيام جديدة للرفع.' : 'تمت المزامنة بنجاح.',
         uploadedDays: uploaded,
         restoredDays: 0,
         writes: writes,
@@ -332,6 +392,7 @@ class SmartCloudSyncService {
       final id = await _identity(prefs, user);
       final email = id.emailKey;
       final safeLimit = dayLimit.clamp(1, maxDayLimit).toInt();
+      final deletedDays = _readDeletedDays(prefs);
 
       onProgress?.call(const SmartCloudSyncProgress(
         stage: 'download',
@@ -348,6 +409,15 @@ class SmartCloudSyncService {
         await _applyProfileToPrefs(prefs: prefs, email: email, data: userData, overwriteLocal: overwriteLocal);
       }
 
+      final cloudDeleted = userData?['cloudDeletedCalorieDays'];
+      if (cloudDeleted is List) {
+        for (final item in cloudDeleted) {
+          final ymd = item.toString().trim();
+          if (_looksLikeYmd(ymd)) deletedDays.add(ymd);
+        }
+      }
+      await _writeDeletedDays(prefs, deletedDays);
+
       final q = await _withFirestoreRetry<QuerySnapshot<Map<String, dynamic>>>(
         () => _db
             .collection('users')
@@ -362,6 +432,10 @@ class SmartCloudSyncService {
       int step = 0;
       final total = math.max(1, q.docs.length);
       for (final doc in q.docs) {
+        if (deletedDays.contains(doc.id)) {
+          unawaited(_deleteCloudDay(user.uid, doc.id).catchError((_) {}));
+          continue;
+        }
         step++;
         onProgress?.call(SmartCloudSyncProgress(
           stage: 'apply',
@@ -411,6 +485,7 @@ class SmartCloudSyncService {
   }
 
   List<String> _discoverLocalDays(SharedPreferences prefs) {
+    final deleted = _readDeletedDays(prefs);
     final days = <String>{};
     for (final key in prefs.getKeys()) {
       for (final ymd in _extractYmdsFromKey(key)) {
@@ -425,6 +500,7 @@ class SmartCloudSyncService {
     // تأكد من وجود اليوم الحالي حتى لو ما فيه إلا وجبات محفوظة بالمفتاح الحالي.
     days.add(_ymd(DateTime.now()));
 
+    days.removeAll(deleted);
     final list = days.toList()..sort((a, b) => b.compareTo(a));
     return list;
   }
@@ -513,6 +589,7 @@ class SmartCloudSyncService {
     required String uid,
     required String ymd,
   }) async {
+    if (_readDeletedDays(prefs).contains(ymd)) return null;
     final identity = await WazenIdentityStore.currentIdentity(migrate: false);
     final sessionKey = await SessionManager.currentStorageKey();
     final aliases = <String>{
@@ -748,6 +825,7 @@ class SmartCloudSyncService {
     required Map<String, dynamic> data,
     required bool overwriteLocal,
   }) async {
+    if (_readDeletedDays(prefs).contains(ymd)) return false;
     bool changed = false;
 
     Future<void> setStringIfAllowed(String key, String value) async {

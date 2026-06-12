@@ -2,7 +2,7 @@ name: my_app
 description: تطبيق صحي لحساب السعرات والبروتين والكارب والدهون.
 publish_to: 'none'
 
-version: 1.14.0+56
+version: 1.15.0+57
 
 
 environment:
@@ -100,50 +100,25 @@ flutter:
   uses-material-design: true
 
   assets:
-    # ملف إعدادات التطبيق غير السرية (روابط/Region فقط)
-    - .env
+  # ملف إعدادات التطبيق غير السرية (روابط/Region فقط)
+  - .env
 
-    # بيانات قديمة/محتوى التطبيق
-    - assets/foods.json
-    - assets/restaurant_meals_579.csv
+  # بيانات قديمة/محتوى التطبيق
+  - assets/foods.json
+  - assets/restaurant_meals_579.csv
 
-    # أيقونة التطبيق
-    - assets/icon/app_icon.png
+  # أيقونة التطبيق
+  - assets/icon/app_icon.png
 
-    # شعار الواجهة الجديد (لشاشة الترحيب)
-    - assets/images/app_logo.png
+  # شعار الواجهة الجديد (لشاشة الترحيب)
+  - assets/images/app_logo.png
 
-    # صور الواجهة الجديدة:
-    # فئات البداية (المربعات: مطاعم/مقاهي)
-    - assets/images/categories/
-    # صور المنشآت (مطاعم/مقاهي) – ضع صورك هنا
-    - assets/images/venues/
+  # صور الواجهة الجديدة:
+  # فئات البداية (المربعات: مطاعم/مقاهي)
+  - assets/images/categories/
 
-    # شارة صنع في السعودية
-    - assets/saudi_made/
+  # صور المنشآت (مطاعم/مقاهي) – ضع صورك هنا
+  - assets/images/venues/
 
-  fonts:
-    - family: Tajawal
-      fonts:
-        - asset: assets/Tajawal-Regular.ttf
-
-    - family: Jenine
-      fonts:
-        - asset: assets/fonts/Jenine-Bold-1.otf
-          weight: 700
-
-# إعدادات flutter_launcher_icons (جذر الملف، ليس تحت flutter:)
-flutter_launcher_icons:
-  ios: true
-  android: true
-  image_path: "assets/icon/app_icon.png"
-  adaptive_icon_foreground: "assets/icon/app_icon.png"
-  adaptive_icon_background: "#FFFFFF"
-  remove_alpha_ios: true
-  windows:
-    generate: false
-    image_path: "assets/icon/app_icon.png"
-    icon_size: 48
-  macos:
-    generate: false
-    image_path: "assets/icon/app_icon.png"
+  # شارة صنع في السعودية
+  - assets/saudi_made/

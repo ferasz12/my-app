@@ -5,9 +5,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/data/wazen_identity_store.dart';
+import '../shared/session_manager.dart';
 import 'end_of_day_cloud_backup_service.dart';
 
 class TrackerStore {
@@ -22,6 +25,8 @@ class TrackerStore {
 
   static String _ymd(DateTime d) => _keyForDate(d).replaceFirst('diet_', '');
 
+  static const String _deletedDaysKey = 'wazen_deleted_calorie_days';
+
   static Future<String> _email() async {
     final prefs = await SharedPreferences.getInstance();
     return (prefs.getString('currentEmail') ??
@@ -29,6 +34,83 @@ class TrackerStore {
             FirebaseAuth.instance.currentUser?.uid ??
             'unknown_user')
         .trim();
+  }
+
+  static Future<List<String>> _knownAliases(SharedPreferences prefs) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final identity = await WazenIdentityStore.currentIdentity(user: user, migrate: false);
+    String sessionKey = '';
+    try {
+      sessionKey = await SessionManager.currentStorageKey();
+    } catch (_) {}
+
+    final aliases = <String>{
+      identity.storageKey,
+      identity.emailKey,
+      ...identity.aliases,
+      prefs.getString('currentEmail') ?? '',
+      prefs.getString('currentUid') ?? '',
+      user?.uid ?? '',
+      user?.email?.trim().toLowerCase() ?? '',
+      sessionKey,
+      'unknown_user',
+    }..removeWhere((e) => e.trim().isEmpty);
+
+    return aliases.toList(growable: false);
+  }
+
+  static Set<String> _deletedDays(SharedPreferences prefs) {
+    return (prefs.getStringList(_deletedDaysKey) ?? const <String>[])
+        .map(normalizeYmd)
+        .where(_looksLikeYmd)
+        .toSet();
+  }
+
+  static bool _looksLikeYmd(String value) {
+    return RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value.trim());
+  }
+
+  static Future<void> _markDayDeleted(SharedPreferences prefs, String ymd) async {
+    final date = normalizeYmd(ymd);
+    final set = _deletedDays(prefs)..add(date);
+    final list = set.toList()..sort((a, b) => b.compareTo(a));
+    await prefs.setStringList(_deletedDaysKey, list);
+    await prefs.setString('wazen_deleted_calorie_day_at_$date', DateTime.now().toIso8601String());
+  }
+
+  static Future<void> _unmarkDayDeleted(SharedPreferences prefs, String ymd) async {
+    final date = normalizeYmd(ymd);
+    final set = _deletedDays(prefs);
+    if (set.remove(date)) {
+      final list = set.toList()..sort((a, b) => b.compareTo(a));
+      await prefs.setStringList(_deletedDaysKey, list);
+    }
+    await prefs.remove('wazen_deleted_calorie_day_at_$date');
+  }
+
+  static Future<void> _deleteCloudDayPermanently(String ymd) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final date = normalizeYmd(ymd);
+    final db = FirebaseFirestore.instance;
+    final userRef = db.collection('users').doc(user.uid);
+    final batch = db.batch();
+
+    batch.delete(userRef.collection('days').doc(date));
+    batch.set(
+      userRef,
+      {
+        'cloudDeletedCalorieDays': FieldValue.arrayUnion([date]),
+        'cloudSync': {
+          'deletedDaysUpdatedAt': FieldValue.serverTimestamp(),
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    await batch.commit().timeout(const Duration(seconds: 8));
   }
 
   static double _toD(dynamic v) {
@@ -56,6 +138,8 @@ class TrackerStore {
     required double fat,
     List<Map<String, dynamic>>? entries,
   }) async {
+    await _unmarkDayDeleted(prefs, ymd);
+
     final map = {
       'date': ymd,
       'calories': cal,
@@ -356,11 +440,13 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
 
+    final deleted = _deletedDays(prefs);
     final byDate = <String, Map<String, dynamic>>{};
 
     final totalsPrefix = 'kcal_daytotals_${email}_';
     for (final k in prefs.getKeys().where((x) => x.startsWith(totalsPrefix))) {
       final ymd = k.substring(totalsPrefix.length);
+      if (deleted.contains(ymd)) continue;
       final totals = _decodeMap(prefs.getString(k));
       if (totals == null) continue;
       byDate[ymd] = _dayMapFromTotals(ymd: ymd, totals: totals);
@@ -373,6 +459,7 @@ class TrackerStore {
       final m = _decodeMap(raw);
       if (m == null) continue;
       final ymd = (m['date'] ?? k.replaceFirst('diet_', '')).toString();
+      if (deleted.contains(ymd)) continue;
       byDate.putIfAbsent(ymd, () => {
             'date': ymd,
             'calories': _toD(m['calories']),
@@ -394,12 +481,38 @@ class TrackerStore {
 
   static Future<void> clearDay(String yyyymmdd) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = await _email();
-    await prefs.remove('diet_$yyyymmdd');
-    await prefs.remove('kcal_daytotals_${email}_$yyyymmdd');
-    await prefs.remove('intake_entries_${email}_$yyyymmdd');
-    await prefs.remove('kcal_day_locked_${email}_$yyyymmdd');
-    await prefs.setBool('eod_cloud_backup_done_${email}_$yyyymmdd', false);
+    final date = normalizeYmd(yyyymmdd);
+    final aliases = await _knownAliases(prefs);
+
+    // احذف كل نسخ اليوم المحلية، سواء كانت بالمفتاح الجديد UID أو البريد أو المفاتيح القديمة.
+    await prefs.remove('diet_$date');
+    await prefs.remove('dietCalories_$date');
+    await prefs.remove('dietProtein_$date');
+    await prefs.remove('dietCarb_$date');
+    await prefs.remove('dietFat_$date');
+
+    for (final a in aliases) {
+      await prefs.remove('kcal_daytotals_${a}_$date');
+      await prefs.remove('intake_entries_${a}_$date');
+      await prefs.remove('kcal_day_locked_${a}_$date');
+      await prefs.remove('meals_${a}_$date');
+      await prefs.remove('activity_${date}_$a');
+      await prefs.remove('water_${date}_$a');
+      await prefs.remove('water_total_${a}_$date');
+      await prefs.remove('water_ml_${date}_$a');
+      await prefs.setBool('eod_cloud_backup_done_${a}_$date', false);
+      await prefs.setBool('eod_cloud_dirty_${a}_$date', false);
+    }
+
+    // Tombstone محلي: يمنع الاسترجاع اليدوي من إرجاع اليوم المحذوف مرة ثانية.
+    await _markDayDeleted(prefs, date);
+
+    // حذف فعلي من Firestore + حفظ علامة حذف سحابية لتفهم الأجهزة الثانية أن هذا اليوم محذوف.
+    // إذا فشل الاتصال، سيبقى الـ tombstone المحلي، وستحاول المزامنة اليدوية القادمة حذف اليوم من السحابة.
+    try {
+      await _deleteCloudDayPermanently(date);
+    } catch (_) {}
+
     unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 

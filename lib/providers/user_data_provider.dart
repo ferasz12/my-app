@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/app_repository.dart';
 import '../core/data/wazen_identity_store.dart';
+import '../shared/weight_sync_service.dart';
 
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
@@ -91,7 +92,20 @@ class UserDataProvider extends ChangeNotifier {
     final today = DateTime.now().toIso8601String().split('T').first;
 
     weight = newWeight;
-    await WazenIdentityStore.writeToAllAliases(prefs, (await WazenIdentityStore.currentIdentity(migrate: false)).aliases, (a) => 'weight_$a', newWeight);
+    final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+    await WazenIdentityStore.writeToAllAliases(
+      prefs,
+      identity.aliases,
+      (a) => 'weight_$a',
+      newWeight,
+    );
+    await WazenIdentityStore.writeToAllAliases(
+      prefs,
+      identity.aliases,
+      (a) => 'current_weight_$a',
+      newWeight,
+    );
+    await WeightSyncService.saveCurrentWeight(kg: newWeight);
 
     // حفظ قراءة الوزن في سجل محلي + سحابي حتى تظهر في صفحة التتبع بعد إعادة تثبيت التطبيق.
     try {

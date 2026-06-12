@@ -321,6 +321,7 @@ class _LoginPageState extends State<LoginPage> {
                                 keyboardType: TextInputType.emailAddress,
                                 textDirection: TextDirection.ltr,
                                 decoration: OnboardingKit.inputDecoration(
+                                  context: context,
                                   label: 'بريد حساب وازن',
                                   icon: Icons.email_outlined,
                                   hint: 'example@mail.com',
@@ -334,6 +335,7 @@ class _LoginPageState extends State<LoginPage> {
                                 textDirection: TextDirection.ltr,
                                 obscureText: _obsc,
                                 decoration: OnboardingKit.inputDecoration(
+                                  context: context,
                                   label: 'كلمة مرور وازن',
                                   icon: Icons.lock_outline,
                                   suffixIcon: IconButton(
@@ -351,7 +353,7 @@ class _LoginPageState extends State<LoginPage> {
                                 child: TextButton(
                                   onPressed: _busy ? null : _onForgotPassword,
                                   style: TextButton.styleFrom(
-                                    foregroundColor: OnboardingKit.primary,
+                                    foregroundColor: Theme.of(context).colorScheme.primary,
                                     textStyle: (tt.titleSmall ?? const TextStyle()).copyWith(
                                       fontWeight: FontWeight.w900,
                                     ),
@@ -366,7 +368,7 @@ class _LoginPageState extends State<LoginPage> {
                                 height: 56,
                                 child: ElevatedButton(
                                   onPressed: _busy ? null : _onLogin,
-                                  style: OnboardingKit.primaryButtonStyle(tt),
+                                  style: OnboardingKit.primaryButtonStyle(tt, context: context),
                                   child: _busy
                                       ? const SizedBox(
                                           width: 22,
@@ -385,7 +387,7 @@ class _LoginPageState extends State<LoginPage> {
                                   Text(
                                     'جديد في وازن؟',
                                     style: (tt.bodyMedium ?? const TextStyle()).copyWith(
-                                      color: Colors.black.withOpacity(0.65),
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -394,7 +396,7 @@ class _LoginPageState extends State<LoginPage> {
                                         ? null
                                         : () => Navigator.of(context).pushReplacementNamed('/signup'),
                                     style: TextButton.styleFrom(
-                                      foregroundColor: OnboardingKit.primary,
+                                      foregroundColor: Theme.of(context).colorScheme.primary,
                                       textStyle: (tt.titleSmall ?? const TextStyle()).copyWith(
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -414,7 +416,7 @@ class _LoginPageState extends State<LoginPage> {
                         'بياناتك الصحية خاصة — وبمتابعتك توافق على سياسة الخصوصية',
                         textAlign: TextAlign.center,
                         style: (tt.bodySmall ?? const TextStyle()).copyWith(
-                          color: Colors.black.withOpacity(0.45),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.72),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -452,6 +454,8 @@ class _AuthHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
@@ -461,14 +465,14 @@ class _AuthHero extends StatelessWidget {
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
           colors: [
-            Colors.white.withOpacity(0.66),
-            Colors.white.withOpacity(0.34),
+            cs.surface.withOpacity(isDark ? 0.58 : 0.72),
+            cs.surfaceContainerHighest.withOpacity(isDark ? 0.34 : 0.52),
           ],
         ),
-        border: Border.all(color: Colors.white.withOpacity(0.42)),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.52)),
         boxShadow: [
           BoxShadow(
-            color: OnboardingKit.primary.withOpacity(0.10),
+            color: cs.primary.withOpacity(isDark ? 0.18 : 0.10),
             blurRadius: 30,
             offset: const Offset(0, 16),
           ),
@@ -484,7 +488,7 @@ class _AuthHero extends StatelessWidget {
             style: (tt.headlineSmall ?? const TextStyle()).copyWith(
               fontWeight: FontWeight.w900,
               height: 1.15,
-              color: Colors.black.withOpacity(0.86),
+              color: cs.onSurface,
             ),
           ),
           const SizedBox(height: 8),
@@ -492,7 +496,7 @@ class _AuthHero extends StatelessWidget {
             subtitle,
             textAlign: TextAlign.center,
             style: (tt.bodyMedium ?? const TextStyle()).copyWith(
-              color: OnboardingKit.textMuted,
+              color: cs.onSurfaceVariant,
               fontWeight: FontWeight.w700,
               height: 1.55,
             ),
@@ -514,9 +518,9 @@ class _WazenHeroMark extends StatelessWidget {
       height: 92,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
-      errorBuilder: (_, __, ___) => const Icon(
+      errorBuilder: (_, __, ___) => Icon(
         Icons.fitness_center_rounded,
-        color: OnboardingKit.primary,
+        color: Theme.of(context).colorScheme.primary,
         size: 42,
       ),
     );
@@ -536,7 +540,7 @@ class _NoticeSnackContent extends StatelessWidget {
   final String message;
   final _NoticeType type;
 
-  Color get _accent {
+  Color _accentColor(BuildContext context) {
     switch (type) {
       case _NoticeType.success:
         return const Color(0xFF16A34A);
@@ -545,7 +549,7 @@ class _NoticeSnackContent extends StatelessWidget {
       case _NoticeType.error:
         return const Color(0xFFDC2626);
       case _NoticeType.info:
-        return OnboardingKit.primary;
+        return Theme.of(context).colorScheme.primary;
     }
   }
 
@@ -565,14 +569,16 @@ class _NoticeSnackContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    final accent = _accentColor(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: cs.surface,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: _accent.withOpacity(0.18)),
+          border: Border.all(color: accent.withOpacity(0.22)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.14),
@@ -588,10 +594,10 @@ class _NoticeSnackContent extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: _accent.withOpacity(0.12),
+                color: accent.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Icon(_icon, color: _accent, size: 23),
+              child: Icon(_icon, color: accent, size: 23),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -603,7 +609,7 @@ class _NoticeSnackContent extends StatelessWidget {
                     title,
                     style: (tt.titleSmall ?? const TextStyle()).copyWith(
                       fontWeight: FontWeight.w900,
-                      color: const Color(0xFF111827),
+                      color: cs.onSurface,
                     ),
                   ),
                   const SizedBox(height: 3),
@@ -611,7 +617,7 @@ class _NoticeSnackContent extends StatelessWidget {
                     message,
                     style: (tt.bodySmall ?? const TextStyle()).copyWith(
                       height: 1.45,
-                      color: const Color(0xFF4B5563),
+                      color: cs.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -631,6 +637,8 @@ class _GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(34),
       child: BackdropFilter(
@@ -642,15 +650,15 @@ class _GlassCard extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withOpacity(0.60),
-                Colors.white.withOpacity(0.34),
+                cs.surface.withOpacity(isDark ? 0.62 : 0.74),
+                cs.surfaceContainerHighest.withOpacity(isDark ? 0.34 : 0.50),
               ],
             ),
             borderRadius: BorderRadius.circular(34),
-            border: Border.all(color: Colors.white.withOpacity(0.42), width: 1),
+            border: Border.all(color: cs.outlineVariant.withOpacity(0.55), width: 1),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withOpacity(isDark ? 0.24 : 0.08),
                 blurRadius: 30,
                 offset: const Offset(0, 18),
               ),
@@ -670,6 +678,8 @@ class _IconCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkResponse(
       onTap: onTap,
       radius: 26,
@@ -681,12 +691,12 @@ class _IconCircle extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.34),
+              color: cs.surface.withOpacity(isDark ? 0.42 : 0.62),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.40)),
+              border: Border.all(color: cs.outlineVariant.withOpacity(0.52)),
             ),
             child: Center(
-              child: Icon(icon, size: 18, color: Colors.black.withOpacity(0.72)),
+              child: Icon(icon, size: 18, color: cs.onSurfaceVariant),
             ),
           ),
         ),
@@ -703,23 +713,24 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.46),
+        color: cs.surfaceContainerHighest.withOpacity(0.52),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.38)),
+        border: Border.all(color: cs.outlineVariant.withOpacity(0.50)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: OnboardingKit.primary.withOpacity(0.9)),
+          Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary.withOpacity(0.9)),
           const SizedBox(width: 8),
           Text(
             label,
             style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
               fontWeight: FontWeight.w800,
-              color: Colors.black.withOpacity(0.70),
+              color: cs.onSurfaceVariant,
             ),
           ),
         ],

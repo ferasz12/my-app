@@ -2,7 +2,6 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/painting.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -18,7 +17,6 @@ import '../achievements/achievements_with_leaderboard.dart';
 import 'settings_page.dart';
 import '../settings/edit_username_page.dart';
 import '../shared/user_goal_controller.dart';
-import '../shared/nav_icon_asset.dart';
 import '../services/whats_new_service.dart';
 
 class MainNavigationScreen extends StatefulWidget {
@@ -262,8 +260,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 label: 'الرئيسية',
               ),
               NavigationDestination(
-                icon: WazenNavIcon(name: 'my_data', fallbackIcon: Icons.person_rounded),
-                selectedIcon: WazenNavIcon(name: 'my_data', selected: true, fallbackIcon: Icons.person_rounded),
+                icon: WazenNavIcon(name: 'profile', fallbackIcon: Icons.person_rounded),
+                selectedIcon: WazenNavIcon(name: 'profile', selected: true, fallbackIcon: Icons.person_rounded),
                 label: 'بياناتي',
               ),
               NavigationDestination(
@@ -272,13 +270,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 label: 'تتبع الوزن',
               ),
               NavigationDestination(
-                icon: WazenNavIcon(name: 'regimen', fallbackIcon: Icons.local_hospital_rounded),
-                selectedIcon: WazenNavIcon(name: 'regimen', selected: true, fallbackIcon: Icons.local_hospital_rounded),
-                label: 'رجيمي',
-              ),
+  icon: WazenNavIcon(name: 'regimen', fallbackIcon: Icons.health_and_safety_rounded),
+  selectedIcon: WazenNavIcon(
+    name: 'regimen',
+    selected: true,
+    fallbackIcon: Icons.health_and_safety_rounded,
+  ),
+  label: 'رجيمي',
+),
               NavigationDestination(
-                icon: WazenNavIcon(name: 'guide', fallbackIcon: Icons.map_rounded),
-                selectedIcon: WazenNavIcon(name: 'guide', selected: true, fallbackIcon: Icons.map_rounded),
+                icon: WazenNavIcon(name: 'guide', fallbackIcon: Icons.menu_book_rounded),
+                selectedIcon: WazenNavIcon(name: 'guide', selected: true, fallbackIcon: Icons.menu_book_rounded),
                 label: 'دليلك',
               ),
               NavigationDestination(
@@ -295,6 +297,36 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+
+class WazenNavIcon extends StatelessWidget {
+  final String name;
+  final bool selected;
+  final IconData fallbackIcon;
+
+  const WazenNavIcon({
+    super.key,
+    required this.name,
+    this.selected = false,
+    required this.fallbackIcon,
+  });
+
+  // لا يستخدم صور ولا SVG نهائيًا.
+  // يعتمد فقط على أيقونات Flutter ولا يقرأ من ملفات خارجية.
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final iconTheme = IconTheme.of(context);
+    final color = iconTheme.color ??
+        (selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant);
+
+    return Icon(
+      fallbackIcon,
+      color: color,
+      size: iconTheme.size ?? 24,
     );
   }
 }
@@ -322,7 +354,7 @@ class _GlassAdaptiveNavBar extends StatelessWidget {
     final scale = mq.textScaleFactor;
     final shortest = mq.size.shortestSide;
     final isCompact = shortest < 360 || scale > 1.10;
-    return isCompact ? 56.0 : 64.0;
+    return isCompact ? 66.0 : 74.0;
   }
 
   @override
@@ -376,7 +408,7 @@ class _GlassAdaptiveNavBar extends StatelessWidget {
                       final selected = states.contains(MaterialState.selected);
                       return IconThemeData(
                         color: selected ? activeColor : inactiveColor,
-                        size: height <= 56 ? 22 : 24,
+                        size: height <= 66 ? 28 : 30,
                       );
                     },
                   ),

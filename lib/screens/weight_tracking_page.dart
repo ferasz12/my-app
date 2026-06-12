@@ -27,6 +27,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/tracker_store.dart';
 import '../water/water_store.dart';
 import '../data/app_repository.dart';
+import '../shared/weight_live_bus.dart';
+import '../shared/macro_targets_controller.dart';
+import '../core/data/wazen_identity_store.dart';
 
 
 // ==== Global helpers for insights ====
@@ -89,16 +92,6 @@ Map<String, double> sumFromIterable(Iterable items) {
   return {'cal': cal, 'protein': p, 'carb': c, 'fat': f};
 }
 
-/// ========= بث لحظي لتحديث الوزن =========
-class WeightLiveBus {
-  static final StreamController<void> _ctrl =
-      StreamController<void>.broadcast();
-  static Stream<void> get stream => _ctrl.stream;
-  static void ping() {
-    if (!_ctrl.isClosed) _ctrl.add(null);
-  }
-}
-
 /// ========= Helpers =========
 String _todayKey() => DateTime.now().toIso8601String().split('T').first;
 
@@ -147,6 +140,89 @@ Future<String?> _currentEmail() async {
   final prefs = await SharedPreferences.getInstance();
   return prefs.getString('currentEmail');
 }
+
+Future<List<String>> _currentProfileAliases() async {
+  final prefs = await SharedPreferences.getInstance();
+  final id = await WazenIdentityStore.currentIdentity(migrate: false);
+  final aliases = <String>{
+    prefs.getString('currentEmail') ?? '',
+    prefs.getString(WazenIdentityStore.kCurrentEmailAddress) ?? '',
+    prefs.getString(WazenIdentityStore.kCurrentUid) ?? '',
+    prefs.getString(WazenIdentityStore.kCurrentStorageKey) ?? '',
+    id.storageKey,
+    id.uid,
+    id.email,
+    id.emailKey,
+    ...id.aliases,
+  }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+  return aliases.toList(growable: false);
+}
+
+String _latestProfileAlias(SharedPreferences prefs, List<String> aliases) {
+  if (aliases.isEmpty) return 'unknown_user';
+  var best = aliases.first;
+  var bestStamp = -1;
+  for (final alias in aliases) {
+    final stamp = math.max(
+      prefs.getInt('profileUpdatedAt_$alias') ?? 0,
+      prefs.getInt('macrosUpdatedAt_$alias') ?? 0,
+    );
+    if (stamp > bestStamp) {
+      bestStamp = stamp;
+      best = alias;
+    }
+  }
+  return best;
+}
+
+List<String> _orderedAliases(List<String> aliases, String preferred) {
+  return <String>[
+    if (preferred.trim().isNotEmpty && preferred != 'unknown_user') preferred,
+    ...aliases,
+  ].where((e) => e.trim().isNotEmpty && e != 'unknown_user').toSet().toList();
+}
+
+double? _prefDoubleAnyAlias(
+  SharedPreferences prefs,
+  List<String> prefixes,
+  List<String> aliases, {
+  String preferred = '',
+}) {
+  for (final alias in _orderedAliases(aliases, preferred)) {
+    for (final prefix in prefixes) {
+      final v = _prefDouble(prefs, '$prefix$alias');
+      if (v != null) return v;
+    }
+  }
+  return null;
+}
+
+int? _prefIntAnyAlias(
+  SharedPreferences prefs,
+  String prefix,
+  List<String> aliases, {
+  String preferred = '',
+}) {
+  for (final alias in _orderedAliases(aliases, preferred)) {
+    final v = _prefInt(prefs, '$prefix$alias');
+    if (v != null) return v;
+  }
+  return null;
+}
+
+String? _prefStringAnyAlias(
+  SharedPreferences prefs,
+  String prefix,
+  List<String> aliases, {
+  String preferred = '',
+}) {
+  for (final alias in _orderedAliases(aliases, preferred)) {
+    final v = _readStringFlexible(prefs, '$prefix$alias');
+    if (v != null && v.trim().isNotEmpty) return v;
+  }
+  return null;
+}
+
 Future<String?> _currentGoal() async {
   final prefs = await SharedPreferences.getInstance();
   final email = prefs.getString('currentEmail');
@@ -583,7 +659,7 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 4, vsync: this);
+    _tab = TabController(length: 5, vsync: this);
     _initUserNameSync();
   }
 
@@ -680,6 +756,7 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
       final week = await _collectSeries(daysBack: 7);
       final month = await _collectSeries(daysBack: 30);
       final year = await _collectSeries(daysBack: 365);
+      final allWeightPoints = await _loadAllWeightPointsForReport();
 
       final tajawal =
           pw.Font.ttf(await rootBundle.load('assets/Tajawal-Regular.ttf'));
@@ -1171,6 +1248,106 @@ doc.addPage(
     ),
   ),
 );
+
+// ====== صفحة سجل الوزن الكامل ======
+if (allWeightPoints.isNotEmpty) {
+  final firstWeight = allWeightPoints.first.kg;
+  final lastWeight = allWeightPoints.last.kg;
+  final change = lastWeight - firstWeight;
+  final minWeight = allWeightPoints.map((e) => e.kg).reduce(math.min);
+  final maxWeight = allWeightPoints.map((e) => e.kg).reduce(math.max);
+  final avgWeight = allWeightPoints.map((e) => e.kg).reduce((a, b) => a + b) /
+      allWeightPoints.length;
+
+  doc.addPage(
+    pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (ctx) => [
+        pw.Directionality(
+          textDirection: pw.TextDirection.rtl,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              header('سجل الوزن الكامل'),
+              pw.Text(
+                'هذه الصفحة تعرض جميع قراءات الوزن المسجلة في وازن، بينما واجهة التطبيق تعرض آخر 4 قراءات فقط حتى يبقى الرسم ثابتًا وواضحًا.',
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+              pw.SizedBox(height: 10),
+              _statsTable(
+                columns: ['عدد القراءات', 'أول قراءة', 'آخر قراءة', 'التغيّر', 'أدنى', 'أعلى', 'متوسط'],
+                rows: [
+                  [
+                    allWeightPoints.length.toString(),
+                    '${firstWeight.toStringAsFixed(1)} كجم',
+                    '${lastWeight.toStringAsFixed(1)} كجم',
+                    '${change >= 0 ? '+' : ''}${change.toStringAsFixed(1)} كجم',
+                    '${minWeight.toStringAsFixed(1)} كجم',
+                    '${maxWeight.toStringAsFixed(1)} كجم',
+                    '${avgWeight.toStringAsFixed(1)} كجم',
+                  ],
+                ],
+              ),
+              pw.SizedBox(height: 12),
+              _sectionTitle('رسم جميع قراءات الوزن'),
+              _weightPdfBars(allWeightPoints),
+              pw.SizedBox(height: 12),
+              _sectionTitle('كل القراءات المسجلة'),
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey300),
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(1),
+                  1: pw.FlexColumnWidth(1),
+                  2: pw.FlexColumnWidth(1),
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text('التاريخ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text('الوزن', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      ),
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.all(6),
+                        child: pw.Text('التغيّر عن السابق', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  ...List.generate(allWeightPoints.length, (i) {
+                    final point = allWeightPoints[i];
+                    final diff = i == 0 ? null : point.kg - allWeightPoints[i - 1].kg;
+                    return pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text(DateFormat('yyyy/MM/dd').format(point.t)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text('${point.kg.toStringAsFixed(1)} كجم'),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(6),
+                          child: pw.Text(diff == null ? '—' : '${diff >= 0 ? '+' : ''}${diff.toStringAsFixed(1)} كجم'),
+                        ),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 final dir = await getApplicationDocumentsDirectory();
       final name = 'tracking_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf';
       final file = File('${dir.path}/$name');
@@ -1197,6 +1374,12 @@ final dir = await getApplicationDocumentsDirectory();
   Future<_Series> _collectSeries({required int daysBack}) async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
+    final aliases = await _currentProfileAliases();
+    final profileKey = _latestProfileAlias(prefs, aliases);
+    final analysisKeys = <String>[
+      email,
+      ..._orderedAliases(aliases, profileKey),
+    ].where((e) => e.trim().isNotEmpty && e != 'unknown_user').toSet().toList();
 
     // بعد حذف التطبيق وإعادة تثبيته: رجّع السعرات والماء من Firestore إلى المحلي قبل بناء الرسوم.
     await TrackerStore.syncFromCloud(limit: daysBack + 30);
@@ -1209,38 +1392,39 @@ final dir = await getApplicationDocumentsDirectory();
     // -------------------------
     final weightMap = <String, double>{};
 
-    // الحديث: weight_log_$email => List<Map>{date, kg}
-    final weightLogRaw = prefs.getString('weight_log_$email');
-    if (weightLogRaw != null) {
-      try {
-        final list =
-            (jsonDecode(weightLogRaw) as List).cast<Map<String, dynamic>>();
-        for (final e in list) {
-          final d = e['date']?.toString();
-          final kg = (e['kg'] as num?)?.toDouble();
-          if (d != null && kg != null) weightMap[d] = kg;
-        }
-      } catch (_) {}
-    }
-
-    // القديم: weightHistory_$email => List<String(JSON)]
-    final historyList = prefs.getStringList('weightHistory_$email');
-    if (historyList != null) {
-      for (final s in historyList) {
+    // الحديث والقديم: اقرأ الوزن من كل مفاتيح المستخدم المحتملة.
+    for (final userKey in analysisKeys) {
+      final weightLogRaw = prefs.getString('weight_log_$userKey');
+      if (weightLogRaw != null) {
         try {
-          final m = jsonDecode(s) as Map<String, dynamic>;
-          final d = m['date']?.toString();
-          final kg = (m['weight'] as num?)?.toDouble();
-          if (d != null && kg != null) {
-            weightMap.putIfAbsent(d, () => kg);
+          final list = (jsonDecode(weightLogRaw) as List).cast<Map<String, dynamic>>();
+          for (final e in list) {
+            final d = e['date']?.toString();
+            final kg = (e['kg'] as num?)?.toDouble();
+            if (d != null && kg != null) weightMap[d] = kg;
           }
         } catch (_) {}
+      }
+      final historyList = prefs.getStringList('weightHistory_$userKey');
+      if (historyList != null) {
+        for (final item in historyList) {
+          try {
+            final m = jsonDecode(item) as Map<String, dynamic>;
+            final d = m['date']?.toString();
+            final kg = (m['weight'] as num?)?.toDouble();
+            if (d != null && kg != null) weightMap.putIfAbsent(d, () => kg);
+          } catch (_) {}
+        }
       }
     }
 
     // لو اليوم له وزن حالي ولم يكن في الخريطة
-    final current = _prefDouble(prefs, 'current_weight_$email') ??
-        _prefDouble(prefs, 'weight_$email');
+    final current = _prefDoubleAnyAlias(
+      prefs,
+      const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_'],
+      analysisKeys,
+      preferred: profileKey,
+    );
     final todayYmd =
         DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)
             .toIso8601String()
@@ -1267,14 +1451,17 @@ final dir = await getApplicationDocumentsDirectory();
     // 2) الماء (ليتر) -> (مل)
     // -------------------------
     final waterLitersMap = <String, double>{};
-    final waterLogRaw = prefs.getString('water_log_$email');
-    if (waterLogRaw != null) {
-      try {
-        final m = jsonDecode(waterLogRaw) as Map<String, dynamic>;
-        for (final e in m.entries) {
-          waterLitersMap[e.key] = (e.value as num).toDouble();
-        }
-      } catch (_) {}
+    for (final userKey in analysisKeys) {
+      final waterLogRaw = prefs.getString('water_log_$userKey');
+      if (waterLogRaw != null) {
+        try {
+          final m = jsonDecode(waterLogRaw) as Map<String, dynamic>;
+          for (final e in m.entries) {
+            final v = _toD(e.value);
+            if (v > 0) waterLitersMap[e.key] = v;
+          }
+        } catch (_) {}
+      }
     }
     for (final d in remoteDays) {
       final ymd = (d['date'] ?? '').toString();
@@ -1308,13 +1495,16 @@ final dir = await getApplicationDocumentsDirectory();
 
       // التغذية (سعرات/ماكروز) — المصدر الموحّد + fallback إلى مفاتيح قديمة
       double cal = 0.0, p = 0.0, c = 0.0, f = 0.0;
-      try {
-        final totals = await _readTotalsForDate(prefs, email, key);
-        cal = (totals['cal'] ?? 0.0);
-        p = (totals['p'] ?? 0.0);
-        c = (totals['c'] ?? 0.0);
-        f = (totals['f'] ?? 0.0);
-      } catch (_) {}
+      for (final userKey in analysisKeys) {
+        try {
+          final totals = await _readTotalsForDate(prefs, userKey, key);
+          cal = (totals['cal'] ?? 0.0);
+          p = (totals['p'] ?? 0.0);
+          c = (totals['c'] ?? 0.0);
+          f = (totals['f'] ?? 0.0);
+          if (cal > 0 || p > 0 || c > 0 || f > 0) break;
+        } catch (_) {}
+      }
 
       // fallback: diet_YYYY-MM-DD (قد يكون بدون email)
       if (cal == 0.0 && p == 0.0 && c == 0.0 && f == 0.0) {
@@ -1330,34 +1520,39 @@ final dir = await getApplicationDocumentsDirectory();
         }
       }
 
-      // النشاط (خطوات/محروق)
+      // النشاط (خطوات/محروق) — نفس مفاتيح صحتي وApple Health.
       int s = 0, b = 0;
-      final aRaw = prefs.getString('activity_${key}_$email');
-      if (aRaw != null) {
-        try {
-          final a = jsonDecode(aRaw) as Map<String, dynamic>;
-          s = _asSafeInt(a['steps']);
-          b = _asSafeInt(a['burned']);
-        } catch (_) {}
+      for (final userKey in analysisKeys) {
+        final aRaw = prefs.getString('activity_${key}_$userKey');
+        if (aRaw != null) {
+          try {
+            final a = jsonDecode(aRaw) as Map<String, dynamic>;
+            s = _asSafeInt(a['steps']);
+            b = _asSafeInt(a['burned'] ?? a['activeBurned']);
+          } catch (_) {}
+        }
+        if (s <= 0) s = _prefInt(prefs, 'steps_${key}_$userKey') ?? s;
+        if (b <= 0) b = _prefInt(prefs, 'active_burned_${key}_$userKey') ?? b;
+        if (s > 0 || b > 0) break;
       }
 
       // الماء (الهدف في التطبيق بالمل، التخزين باللتر)
-      double liters = _prefDouble(prefs, 'water_${key}_$email') ??
-          waterLitersMap[key] ??
-          0.0;
-
-      // legacy (إن وُجد) – ماء مخزن كمل
-      final legacyMlInt = _prefInt(prefs, 'waterMl_${key}_$email') ??
-          _prefInt(prefs, 'water_ml_${key}_$email') ??
-          _prefInt(prefs, 'water_${key}_$email');
-      if (legacyMlInt != null && legacyMlInt > 0) {
-        liters = legacyMlInt / 1000.0;
-      } else {
-        final legacyMlD = _prefDouble(prefs, 'waterMl_${key}_$email') ??
-            _prefDouble(prefs, 'water_ml_${key}_$email');
+      double liters = waterLitersMap[key] ?? 0.0;
+      for (final userKey in analysisKeys) {
+        liters = _prefDouble(prefs, 'water_${key}_$userKey') ?? liters;
+        final legacyMl = _prefInt(prefs, 'waterMl_${key}_$userKey') ??
+            _prefInt(prefs, 'water_ml_${key}_$userKey');
+        if (legacyMl != null && legacyMl > 0) {
+          liters = legacyMl / 1000.0;
+          break;
+        }
+        final legacyMlD = _prefDouble(prefs, 'waterMl_${key}_$userKey') ??
+            _prefDouble(prefs, 'water_ml_${key}_$userKey');
         if (legacyMlD != null && legacyMlD > 0) {
           liters = legacyMlD / 1000.0;
+          break;
         }
+        if (liters > 0) break;
       }
 
       final w = weightMap[key];
@@ -1504,6 +1699,62 @@ final dir = await getApplicationDocumentsDirectory();
     );
   }
 
+  pw.Widget _weightPdfBars(List<_WeightPoint> pts) {
+    if (pts.isEmpty) {
+      return pw.Text('لا توجد قراءات وزن مسجلة');
+    }
+    final values = pts.map((e) => e.kg).toList();
+    final minVal = values.reduce(math.min);
+    final maxVal = values.reduce(math.max);
+    final range = math.max(maxVal - minVal, 1.0);
+    final step = math.max(1, (pts.length / 8).ceil());
+
+    return pw.Container(
+      height: 120,
+      padding: const pw.EdgeInsets.fromLTRB(8, 8, 8, 4),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey300),
+        borderRadius: pw.BorderRadius.circular(8),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.end,
+        children: List.generate(pts.length, (i) {
+          final p = pts[i];
+          final h = 26.0 + ((p.kg - minVal) / range) * 62.0;
+          final showLabel = i == 0 || i == pts.length - 1 || i % step == 0;
+          return pw.Expanded(
+            child: pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 1),
+              child: pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.end,
+                children: [
+                  if (showLabel)
+                    pw.Text(
+                      p.kg.toStringAsFixed(1),
+                      style: const pw.TextStyle(fontSize: 6),
+                    ),
+                  pw.Container(
+                    height: h,
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.teal600,
+                      borderRadius: pw.BorderRadius.circular(2),
+                    ),
+                  ),
+                  if (showLabel)
+                    pw.Text(
+                      DateFormat('MM/dd').format(p.t),
+                      style: const pw.TextStyle(fontSize: 5),
+                    ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+
   pw.Widget _bars({
     required List<double> values,
     required String Function(int) labelBuilder,
@@ -1634,6 +1885,7 @@ pw.Text(labelBuilder(i), style: const pw.TextStyle(fontSize: 8.0)),
                   Tab(text: 'الماكروز'),
                   Tab(text: 'الوزن'),
                   Tab(text: 'النشاط'),
+                  Tab(text: 'صحتي'),
                   Tab(text: 'تحليلات'),
                 ],
               ),
@@ -1660,6 +1912,7 @@ pw.Text(labelBuilder(i), style: const pw.TextStyle(fontSize: 8.0)),
           _CaloriesHistoryScreen(),
           _WeightTab(),
           _ActivityTab(),
+          _HealthVitalsTab(),
           _InsightsTab(),
         ],
       ),
@@ -1903,6 +2156,7 @@ class _CaloriesHistoryScreen extends StatefulWidget {
 
 class _CaloriesHistoryScreenState extends State<_CaloriesHistoryScreen> with WidgetsBindingObserver {
   StreamSubscription? _macrosSub;
+  VoidCallback? _targetsListener;
   SharedPreferences? _prefsRef;
   String? _emailRef;
 
@@ -1942,6 +2196,8 @@ class _CaloriesHistoryScreenState extends State<_CaloriesHistoryScreen> with Wid
     _tick = Timer.periodic(const Duration(seconds: 20), (_) => _load());
     _load();
     _macrosSub = MacrosLiveBus.listen(_load);
+    _targetsListener = () => _load();
+    MacroTargetsController.revision.addListener(_targetsListener!);
   }
 
     @override
@@ -1955,6 +2211,9 @@ class _CaloriesHistoryScreenState extends State<_CaloriesHistoryScreen> with Wid
     WidgetsBinding.instance.removeObserver(this);
     _tick?.cancel();
     _macrosSub?.cancel();
+    if (_targetsListener != null) {
+      MacroTargetsController.revision.removeListener(_targetsListener!);
+    }
     _userNameSub?.cancel();
     super.dispose();
   }
@@ -2730,6 +2989,7 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
 
   Timer? _tick;
   bool _loadingWeights = false;
+  bool _weightsReloadPending = false;
 
   // اسم المستخدم للعرض + التقرير
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userNameSub;
@@ -2859,22 +3119,30 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
   }
 
   Future<void> _loadWeights() async {
-    if (_loadingWeights) return;
+    if (_loadingWeights) {
+      _weightsReloadPending = true;
+      return;
+    }
     _loadingWeights = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final email = await _currentEmail() ?? 'unknown_user';
+      final aliases = await _currentProfileAliases();
+      final profileKey = _latestProfileAlias(prefs, aliases);
 
-      final loadedCurrentWeight = _prefDouble(prefs, 'current_weight_$email') ??
-          _prefDouble(prefs, 'weight_$email') ??
-          _prefDouble(prefs, 'user_weight_$email') ??
-          _prefDouble(prefs, 'weightKg_$email') ??
-          _prefDouble(prefs, 'currentWeight_$email');
+      final loadedCurrentWeight = _prefDoubleAnyAlias(
+        prefs,
+        const ['current_weight_', 'weight_', 'user_weight_', 'weightKg_', 'currentWeight_'],
+        aliases,
+        preferred: profileKey,
+      );
 
-      final loadedTargetWeight = _prefDouble(prefs, 'goal_target_$email') ??
-          _prefDouble(prefs, 'targetWeight_$email') ??
-          _prefDouble(prefs, 'target_weight_$email') ??
-          _prefDouble(prefs, 'goalWeight_$email');
+      final loadedTargetWeight = _prefDoubleAnyAlias(
+        prefs,
+        const ['goal_target_', 'targetWeight_', 'target_weight_', 'goalWeight_'],
+        aliases,
+        preferred: profileKey,
+      );
 
       final remoteWeights = await _readRemoteWeightsSafely();
 
@@ -2888,26 +3156,39 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
         }
       }
 
-      // 1) الحديث: weight_log_$email => List<Map>{date, kg}
-      final raw = prefs.getString('weight_log_$email');
-      if (raw != null && raw.trim().isNotEmpty) {
-        try {
-          final decoded = jsonDecode(raw);
-          if (decoded is List) {
-            for (final item in decoded) {
-              if (item is Map) {
-                addPoint(_readDate(item), _readKg(item));
+      // 1) الحديث: weight_log_$alias => List<Map>{date, kg}
+      for (final alias in _orderedAliases(aliases, profileKey)) {
+        final raw = prefs.getString('weight_log_$alias');
+        if (raw != null && raw.trim().isNotEmpty) {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is List) {
+              for (final item in decoded) {
+                if (item is Map) {
+                  addPoint(_readDate(item), _readKg(item));
+                }
               }
             }
+          } catch (_) {}
+        }
+
+        // 2) القديم: weightHistory_$alias => List<String(json)> {"date","weight"}
+        final histList = prefs.getStringList('weightHistory_$alias');
+        if (histList != null) {
+          for (final s in histList) {
+            try {
+              final decoded = jsonDecode(s);
+              if (decoded is Map) {
+                addPoint(_readDate(decoded), _readKg(decoded));
+              }
+            } catch (_) {}
           }
-        } catch (_) {}
+        }
       }
 
-      // 2) القديم: weightHistory_$email => List<String(json)> {"date","weight"}
-      for (final key in <String>['weightHistory_$email', 'weightHistory']) {
-        final histList = prefs.getStringList(key);
-        if (histList == null) continue;
-        for (final s in histList) {
+      final legacyHistory = prefs.getStringList('weightHistory');
+      if (legacyHistory != null) {
+        for (final s in legacyHistory) {
           try {
             final decoded = jsonDecode(s);
             if (decoded is Map) {
@@ -2926,7 +3207,12 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
       if (loadedCurrentWeight != null && loadedCurrentWeight > 0) {
         final today = _todayKey();
         addPoint(today, loadedCurrentWeight, override: true);
-        await _upsertTodayWeightLog(prefs, email, loadedCurrentWeight);
+        for (final alias in _orderedAliases(aliases, profileKey)) {
+          await _upsertTodayWeightLog(prefs, alias, loadedCurrentWeight);
+        }
+        if (!aliases.contains(email)) {
+          await _upsertTodayWeightLog(prefs, email, loadedCurrentWeight);
+        }
       }
 
       double? finalCurrentWeight = loadedCurrentWeight;
@@ -2955,6 +3241,10 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
       });
     } finally {
       _loadingWeights = false;
+      if (_weightsReloadPending) {
+        _weightsReloadPending = false;
+        unawaited(_loadWeights());
+      }
     }
   }
 
@@ -3035,7 +3325,7 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
     final cs = Theme.of(context).colorScheme;
     if (points.isEmpty) {
       return Container(
-        height: 270,
+        height: 260,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: cs.surface,
@@ -3052,19 +3342,17 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
       );
     }
 
-    final n = points.length;
+    // واجهة التطبيق تعرض آخر 4 قراءات فقط حتى يبقى الرسم ثابتًا وغير قابل للتمرير.
+    final chartPoints = points.length > 4 ? points.sublist(points.length - 4) : points;
+    final n = chartPoints.length;
     final spots = <FlSpot>[
-      for (int i = 0; i < n; i++) FlSpot(i.toDouble(), points[i].kg),
+      for (int i = 0; i < n; i++) FlSpot(i.toDouble(), chartPoints[i].kg),
     ];
-    final ys = points.map((e) => e.kg).toList();
+    final ys = chartPoints.map((e) => e.kg).toList();
     final minY = ys.reduce(math.min);
     final maxY = ys.reduce(math.max);
-    final pad = (maxY - minY).abs() < 0.5 ? 1.0 : (maxY - minY) * 0.18;
+    final pad = (maxY - minY).abs() < 0.5 ? 1.0 : (maxY - minY) * 0.22;
     final avgY = ys.reduce((a, b) => a + b) / ys.length;
-    final chartWidth = math.max(
-      MediaQuery.of(context).size.width - 32,
-      n * 74.0,
-    ).toDouble();
     final yInterval = (((maxY - minY).abs() / 4).clamp(0.5, 5.0)).toDouble();
 
     return Container(
@@ -3089,7 +3377,7 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
               Icon(Icons.show_chart_rounded, color: cs.primary),
               const SizedBox(width: 8),
               Text(
-                'رسم تغيّر الوزن',
+                'رسم آخر 4 قراءات',
                 style: TextStyle(
                   fontWeight: FontWeight.w900,
                   color: cs.onSurface,
@@ -3097,7 +3385,7 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
               ),
               const Spacer(),
               Text(
-                '${points.length} قراءة',
+                points.length > 4 ? 'آخر 4 من ${points.length}' : '${points.length} قراءة',
                 style: TextStyle(
                   fontSize: 12,
                   color: cs.onSurface.withOpacity(.55),
@@ -3108,185 +3396,179 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 300,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              child: SizedBox(
-                width: chartWidth,
-                child: LineChart(
-                  LineChartData(
-                    minX: n == 1 ? -0.5 : 0,
-                    maxX: n == 1 ? 0.5 : (n - 1).toDouble(),
-                    minY: minY - pad,
-                    maxY: maxY + pad,
-                    clipData: const FlClipData.all(),
-                    lineTouchData: LineTouchData(
-                      enabled: true,
-                      handleBuiltInTouches: true,
-                      touchTooltipData: LineTouchTooltipData(
-                        getTooltipItems: (touched) => touched.map((s) {
-                          final i = s.x.round().clamp(0, n - 1);
-                          final dt = points[i].t;
-                          return LineTooltipItem(
-                            '${points[i].kg.toStringAsFixed(1)} كجم\n${DateFormat('yyyy/MM/dd').format(dt)}',
-                            TextStyle(
-                              color: cs.onSurface,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    titlesData: FlTitlesData(
-                      rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                      topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 44,
-                          interval: 1,
-                          getTitlesWidget: (value, meta) {
-                            final i = value.round();
-                            if (i < 0 || i >= n || (value - i).abs() > .05) {
-                              return const SizedBox.shrink();
-                            }
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    points[i].kg.toStringAsFixed(1),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
-                                      color: cs.primary,
-                                    ),
-                                  ),
-                                  Text(
-                                    DateFormat('MM/dd').format(points[i].t),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: cs.onSurface.withOpacity(.58),
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+            height: 270,
+            width: double.infinity,
+            child: LineChart(
+              LineChartData(
+                minX: n == 1 ? -0.5 : 0,
+                maxX: n == 1 ? 0.5 : (n - 1).toDouble(),
+                minY: minY - pad,
+                maxY: maxY + pad,
+                clipData: const FlClipData.all(),
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  handleBuiltInTouches: true,
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipItems: (touched) => touched.map((s) {
+                      final i = s.x.round().clamp(0, n - 1);
+                      final dt = chartPoints[i].t;
+                      return LineTooltipItem(
+                        '${chartPoints[i].kg.toStringAsFixed(1)} كجم\n${DateFormat('yyyy/MM/dd').format(dt)}',
+                        TextStyle(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w800,
                         ),
-                      ),
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 38,
-                          interval: yInterval,
-                          getTitlesWidget: (v, _) => Text(
-                            v.toStringAsFixed(0),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: cs.onSurface.withOpacity(.58),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: true,
-                      verticalInterval: 1,
-                      horizontalInterval: yInterval,
-                      getDrawingVerticalLine: (value) => FlLine(
-                        color: cs.outlineVariant.withOpacity(.18),
-                        strokeWidth: 1,
-                      ),
-                      getDrawingHorizontalLine: (value) => FlLine(
-                        color: cs.outlineVariant.withOpacity(.28),
-                        strokeWidth: 1,
-                        dashArray: [4, 4],
-                      ),
-                    ),
-                    borderData: FlBorderData(show: false),
-                    extraLinesData: ExtraLinesData(
-                      horizontalLines: [
-                        HorizontalLine(
-                          y: avgY,
-                          color: cs.primary.withOpacity(.34),
-                          strokeWidth: 1.4,
-                          dashArray: [6, 4],
-                          label: HorizontalLineLabel(
-                            show: true,
-                            alignment: Alignment.topRight,
-                            padding: const EdgeInsets.only(right: 4, bottom: 2),
-                            style: TextStyle(fontSize: 10, color: cs.primary),
-                            labelResolver: (_) => 'متوسط',
-                          ),
-                        ),
-                        if (targetWeight != null && targetWeight! > 0)
-                          HorizontalLine(
-                            y: targetWeight!,
-                            color: cs.secondary.withOpacity(.45),
-                            strokeWidth: 1.5,
-                            dashArray: [2, 4],
-                            label: HorizontalLineLabel(
-                              show: true,
-                              alignment: Alignment.topRight,
-                              padding: const EdgeInsets.only(right: 4, bottom: 2),
-                              style: TextStyle(fontSize: 10, color: cs.secondary),
-                              labelResolver: (_) => 'هدف',
-                            ),
-                          ),
-                      ],
-                    ),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: spots,
-                        isCurved: n > 2,
-                        curveSmoothness: .28,
-                        barWidth: 3.2,
-                        gradient: LinearGradient(colors: [
-                          cs.primary,
-                          cs.secondary,
-                        ]),
-                        belowBarData: BarAreaData(
-                          show: true,
-                          gradient: LinearGradient(
-                            colors: [
-                              cs.primary.withOpacity(.18),
-                              cs.secondary.withOpacity(.04),
-                            ],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                          ),
-                        ),
-                        dotData: FlDotData(
-                          show: true,
-                          getDotPainter: (spot, percent, barData, index) =>
-                              FlDotCirclePainter(
-                            radius: 4.7,
-                            color: cs.primary,
-                            strokeWidth: 2.2,
-                            strokeColor: cs.surface,
-                          ),
-                        ),
-                      ),
-                    ],
+                      );
+                    }).toList(),
                   ),
                 ),
+                titlesData: FlTitlesData(
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 46,
+                      interval: 1,
+                      getTitlesWidget: (value, meta) {
+                        final i = value.round();
+                        if (i < 0 || i >= n || (value - i).abs() > .05) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                chartPoints[i].kg.toStringAsFixed(1),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: cs.primary,
+                                ),
+                              ),
+                              Text(
+                                DateFormat('MM/dd').format(chartPoints[i].t),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: cs.onSurface.withOpacity(.58),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 38,
+                      interval: yInterval,
+                      getTitlesWidget: (v, _) => Text(
+                        v.toStringAsFixed(0),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: cs.onSurface.withOpacity(.58),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: true,
+                  verticalInterval: 1,
+                  horizontalInterval: yInterval,
+                  getDrawingVerticalLine: (value) => FlLine(
+                    color: cs.outlineVariant.withOpacity(.18),
+                    strokeWidth: 1,
+                  ),
+                  getDrawingHorizontalLine: (value) => FlLine(
+                    color: cs.outlineVariant.withOpacity(.28),
+                    strokeWidth: 1,
+                    dashArray: [4, 4],
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                extraLinesData: ExtraLinesData(
+                  horizontalLines: [
+                    HorizontalLine(
+                      y: avgY,
+                      color: cs.primary.withOpacity(.34),
+                      strokeWidth: 1.4,
+                      dashArray: [6, 4],
+                      label: HorizontalLineLabel(
+                        show: true,
+                        alignment: Alignment.topRight,
+                        padding: const EdgeInsets.only(right: 4, bottom: 2),
+                        style: TextStyle(fontSize: 10, color: cs.primary),
+                        labelResolver: (_) => 'متوسط',
+                      ),
+                    ),
+                    if (targetWeight != null && targetWeight! > 0)
+                      HorizontalLine(
+                        y: targetWeight!,
+                        color: cs.secondary.withOpacity(.45),
+                        strokeWidth: 1.5,
+                        dashArray: [2, 4],
+                        label: HorizontalLineLabel(
+                          show: true,
+                          alignment: Alignment.topRight,
+                          padding: const EdgeInsets.only(right: 4, bottom: 2),
+                          style: TextStyle(fontSize: 10, color: cs.secondary),
+                          labelResolver: (_) => 'هدف',
+                        ),
+                      ),
+                  ],
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: n > 2,
+                    curveSmoothness: .28,
+                    barWidth: 3.2,
+                    gradient: LinearGradient(colors: [
+                      cs.primary,
+                      cs.secondary,
+                    ]),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        colors: [
+                          cs.primary.withOpacity(.18),
+                          cs.secondary.withOpacity(.04),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, percent, barData, index) =>
+                          FlDotCirclePainter(
+                        radius: 4.7,
+                        color: cs.primary,
+                        strokeWidth: 2.2,
+                        strokeColor: cs.surface,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          if (n == 1) ...[
+          if (points.length > 4) ...[
             const SizedBox(height: 8),
             Text(
-              'أضف قراءة وزن أخرى في يوم مختلف حتى يظهر خط التغيّر بوضوح.',
+              'يعرض التطبيق آخر 4 قراءات فقط، بينما يتم تضمين كامل سجل الوزن في ملف PDF.',
               style: TextStyle(
                 fontSize: 12,
                 color: cs.onSurface.withOpacity(.60),
@@ -3302,6 +3584,8 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
   Widget _buildReadingsList(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     if (points.isEmpty) return const SizedBox.shrink();
+
+    final latest = points.length > 4 ? points.sublist(points.length - 4) : points;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -3313,14 +3597,23 @@ class _WeightTabState extends State<_WeightTab> with WidgetsBindingObserver {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'قراءات الوزن حسب التاريخ',
+            'آخر القراءات',
             style: TextStyle(
               fontWeight: FontWeight.w900,
               color: cs.onSurface,
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            'يتم عرض آخر 4 قراءات فقط هنا. كامل السجل محفوظ في تقرير PDF.',
+            style: TextStyle(
+              fontSize: 12,
+              color: cs.onSurface.withOpacity(.60),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 10),
-          ...points.reversed.map((p) {
+          ...latest.reversed.map((p) {
             final isLatest = p == points.last;
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -3484,6 +3777,136 @@ class _WeightPoint {
   final DateTime t;
   final double kg;
   _WeightPoint(this.t, this.kg);
+}
+
+double? _reportWeightNum(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  if (value is String) {
+    return double.tryParse(
+      value.trim().replaceAll('٫', '.').replaceAll('،', '.').replaceAll(',', '.'),
+    );
+  }
+  return null;
+}
+
+double? _reportReadKg(Map<dynamic, dynamic> data) {
+  for (final key in const [
+    'kg',
+    'weight',
+    'weightKg',
+    'currentWeight',
+    'current_weight',
+    'value',
+  ]) {
+    final v = _reportWeightNum(data[key]);
+    if (v != null && v > 0) return v;
+  }
+  return null;
+}
+
+String? _reportReadDate(Map<dynamic, dynamic> data) {
+  for (final key in const [
+    'date',
+    'day',
+    'ymd',
+    'createdAt',
+    'updatedAt',
+    'timestamp',
+    'time',
+    't',
+  ]) {
+    final d = _normalizeYmd(data[key]);
+    if (d != null) return d;
+  }
+  return null;
+}
+
+Future<List<_WeightPoint>> _loadAllWeightPointsForReport() async {
+  final prefs = await SharedPreferences.getInstance();
+  final email = await _currentEmail() ?? 'unknown_user';
+  final aliases = await _currentProfileAliases();
+  final profileKey = _latestProfileAlias(prefs, aliases);
+  final allKeys = <String>[
+    email,
+    ..._orderedAliases(aliases, profileKey),
+  ].where((e) => e.trim().isNotEmpty && e != 'unknown_user').toSet().toList();
+
+  final map = <String, double>{};
+
+  void add(String? ymd, double? kg, {bool override = false}) {
+    if (ymd == null || kg == null || kg <= 0) return;
+    if (override || !map.containsKey(ymd)) {
+      map[ymd] = kg;
+    }
+  }
+
+  for (final key in allKeys) {
+    final raw = prefs.getString('weight_log_$key');
+    if (raw != null && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              add(_reportReadDate(item), _reportReadKg(item));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    final historyList = prefs.getStringList('weightHistory_$key');
+    if (historyList != null) {
+      for (final item in historyList) {
+        try {
+          final decoded = jsonDecode(item);
+          if (decoded is Map) {
+            add(_reportReadDate(decoded), _reportReadKg(decoded));
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  final legacyHistory = prefs.getStringList('weightHistory');
+  if (legacyHistory != null) {
+    for (final item in legacyHistory) {
+      try {
+        final decoded = jsonDecode(item);
+        if (decoded is Map) {
+          add(_reportReadDate(decoded), _reportReadKg(decoded));
+        }
+      } catch (_) {}
+    }
+  }
+
+  try {
+    final remote = await AppRepository.readWeightLogs(limit: 1200)
+        .timeout(const Duration(milliseconds: 1200));
+    for (final e in remote.entries) {
+      add(_normalizeYmd(e.key), e.value);
+    }
+  } catch (_) {}
+
+  final current = _prefDoubleAnyAlias(
+    prefs,
+    const ['current_weight_', 'weight_', 'user_weight_', 'weightKg_', 'currentWeight_'],
+    allKeys,
+    preferred: profileKey,
+  );
+  if (current != null && current > 0) {
+    add(_todayKey(), current, override: true);
+  }
+
+  final pts = <_WeightPoint>[];
+  for (final e in map.entries) {
+    final dt = DateTime.tryParse(e.key);
+    if (dt == null || e.value <= 0) continue;
+    pts.add(_WeightPoint(DateTime(dt.year, dt.month, dt.day), e.value));
+  }
+  pts.sort((a, b) => a.t.compareTo(b.t));
+  return pts;
 }
 
 //// ========= Activity Tab =========
@@ -3755,6 +4178,839 @@ TextField(
   }
 }
 
+// ==== Health Vitals Tab (Apple Health) ====
+class _HealthVitalsTab extends StatefulWidget {
+  const _HealthVitalsTab();
+
+  @override
+  State<_HealthVitalsTab> createState() => _HealthVitalsTabState();
+}
+
+
+class _HealthVitalsTabState extends State<_HealthVitalsTab> with WidgetsBindingObserver {
+  final Health _health = Health();
+  static const Duration _liveRefreshEvery = Duration(seconds: 6);
+
+  Timer? _liveTimer;
+  bool _liveSyncing = false;
+  bool _loading = false;
+  bool _permissionDenied = false;
+  String? _error;
+  _HealthVitalsSnapshot _snapshot = const _HealthVitalsSnapshot();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadCachedVitals().then((_) {
+      if (!mounted) return;
+      _refreshActivityVitalsOnly(silent: true);
+      _startLiveActivityTimer();
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshActivityVitalsOnly(silent: true);
+      _startLiveActivityTimer();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _liveTimer?.cancel();
+      _liveTimer = null;
+    }
+  }
+
+  void _startLiveActivityTimer() {
+    _liveTimer?.cancel();
+    _liveTimer = Timer.periodic(_liveRefreshEvery, (_) {
+      if (!mounted) return;
+      _refreshActivityVitalsOnly(silent: true);
+    });
+  }
+
+  Future<void> _loadCachedVitals() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = await _currentEmail() ?? 'unknown_user';
+      final raw = prefs.getString('apple_health_vitals_$email');
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final cached = _HealthVitalsSnapshot.fromJson(Map<String, dynamic>.from(decoded));
+      if (!mounted) return;
+      setState(() => _snapshot = cached);
+    } catch (_) {}
+  }
+
+  Future<void> _saveCachedVitals(_HealthVitalsSnapshot value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = await _currentEmail() ?? 'unknown_user';
+      await prefs.setString('apple_health_vitals_$email', jsonEncode(value.toJson()));
+    } catch (_) {}
+  }
+
+  List<HealthDataType> get _activityHealthTypes => const [
+        HealthDataType.STEPS,
+        HealthDataType.ACTIVE_ENERGY_BURNED,
+        HealthDataType.BASAL_ENERGY_BURNED,
+        HealthDataType.DISTANCE_WALKING_RUNNING,
+        HealthDataType.EXERCISE_TIME,
+      ];
+
+  Future<void> _saveTodayActivityToPrefs(_HealthVitalsSnapshot value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final email = await _currentEmail() ?? 'unknown_user';
+      final aliases = await _currentProfileAliases();
+      final keys = <String>{email, ...aliases}
+        ..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+      final ymd = _todayKey();
+      final steps = (value.steps ?? 0).round();
+      final activeBurned = (value.activeEnergyBurned ?? 0).round();
+      final basalBurned = (value.basalEnergyBurned ?? 0).round();
+      final distanceKm = value.distanceWalkingRunning ?? 0.0;
+      final exerciseMinutes = (value.exerciseMinutes ?? 0).round();
+      final payload = jsonEncode({
+        'steps': steps,
+        'burned': activeBurned,
+        'activeBurned': activeBurned,
+        'basalBurned': basalBurned,
+        'distanceKm': double.parse(distanceKm.toStringAsFixed(3)),
+        'exerciseMinutes': exerciseMinutes,
+        'source': 'apple_health',
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+      for (final key in keys) {
+        await prefs.setString('activity_${ymd}_$key', payload);
+        await prefs.setInt('steps_${ymd}_$key', steps);
+        await prefs.setInt('active_burned_${ymd}_$key', activeBurned);
+        await prefs.setDouble('distance_km_${ymd}_$key', distanceKm);
+        await prefs.setInt('exercise_minutes_${ymd}_$key', exerciseMinutes);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _refreshActivityVitalsOnly({bool silent = false}) async {
+    if (_liveSyncing || _loading) return;
+    _liveSyncing = true;
+    try {
+      await _health.configure();
+      final granted = await _health.requestAuthorization(_activityHealthTypes);
+      if (!granted) {
+        if (!silent && mounted) setState(() => _permissionDenied = true);
+        return;
+      }
+      final now = DateTime.now();
+      final startToday = DateTime(now.year, now.month, now.day);
+      final data = await _health.getHealthDataFromTypes(
+        types: _activityHealthTypes,
+        startTime: startToday,
+        endTime: now,
+      );
+      final cleaned = _health.removeDuplicates(data);
+      final activity = _HealthVitalsSnapshot(
+        updatedAt: now,
+        steps: _sumValue(cleaned, HealthDataType.STEPS),
+        activeEnergyBurned: _sumValue(cleaned, HealthDataType.ACTIVE_ENERGY_BURNED),
+        basalEnergyBurned: _sumValue(cleaned, HealthDataType.BASAL_ENERGY_BURNED),
+        distanceWalkingRunning: _sumValue(cleaned, HealthDataType.DISTANCE_WALKING_RUNNING) / 1000.0,
+        exerciseMinutes: _sumValue(cleaned, HealthDataType.EXERCISE_TIME),
+      );
+      final merged = _snapshot.copyWithActivity(activity);
+      await _saveCachedVitals(merged);
+      await _saveTodayActivityToPrefs(merged);
+      if (!mounted) return;
+      setState(() {
+        _snapshot = merged;
+        _permissionDenied = false;
+        if (!silent) _error = null;
+      });
+    } catch (_) {
+      if (!silent && mounted) setState(() => _error = 'تعذر تحديث بيانات Apple Health.');
+    } finally {
+      _liveSyncing = false;
+    }
+  }
+
+  Future<void> _refreshFromAppleHealth() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _permissionDenied = false;
+    });
+    try {
+      await _health.configure();
+      final now = DateTime.now();
+      final startToday = DateTime(now.year, now.month, now.day);
+      final start7Days = now.subtract(const Duration(days: 7));
+      final types = <HealthDataType>[
+        HealthDataType.HEART_RATE,
+        HealthDataType.RESTING_HEART_RATE,
+        HealthDataType.HEART_RATE_VARIABILITY_SDNN,
+        HealthDataType.BLOOD_OXYGEN,
+        HealthDataType.RESPIRATORY_RATE,
+        HealthDataType.BODY_TEMPERATURE,
+        HealthDataType.BLOOD_PRESSURE_SYSTOLIC,
+        HealthDataType.BLOOD_PRESSURE_DIASTOLIC,
+        HealthDataType.BLOOD_GLUCOSE,
+        HealthDataType.STEPS,
+        HealthDataType.ACTIVE_ENERGY_BURNED,
+        HealthDataType.BASAL_ENERGY_BURNED,
+        HealthDataType.DISTANCE_WALKING_RUNNING,
+        HealthDataType.EXERCISE_TIME,
+        HealthDataType.SLEEP_ASLEEP,
+        HealthDataType.WEIGHT,
+        HealthDataType.BODY_FAT_PERCENTAGE,
+      ];
+      final granted = await _health.requestAuthorization(types);
+      if (!granted) {
+        if (!mounted) return;
+        setState(() {
+          _permissionDenied = true;
+          _loading = false;
+        });
+        return;
+      }
+      final todayData = await _health.getHealthDataFromTypes(
+        types: types.where((t) => t != HealthDataType.SLEEP_ASLEEP).toList(),
+        startTime: startToday,
+        endTime: now,
+      );
+      final sleepData = await _health.getHealthDataFromTypes(
+        types: const [HealthDataType.SLEEP_ASLEEP],
+        startTime: start7Days,
+        endTime: now,
+      );
+      final cleanedToday = _health.removeDuplicates(todayData);
+      final cleanedSleep = _health.removeDuplicates(sleepData);
+      final snapshot = _HealthVitalsSnapshot(
+        updatedAt: now,
+        heartRate: _latestValue(cleanedToday, HealthDataType.HEART_RATE),
+        restingHeartRate: _latestValue(cleanedToday, HealthDataType.RESTING_HEART_RATE),
+        heartRateVariability: _latestValue(cleanedToday, HealthDataType.HEART_RATE_VARIABILITY_SDNN),
+        bloodOxygen: _latestValue(cleanedToday, HealthDataType.BLOOD_OXYGEN, percentage: true),
+        respiratoryRate: _latestValue(cleanedToday, HealthDataType.RESPIRATORY_RATE),
+        bodyTemperature: _latestValue(cleanedToday, HealthDataType.BODY_TEMPERATURE),
+        bloodPressureSystolic: _latestValue(cleanedToday, HealthDataType.BLOOD_PRESSURE_SYSTOLIC),
+        bloodPressureDiastolic: _latestValue(cleanedToday, HealthDataType.BLOOD_PRESSURE_DIASTOLIC),
+        bloodGlucose: _latestValue(cleanedToday, HealthDataType.BLOOD_GLUCOSE),
+        steps: _sumValue(cleanedToday, HealthDataType.STEPS),
+        activeEnergyBurned: _sumValue(cleanedToday, HealthDataType.ACTIVE_ENERGY_BURNED),
+        basalEnergyBurned: _sumValue(cleanedToday, HealthDataType.BASAL_ENERGY_BURNED),
+        distanceWalkingRunning: _sumValue(cleanedToday, HealthDataType.DISTANCE_WALKING_RUNNING) / 1000.0,
+        exerciseMinutes: _sumValue(cleanedToday, HealthDataType.EXERCISE_TIME),
+        sleepHours: _sleepHours(cleanedSleep),
+        weight: _latestValue(cleanedToday, HealthDataType.WEIGHT),
+        bodyFatPercentage: _latestValue(cleanedToday, HealthDataType.BODY_FAT_PERCENTAGE, percentage: true),
+      );
+      await _saveCachedVitals(snapshot);
+      await _saveTodayActivityToPrefs(snapshot);
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snapshot;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'تعذر قراءة بيانات Apple Health. تأكد من الصلاحيات ثم حاول مرة أخرى.';
+        _loading = false;
+      });
+    }
+  }
+
+  double? _latestValue(List<HealthDataPoint> points, HealthDataType type, {bool percentage = false}) {
+    final filtered = points.where((p) => p.type == type).toList()
+      ..sort((a, b) => b.dateTo.compareTo(a.dateTo));
+    for (final p in filtered) {
+      final value = _healthValueToDouble(p.value);
+      if (value == null || value <= 0) continue;
+      if (percentage && value > 0 && value <= 1) return value * 100;
+      return value;
+    }
+    return null;
+  }
+
+  double _sumValue(List<HealthDataPoint> points, HealthDataType type) {
+    double total = 0;
+    for (final p in points.where((p) => p.type == type)) {
+      final value = _healthValueToDouble(p.value);
+      if (value != null && value > 0) total += value;
+    }
+    return total;
+  }
+
+  double? _sleepHours(List<HealthDataPoint> points) {
+    double minutes = 0;
+    for (final p in points.where((p) => p.type == HealthDataType.SLEEP_ASLEEP)) {
+      final direct = _healthValueToDouble(p.value);
+      if (direct != null && direct > 0 && direct <= 24 * 60) {
+        minutes += direct;
+      } else {
+        minutes += p.dateTo.difference(p.dateFrom).inMinutes.toDouble();
+      }
+    }
+    if (minutes <= 0) return null;
+    return minutes / 60.0;
+  }
+
+  double? _healthValueToDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    try {
+      final dynamic v = value;
+      final dynamic numericValue = v.numericValue;
+      if (numericValue is num) return numericValue.toDouble();
+    } catch (_) {}
+    try {
+      final dynamic v = value;
+      final dynamic valueField = v.value;
+      if (valueField is num) return valueField.toDouble();
+    } catch (_) {}
+    final text = value.toString();
+    final match = RegExp(r'-?\d+(?:[\.,]\d+)?').firstMatch(text);
+    if (match == null) return null;
+    return double.tryParse(match.group(0)!.replaceAll(',', '.'));
+  }
+
+  String _lastUpdatedText(DateTime? dt) {
+    if (dt == null) return 'لم يتم التحديث بعد';
+    return DateFormat('hh:mm a', 'ar').format(dt);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    final w = MediaQuery.sizeOf(context).width;
+    final crossAxisCount = w >= 700 ? 4 : 2;
+    final tiles = <_VitalTile>[
+      _VitalTile(title: 'الخطوات', value: _snapshot.format(_snapshot.steps, 0), unit: 'خطوة', note: 'اليوم', icon: Icons.directions_walk_rounded),
+      _VitalTile(title: 'السعرات النشطة', value: _snapshot.format(_snapshot.activeEnergyBurned, 0), unit: 'سعرة', note: 'اليوم', icon: Icons.local_fire_department_outlined),
+      _VitalTile(title: 'المسافة', value: _snapshot.format(_snapshot.distanceWalkingRunning, 2), unit: 'كم', note: 'اليوم', icon: Icons.route_outlined),
+      _VitalTile(title: 'دقائق التمرين', value: _snapshot.format(_snapshot.exerciseMinutes, 0), unit: 'دقيقة', note: 'اليوم', icon: Icons.timer_outlined),
+      _VitalTile(title: 'نبض القلب', value: _snapshot.format(_snapshot.heartRate, 0), unit: 'نبضة/د', note: 'آخر قراءة', icon: Icons.monitor_heart_outlined),
+      _VitalTile(title: 'أكسجين الدم', value: _snapshot.format(_snapshot.bloodOxygen, 0), unit: '%', note: 'آخر قراءة', icon: Icons.bubble_chart_outlined),
+      _VitalTile(title: 'ضغط الدم', value: _snapshot.bloodPressureText, unit: 'mmHg', note: 'آخر قراءة', icon: Icons.speed_rounded),
+      _VitalTile(title: 'النوم', value: _snapshot.format(_snapshot.sleepHours, 1), unit: 'ساعة', note: 'آخر 7 أيام', icon: Icons.bedtime_outlined),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: cs.outlineVariant.withOpacity(.32)),
+              boxShadow: [
+                BoxShadow(
+                  color: cs.shadow.withOpacity(.05),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withOpacity(.10),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(Icons.health_and_safety_outlined, color: cs.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('صحتي', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 2),
+                      Text('Apple Health · آخر تحديث ${_lastUpdatedText(_snapshot.updatedAt)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+                IconButton.filledTonal(
+                  onPressed: _loading ? null : _refreshFromAppleHealth,
+                  icon: _loading
+                      ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary))
+                      : const Icon(Icons.sync_rounded),
+                  tooltip: 'تحديث',
+                ),
+              ],
+            ),
+          ),
+          if (_permissionDenied || _error != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: cs.errorContainer.withOpacity(.35),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: cs.error.withOpacity(.16)),
+              ),
+              child: Text(
+                _permissionDenied
+                    ? 'فعّل صلاحيات Apple Health لعرض البيانات.'
+                    : (_error ?? ''),
+                style: t.bodySmall?.copyWith(color: cs.onErrorContainer, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: Text('نشاط اليوم والعلامات الحيوية', style: t.titleSmall?.copyWith(fontWeight: FontWeight.w900))),
+              if (_liveSyncing)
+                Text('تحديث مباشر', style: t.labelSmall?.copyWith(color: cs.primary, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: GridView.count(
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: crossAxisCount,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: w >= 700 ? 1.82 : 1.28,
+              children: tiles,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'تظهر بعض المؤشرات فقط عند توفر جهاز يدعمها ومنح الصلاحية.',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthVitalsSnapshot {
+  final DateTime? updatedAt;
+  final double? heartRate;
+  final double? restingHeartRate;
+  final double? heartRateVariability;
+  final double? bloodOxygen;
+  final double? respiratoryRate;
+  final double? bodyTemperature;
+  final double? bloodPressureSystolic;
+  final double? bloodPressureDiastolic;
+  final double? bloodGlucose;
+  final double? steps;
+  final double? activeEnergyBurned;
+  final double? basalEnergyBurned;
+  final double? distanceWalkingRunning;
+  final double? exerciseMinutes;
+  final double? sleepHours;
+  final double? weight;
+  final double? bodyFatPercentage;
+
+  const _HealthVitalsSnapshot({
+    this.updatedAt,
+    this.heartRate,
+    this.restingHeartRate,
+    this.heartRateVariability,
+    this.bloodOxygen,
+    this.respiratoryRate,
+    this.bodyTemperature,
+    this.bloodPressureSystolic,
+    this.bloodPressureDiastolic,
+    this.bloodGlucose,
+    this.steps,
+    this.activeEnergyBurned,
+    this.basalEnergyBurned,
+    this.distanceWalkingRunning,
+    this.exerciseMinutes,
+    this.sleepHours,
+    this.weight,
+    this.bodyFatPercentage,
+  });
+
+  factory _HealthVitalsSnapshot.fromJson(Map<String, dynamic> json) {
+    double? d(String key) {
+      final v = json[key];
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString());
+    }
+
+    return _HealthVitalsSnapshot(
+      updatedAt: DateTime.tryParse((json['updatedAt'] ?? '').toString()),
+      heartRate: d('heartRate'),
+      restingHeartRate: d('restingHeartRate'),
+      heartRateVariability: d('heartRateVariability'),
+      bloodOxygen: d('bloodOxygen'),
+      respiratoryRate: d('respiratoryRate'),
+      bodyTemperature: d('bodyTemperature'),
+      bloodPressureSystolic: d('bloodPressureSystolic'),
+      bloodPressureDiastolic: d('bloodPressureDiastolic'),
+      bloodGlucose: d('bloodGlucose'),
+      steps: d('steps'),
+      activeEnergyBurned: d('activeEnergyBurned'),
+      basalEnergyBurned: d('basalEnergyBurned'),
+      distanceWalkingRunning: d('distanceWalkingRunning'),
+      exerciseMinutes: d('exerciseMinutes'),
+      sleepHours: d('sleepHours'),
+      weight: d('weight'),
+      bodyFatPercentage: d('bodyFatPercentage'),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'updatedAt': updatedAt?.toIso8601String(),
+        'heartRate': heartRate,
+        'restingHeartRate': restingHeartRate,
+        'heartRateVariability': heartRateVariability,
+        'bloodOxygen': bloodOxygen,
+        'respiratoryRate': respiratoryRate,
+        'bodyTemperature': bodyTemperature,
+        'bloodPressureSystolic': bloodPressureSystolic,
+        'bloodPressureDiastolic': bloodPressureDiastolic,
+        'bloodGlucose': bloodGlucose,
+        'steps': steps,
+        'activeEnergyBurned': activeEnergyBurned,
+        'basalEnergyBurned': basalEnergyBurned,
+        'distanceWalkingRunning': distanceWalkingRunning,
+        'exerciseMinutes': exerciseMinutes,
+        'sleepHours': sleepHours,
+        'weight': weight,
+        'bodyFatPercentage': bodyFatPercentage,
+      };
+
+  String format(double? value, int decimals) {
+    if (value == null || value <= 0 || value.isNaN || value.isInfinite) return 'غير متوفر';
+    return value.toStringAsFixed(decimals);
+  }
+
+
+
+  _HealthVitalsSnapshot copyWithActivity(_HealthVitalsSnapshot activity) {
+    return _HealthVitalsSnapshot(
+      updatedAt: activity.updatedAt ?? updatedAt,
+      heartRate: heartRate,
+      restingHeartRate: restingHeartRate,
+      heartRateVariability: heartRateVariability,
+      bloodOxygen: bloodOxygen,
+      respiratoryRate: respiratoryRate,
+      bodyTemperature: bodyTemperature,
+      bloodPressureSystolic: bloodPressureSystolic,
+      bloodPressureDiastolic: bloodPressureDiastolic,
+      bloodGlucose: bloodGlucose,
+      steps: activity.steps ?? steps,
+      activeEnergyBurned: activity.activeEnergyBurned ?? activeEnergyBurned,
+      basalEnergyBurned: activity.basalEnergyBurned ?? basalEnergyBurned,
+      distanceWalkingRunning: activity.distanceWalkingRunning ?? distanceWalkingRunning,
+      exerciseMinutes: activity.exerciseMinutes ?? exerciseMinutes,
+      sleepHours: sleepHours,
+      weight: weight,
+      bodyFatPercentage: bodyFatPercentage,
+    );
+  }
+
+  String get bloodPressureText {
+    if (bloodPressureSystolic == null || bloodPressureDiastolic == null) return 'غير متوفر';
+    if (bloodPressureSystolic! <= 0 || bloodPressureDiastolic! <= 0) return 'غير متوفر';
+    return '${bloodPressureSystolic!.toStringAsFixed(0)}/${bloodPressureDiastolic!.toStringAsFixed(0)}';
+  }
+}
+
+class _HealthHeaderCard extends StatelessWidget {
+  final String lastUpdated;
+  final bool loading;
+  final Future<void> Function() onRefresh;
+
+  const _HealthHeaderCard({
+    required this.lastUpdated,
+    required this.loading,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [
+            cs.primaryContainer.withOpacity(.9),
+            cs.surfaceVariant.withOpacity(.72),
+          ],
+        ),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.35)),
+        boxShadow: [
+          BoxShadow(
+            color: cs.shadow.withOpacity(.06),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: cs.surface.withOpacity(.85),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(Icons.health_and_safety_outlined, color: cs.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('صحتي', style: t.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 2),
+                    Text('مصدر البيانات: Apple Health', style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.surface.withOpacity(.75),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: cs.outlineVariant.withOpacity(.25)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.update_rounded, size: 18, color: cs.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'آخر تحديث: $lastUpdated',
+                    style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: loading ? null : onRefresh,
+              icon: loading
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary),
+                    )
+                  : const Icon(Icons.sync_rounded),
+              label: Text(loading ? 'جاري التحديث...' : 'تحديث من Apple Health'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthNoticeCard extends StatelessWidget {
+  final String title;
+  final String message;
+  final IconData icon;
+
+  const _HealthNoticeCard({
+    required this.title,
+    required this.message,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.errorContainer.withOpacity(.38),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.error.withOpacity(.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: cs.error),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: t.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                Text(message, style: t.bodySmall?.copyWith(height: 1.45)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VitalsSection extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<_VitalTile> children;
+
+  const _VitalsSection({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.35)),
+        boxShadow: [
+          BoxShadow(color: cs.shadow.withOpacity(.045), blurRadius: 14, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: t.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+          const SizedBox(height: 3),
+          Text(subtitle, style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final crossAxisCount = constraints.maxWidth >= 640 ? 3 : 2;
+              return GridView.count(
+                crossAxisCount: crossAxisCount,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: constraints.maxWidth >= 640 ? 1.72 : 1.18,
+                children: children,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VitalTile extends StatelessWidget {
+  final String title;
+  final String value;
+  final String unit;
+  final String note;
+  final IconData icon;
+
+  const _VitalTile({
+    required this.title,
+    required this.value,
+    required this.unit,
+    required this.note,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    final available = value != 'غير متوفر';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: available ? cs.surfaceVariant.withOpacity(.38) : cs.surfaceVariant.withOpacity(.18),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.outlineVariant.withOpacity(.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: available ? cs.primary : cs.onSurfaceVariant.withOpacity(.58)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: t.titleLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: available ? cs.onSurface : cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            available ? unit : note,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          if (available) ...[
+            const SizedBox(height: 2),
+            Text(note, maxLines: 1, overflow: TextOverflow.ellipsis, style: t.labelSmall?.copyWith(color: cs.onSurfaceVariant.withOpacity(.82))),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+
 // ===== UI Enhancements: Kcal Summary Card & Cutting Hint =====
 class _KcalSummaryCard extends StatelessWidget {
   final double todayKcal, targetKcal, p, c, f;
@@ -3983,6 +5239,8 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
   late List<_DaySummary> last7 = [];
 
   Timer? _tick;
+  StreamSubscription<void>? _weightSub;
+  VoidCallback? _targetsListener;
 
   // اسم المستخدم للعرض + التقرير
   String _displayName = '';
@@ -3994,6 +5252,9 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     WidgetsBinding.instance.addObserver(this);
     _loadAll();
     _tick = Timer.periodic(const Duration(seconds: 30), (_) => _loadAll());
+    _weightSub = WeightLiveBus.stream.listen((_) => _loadAll());
+    _targetsListener = () => _loadAll();
+    MacroTargetsController.revision.addListener(_targetsListener!);
     _auto = Timer.periodic(const Duration(seconds: 8), (_) {
       if (!mounted) return;
       final next = (_idx + 1) % 5; // خمس شرائح
@@ -4005,6 +5266,10 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
   void dispose() {
     _auto?.cancel();
     _tick?.cancel();
+    _weightSub?.cancel();
+    if (_targetsListener != null) {
+      MacroTargetsController.revision.removeListener(_targetsListener!);
+    }
     _userNameSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _page.dispose();
@@ -4014,6 +5279,8 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
   Future<void> _loadAll() async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _currentEmail() ?? 'unknown_user';
+    final aliases = await _currentProfileAliases();
+    final profileKey = _latestProfileAlias(prefs, aliases);
 
     List<Map<String, dynamic>> remoteDays = _cachedRemoteDays;
     if (!_cloudDailyRestoreDone) {
@@ -4026,24 +5293,38 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     }
 
     // -------- بيانات أساسية (قراءة مرنة للمفاتيح) --------
-    heightCm = _prefDouble(prefs, 'height_$email') ??
-        _prefDouble(prefs, 'height_cm_$email');
+    heightCm = _prefDoubleAnyAlias(
+      prefs,
+      const ['height_', 'height_cm_'],
+      aliases,
+      preferred: profileKey,
+    );
 
-    weightKg = _prefDouble(prefs, 'current_weight_$email') ??
-        _prefDouble(prefs, 'weight_$email') ??
-        _prefDouble(prefs, 'goal_current_$email');
+    weightKg = _prefDoubleAnyAlias(
+      prefs,
+      const [
+        'current_weight_',
+        'weight_',
+        'weightKg_',
+        'currentWeight_',
+        'user_weight_',
+        'goal_current_',
+      ],
+      aliases,
+      preferred: profileKey,
+    );
 
-    age = _prefInt(prefs, 'age_$email');
+    age = _prefIntAnyAlias(prefs, 'age_', aliases, preferred: profileKey);
 
-    gender = _readStringFlexible(prefs, 'gender_$email');
+    gender = _prefStringAnyAlias(prefs, 'gender_', aliases, preferred: profileKey);
 
-    targetCal = _prefDouble(prefs, 'caloriesNeeded_$email');
-    targetProteinG = _prefDouble(prefs, 'protein_$email');
-    targetCarbG = _prefDouble(prefs, 'carbs_$email') ?? _prefDouble(prefs, 'carb_$email');
-    targetFatG = _prefDouble(prefs, 'fat_$email');
+    targetCal = _prefDoubleAnyAlias(prefs, const ['caloriesNeeded_'], aliases, preferred: profileKey);
+    targetProteinG = _prefDoubleAnyAlias(prefs, const ['protein_'], aliases, preferred: profileKey);
+    targetCarbG = _prefDoubleAnyAlias(prefs, const ['carbs_', 'carb_'], aliases, preferred: profileKey);
+    targetFatG = _prefDoubleAnyAlias(prefs, const ['fat_'], aliases, preferred: profileKey);
 
-    waterTargetMl = _prefInt(prefs, 'waterMlTarget_$email') ?? waterTargetMl;
-    stepsTarget = _prefInt(prefs, 'stepsTarget_$email') ?? stepsTarget;
+    waterTargetMl = _prefIntAnyAlias(prefs, 'waterMlTarget_', aliases, preferred: profileKey) ?? waterTargetMl;
+    stepsTarget = _prefIntAnyAlias(prefs, 'stepsTarget_', aliases, preferred: profileKey) ?? stepsTarget;
 
     // -------- خرائط مساعدة (ماء/وزن) --------
     final waterLitersMap = <String, double>{};
@@ -4068,27 +5349,33 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
     }
 
     final weightMap = <String, double>{};
-    final weightLogRaw = prefs.getString('weight_log_$email');
-    if (weightLogRaw != null) {
-      try {
-        final list =
-            (jsonDecode(weightLogRaw) as List).cast<Map<String, dynamic>>();
-        for (final e in list) {
-          final d = e['date']?.toString();
-          final kg = (e['kg'] as num?)?.toDouble();
-          if (d != null && kg != null) weightMap[d] = kg;
-        }
-      } catch (_) {}
-    }
-    final historyList = prefs.getStringList('weightHistory_$email');
-    if (historyList != null) {
-      for (final s in historyList) {
+    for (final alias in _orderedAliases(aliases, profileKey)) {
+      final weightLogRaw = prefs.getString('weight_log_$alias');
+      if (weightLogRaw != null) {
         try {
-          final m = jsonDecode(s) as Map<String, dynamic>;
-          final d = m['date']?.toString();
-          final kg = (m['weight'] as num?)?.toDouble();
-          if (d != null && kg != null) weightMap.putIfAbsent(d, () => kg);
+          final decoded = jsonDecode(weightLogRaw);
+          if (decoded is List) {
+            for (final item in decoded) {
+              if (item is Map) {
+                final d = _normalizeYmd(item['date'] ?? item['day'] ?? item['ymd']);
+                final kg = _toD(item['kg'] ?? item['weight'] ?? item['weightKg']);
+                if (d != null && kg > 0) weightMap[d] = kg;
+              }
+            }
+          }
         } catch (_) {}
+      }
+
+      final historyList = prefs.getStringList('weightHistory_$alias');
+      if (historyList != null) {
+        for (final s in historyList) {
+          try {
+            final m = jsonDecode(s) as Map<String, dynamic>;
+            final d = _normalizeYmd(m['date']);
+            final kg = _toD(m['weight'] ?? m['kg'] ?? m['weightKg']);
+            if (d != null && kg > 0) weightMap.putIfAbsent(d, () => kg);
+          } catch (_) {}
+        }
       }
     }
     final todayYmd =
@@ -4096,8 +5383,12 @@ class _InsightsTabState extends State<_InsightsTab> with WidgetsBindingObserver 
             .toIso8601String()
             .split('T')
             .first;
-    final currentW = _prefDouble(prefs, 'current_weight_$email') ??
-        _prefDouble(prefs, 'weight_$email');
+    final currentW = _prefDoubleAnyAlias(
+      prefs,
+      const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_'],
+      aliases,
+      preferred: profileKey,
+    );
     if (currentW != null && !weightMap.containsKey(todayYmd)) {
       weightMap[todayYmd] = currentW;
     }
