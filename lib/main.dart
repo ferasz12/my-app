@@ -46,6 +46,7 @@ import 'screens/goal_progress_onboarding_page.dart';
 import 'screens/summary_page.dart';
 import 'screens/keto_regimen_screen.dart';
 import 'screens/food_capture_page.dart';
+import 'screens/notifications_inbox_screen.dart';
 
 import 'models/weight_goal.dart';
 
@@ -376,6 +377,7 @@ class CalorieApp extends StatelessWidget {
         '/recipes': (context) => const RecipesExplorePage(),
         '/recipes/create': (context) => const RecipeCreatePage(),
         '/food/capture': (context) => const FoodCapturePage(),
+        '/notifications': (context) => const NotificationsInboxScreen(),
         '/verifyEmail': (context) {
           final args = ModalRoute.of(context)!.settings.arguments as Map?;
           final email = (args?['email'] as String?) ??

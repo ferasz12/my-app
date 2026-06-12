@@ -5,11 +5,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-/// يعرض إشعارات مجتمع وازن المحفوظة في:
+/// يتابع صندوق إشعارات مجتمع وازن المحفوظ في:
 /// notifications/{uid}/inbox/{notificationId}
 ///
-/// ملاحظة: هذه خدمة إشعارات محلية مبنية على Firestore listener.
-/// إذا كان التطبيق مغلقًا تمامًا، الإرسال الفوري يحتاج Cloud Function + FCM.
+/// ملاحظة: الوضع الافتراضي لا يعرض إشعارًا خارجيًا.
+/// الإشعارات تظهر داخل تبويب إشعارات وازن، حتى لا تظهر كغير مقروءة خارج التطبيق.
 class CommunityInboxNotificationService {
   CommunityInboxNotificationService._();
   static final CommunityInboxNotificationService instance =
@@ -28,7 +28,7 @@ class CommunityInboxNotificationService {
   static const String _androidChannelId = 'wazen_community_inbox_v1';
   static const String _androidChannelName = 'Wazen Community';
 
-  Future<void> start({bool showLocalNotifications = true}) async {
+  Future<void> start({bool showLocalNotifications = false}) async {
     if (_started) return;
     _started = true;
     _showLocalNotifications = showLocalNotifications;

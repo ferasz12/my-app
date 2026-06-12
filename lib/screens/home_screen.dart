@@ -36,6 +36,8 @@ import 'food_ai_screen.dart';
 import 'barcode_scanner_page.dart';
 import 'gemini_chat_screen.dart';
 import 'ask_wazen_coach_screen.dart';
+import 'notifications_inbox_screen.dart';
+import '../notifications/wazen_inbox_service.dart';
 import 'calories_history_screen.dart';
 import 'regimen_screen.dart' show DietBus; // ⬅️ نستخدم DietBus.addMeal
 import '../services/barcode_service.dart' show FoodMacro;
@@ -3591,6 +3593,56 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
       ),
     );
   }
+
+
+  Widget _buildNotificationsButton() {
+    final cs = Theme.of(context).colorScheme;
+    return StreamBuilder<int>(
+      stream: WazenInboxService.instance.unreadCountStream(),
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+        return IconButton(
+          tooltip: count > 0 ? 'إشعارات وازن: $count غير مقروء' : 'إشعارات وازن',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const NotificationsInboxScreen()),
+            );
+          },
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.notifications_rounded),
+              if (count > 0)
+                PositionedDirectional(
+                  top: -7,
+                  end: -8,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: cs.error,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: cs.surface, width: 1.5),
+                    ),
+                    child: Text(
+                      count > 99 ? '99+' : '$count',
+                      style: TextStyle(
+                        color: cs.onError,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
 // ====== UI ======
   @override
   bool get wantKeepAlive => true;
@@ -3603,38 +3655,41 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: Row(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    const Text('الرئيسية'),
-    const SizedBox(width: 8),
-    _buildStreakPill(), // ← شارة الستريك 🔥
-  ],
-),
-
-
-        actions: [
-          // ✅ زر "اسأل وازن" (مدرب وازن الذكي)
-          IconButton(
-            tooltip: 'اسأل وازن',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AskWazenCoachScreen()),
-              );
-            },
-            icon: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Theme.of(context).colorScheme.primaryContainer,
-              ),
-              alignment: Alignment.center,
-              child: const Text('🧑‍🏫', style: TextStyle(fontSize: 18)),
+        leading: IconButton(
+          tooltip: 'مدرب وازن الذكي',
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AskWazenCoachScreen()),
+            );
+          },
+          icon: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Theme.of(context).colorScheme.primaryContainer,
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.psychology_alt_rounded,
+              size: 21,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
             ),
           ),
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('الرئيسية'),
+            const SizedBox(width: 8),
+            _buildStreakPill(), // ← شارة الستريك 🔥
+          ],
+        ),
+        actions: [
+          // ✅ تبويب إشعارات وازن بدل زر مدرب وازن
+          _buildNotificationsButton(),
 
-IconButton(
+          IconButton(
             tooltip: 'تحديث',
             onPressed: () async {
               await _ensurePrefsEmail();

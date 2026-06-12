@@ -270,14 +270,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 label: 'تتبع الوزن',
               ),
               NavigationDestination(
-  icon: WazenNavIcon(name: 'regimen', fallbackIcon: Icons.health_and_safety_rounded),
-  selectedIcon: WazenNavIcon(
-    name: 'regimen',
-    selected: true,
-    fallbackIcon: Icons.health_and_safety_rounded,
-  ),
-  label: 'رجيمي',
-),
+                icon: WazenNavIcon(name: 'regimen', fallbackIcon: Icons.health_and_safety_rounded),
+                selectedIcon: WazenNavIcon(
+                  name: 'regimen',
+                  selected: true,
+                  fallbackIcon: Icons.health_and_safety_rounded,
+                ),
+                label: 'رجيمي',
+              ),
               NavigationDestination(
                 icon: WazenNavIcon(name: 'guide', fallbackIcon: Icons.menu_book_rounded),
                 selectedIcon: WazenNavIcon(name: 'guide', selected: true, fallbackIcon: Icons.menu_book_rounded),
@@ -323,10 +323,15 @@ class WazenNavIcon extends StatelessWidget {
     final color = iconTheme.color ??
         (selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant);
 
+    // نحجم الأيقونات يدويًا لأن NavigationBar يعطيها حجم كبير على بعض الجوالات،
+    // ومع 7 تبويبات يصير فيه تداخل بين الأيقونات والنص.
+    final baseSize = iconTheme.size ?? 22;
+    final safeSize = baseSize.clamp(20.0, selected ? 23.0 : 22.0).toDouble();
+
     return Icon(
       fallbackIcon,
       color: color,
-      size: iconTheme.size ?? 24,
+      size: safeSize,
     );
   }
 }
@@ -354,7 +359,7 @@ class _GlassAdaptiveNavBar extends StatelessWidget {
     final scale = mq.textScaleFactor;
     final shortest = mq.size.shortestSide;
     final isCompact = shortest < 360 || scale > 1.10;
-    return isCompact ? 66.0 : 74.0;
+    return isCompact ? 62.0 : 68.0;
   }
 
   @override
@@ -397,6 +402,8 @@ class _GlassAdaptiveNavBar extends StatelessWidget {
                     (states) {
                       final selected = states.contains(MaterialState.selected);
                       return TextStyle(
+                        fontFamily: 'Tajawal',
+                        fontSize: selected ? 11.0 : 10.5,
                         fontWeight: FontWeight.w800,
                         color: selected ? activeColor : inactiveColor,
                         height: 1.0,
@@ -408,7 +415,7 @@ class _GlassAdaptiveNavBar extends StatelessWidget {
                       final selected = states.contains(MaterialState.selected);
                       return IconThemeData(
                         color: selected ? activeColor : inactiveColor,
-                        size: height <= 66 ? 28 : 30,
+                        size: selected ? 23 : 22,
                       );
                     },
                   ),

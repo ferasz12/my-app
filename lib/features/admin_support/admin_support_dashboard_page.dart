@@ -2117,6 +2117,10 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
           'title': title,
           'body': body,
           'deeplink': '/notifications',
+          'source': 'support',
+          'category': 'support',
+          'notificationType': 'support_message',
+          'senderName': 'دعم وازن',
         }),
       );
 

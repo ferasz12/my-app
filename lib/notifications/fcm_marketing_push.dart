@@ -10,7 +10,6 @@
 // =============================================================
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -18,12 +17,15 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../firebase_options.dart';
+import '../app/app_nav.dart';
 import 'app_notifications.dart';
 import 'firestore_broadcast_scheduler.dart';
+import 'wazen_inbox_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -62,8 +64,9 @@ class FcmMarketingPush {
   StreamSubscription<User?>? _authSub;
   StreamSubscription<String>? _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _foregroundSub;
+  StreamSubscription<RemoteMessage>? _openedSub;
 
-  static const bool disableApplePushForCrashTest = true;
+  static const bool disableApplePushForCrashTest = false;
 
   bool get _applePushDisabled =>
       !kIsWeb && disableApplePushForCrashTest && (Platform.isIOS || Platform.isMacOS);
@@ -113,11 +116,19 @@ class FcmMarketingPush {
       );
       debugPrint('🔔 FCM permission: ${settings.authorizationStatus}');
 
+      // لا نعرض رسائل Firebase كتنبيه خارجي داخل التطبيق.
+      // نحفظها في تبويب إشعارات وازن بدل ما تظهر كغير مقروءة خارج التطبيق.
       await _messaging.setForegroundNotificationPresentationOptions(
-        alert: true,
-        badge: true,
-        sound: true,
+        alert: false,
+        badge: false,
+        sound: false,
       );
+
+      // إذا فتح المستخدم التطبيق من إشعار خارجي، نحفظ الرسالة ونفتح تبويب الإشعارات.
+      _openedSub ??= FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpened);
+      unawaited(_messaging.getInitialMessage().then((message) async {
+        if (message != null) await _onMessageOpened(message, openInbox: false);
+      }));
 
       // اشترك حسب آخر إعدادات محفوظة محليًا.
       // إذا ما فيه prefs، الافتراضي تشغيل wazen_all و wazen_marketing.
@@ -306,34 +317,41 @@ class FcmMarketingPush {
   }
 
   Future<void> _onMessageForeground(RemoteMessage m) async {
-    final title = m.notification?.title ?? m.data['title']?.toString() ?? 'وازن';
-    final body = m.notification?.body ?? m.data['body']?.toString() ?? '';
-    if (body.trim().isEmpty) return;
+    await _saveMessageToInbox(m);
+  }
 
-    final payload = jsonEncode(m.data);
+  Future<void> _onMessageOpened(
+    RemoteMessage m, {
+    bool openInbox = true,
+  }) async {
+    await _saveMessageToInbox(m);
+    if (!openInbox) return;
 
-    const androidDetails = AndroidNotificationDetails(
-      _chFcmMarketing,
-      'Wazen Notifications',
-      channelDescription: 'إشعارات وازن من الإدارة والعروض والتنبيهات المهمة',
-      importance: Importance.high,
-      priority: Priority.high,
-      playSound: true,
-      sound: RawResourceAndroidNotificationSound(_androidSound),
-    );
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      sound: _iosSound,
-    );
+    final context = AppNav.key.currentContext;
+    if (context == null) return;
+    try {
+      Navigator.of(context).pushNamed('/notifications');
+    } catch (_) {
+      // ignore: لا نخلي فشل التنقل يعطل استقبال الرسالة.
+    }
+  }
 
-    await _local.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title,
-      body,
-      const NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload: payload,
+  Future<void> _saveMessageToInbox(RemoteMessage m) async {
+    final title = m.notification?.title ??
+        m.data['title']?.toString() ??
+        m.data['notificationTitle']?.toString() ??
+        'رسالة عامة من وازن';
+    final body = m.notification?.body ??
+        m.data['body']?.toString() ??
+        m.data['notificationBody']?.toString() ??
+        m.data['message']?.toString() ??
+        '';
+
+    await WazenInboxService.instance.saveFcmMessage(
+      messageId: m.messageId,
+      title: title,
+      body: body,
+      data: m.data,
     );
   }
 
@@ -372,9 +390,11 @@ class FcmMarketingPush {
     await _authSub?.cancel();
     await _tokenRefreshSub?.cancel();
     await _foregroundSub?.cancel();
+    await _openedSub?.cancel();
     _authSub = null;
     _tokenRefreshSub = null;
     _foregroundSub = null;
+    _openedSub = null;
     _inited = false;
     _initializing = false;
   }
