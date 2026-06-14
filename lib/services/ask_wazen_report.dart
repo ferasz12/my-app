@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../shared/session_manager.dart';
 import '../shared/user_profile_source.dart' show getCurrentUserView;
 
 class AskWazenReportBuilder {
@@ -41,6 +42,85 @@ class AskWazenReportBuilder {
     }
   }
 
+  static String _cleanMealSlotName(dynamic raw) {
+    return (raw ?? '')
+        .toString()
+        .replaceAll(RegExp(r'[🍳🍽️🌙🥗🍱☕️☕🥣]'), '')
+        .trim();
+  }
+
+  static String _foodName(dynamic item) {
+    if (item is! Map) return '';
+    return (item['name'] ??
+            item['meal_name'] ??
+            item['title'] ??
+            item['foodName'] ??
+            item['label'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  static Map<String, dynamic> _summarizeMeals(List<dynamic> rawMeals) {
+    final slots = <Map<String, dynamic>>[];
+    final allItems = <Map<String, dynamic>>[];
+
+    for (final meal in rawMeals) {
+      if (meal is! Map) continue;
+      final slotName = _cleanMealSlotName(meal['name'] ?? meal['title'] ?? 'وجبة');
+      final rawItems = meal['items'];
+      final items = rawItems is List ? rawItems : const [];
+      final slotItems = <Map<String, dynamic>>[];
+
+      for (final item in items) {
+        if (item is! Map) continue;
+        final name = _foodName(item);
+        if (name.isEmpty) continue;
+        final one = <String, dynamic>{
+          'slot': slotName.isEmpty ? 'وجبة' : slotName,
+          'name': name,
+          'calories': _toD(item['cal'] ?? item['calories'] ?? item['kcal'] ?? item['k']),
+          'protein': _toD(item['protein'] ?? item['p']),
+          'carbs': _toD(item['carb'] ?? item['carbs'] ?? item['c']),
+          'fat': _toD(item['fat'] ?? item['f']),
+        };
+        slotItems.add(one);
+        allItems.add(one);
+      }
+
+      if (slotItems.isNotEmpty) {
+        slots.add({
+          'name': slotName.isEmpty ? 'وجبة' : slotName,
+          'items_count': slotItems.length,
+          'items': slotItems.take(8).toList(),
+        });
+      }
+    }
+
+    return {
+      'total_items': allItems.length,
+      'first_item': allItems.isNotEmpty ? allItems.first : null,
+      'last_item': allItems.isNotEmpty ? allItems.last : null,
+      'slots_count': slots.length,
+      'slots': slots,
+      'items_flat': allItems.take(20).toList(),
+    };
+  }
+
+  static List<dynamic> _readMealsForDay(
+    SharedPreferences prefs, {
+    required String email,
+    required String storageKey,
+    required String ymd,
+    required bool isToday,
+  }) {
+    final raw = prefs.getString('meals_${storageKey}_$ymd') ??
+        prefs.getString('meals_${email}_$ymd') ??
+        (isToday ? prefs.getString('meals_$storageKey') : null) ??
+        (isToday ? prefs.getString('meals_$email') : null);
+    return _jsonList(raw);
+  }
+
   /// يبني تقرير لآخر [days] يوم (افتراضي 7)
   /// مناسب للإرسال للسيرفر/الذكاء الاصطناعي.
   static Future<Map<String, dynamic>> build({int days = 7}) async {
@@ -48,6 +128,7 @@ class AskWazenReportBuilder {
     final fbUser = FirebaseAuth.instance.currentUser;
 
     final email = prefs.getString('currentEmail') ?? fbUser?.email ?? 'unknown_user';
+    final storageKey = await SessionManager.currentStorageKey();
     final today = DateTime.now();
     final todayYmd = _ymd(today);
 
@@ -79,7 +160,14 @@ class AskWazenReportBuilder {
 
     final goal = (prefs.getString('goal_$email') ?? '').toString();
     final goalDifficulty = (prefs.getString('goal_difficulty_$email') ?? '').toString();
-    final goalTargetWeight = _toD(prefs.getDouble('goal_target_$email') ?? 0);
+    final goalTargetWeight = _toD(
+      prefs.getDouble('goal_target_$email') ??
+          prefs.getDouble('targetWeight_$email') ??
+          prefs.getDouble('target_weight_$email') ??
+          prefs.getDouble('goalWeight_$email') ??
+          prefs.getDouble('targetWeightKg_$email') ??
+          0,
+    );
     final goalWeeklyChange = _toD(prefs.getDouble('goal_weekly_$email') ?? 0);
     final goalNote = (prefs.getString('goal_note_$email') ?? '').toString();
 
@@ -142,6 +230,16 @@ class AskWazenReportBuilder {
       // استهلاك اليوم
       final totals = _jsonMap(prefs.getString('kcal_daytotals_${email}_$ymd'));
 
+      // وجبات اليوم: تساعد المدرب يعرف هل هذه أول/ثاني وجبة وما الذي أُكل فعليًا.
+      final mealsRaw = _readMealsForDay(
+        prefs,
+        email: email,
+        storageKey: storageKey,
+        ymd: ymd,
+        isToday: i == 0,
+      );
+      final mealsSummary = _summarizeMeals(mealsRaw);
+
       // ماء اليوم (Liters)
       final waterStr = prefs.getString('water_total_${email}_$ymd');
       final waterLiters = waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
@@ -166,6 +264,7 @@ class AskWazenReportBuilder {
           'carbs': _toD(totals['c']),
           'fat': _toD(totals['f']),
         },
+        'meals': mealsSummary,
         'water_liters': waterLiters,
         'activity': {
           'steps': _toI(activity['steps']),

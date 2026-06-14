@@ -2,7 +2,7 @@ name: my_app
 description: تطبيق صحي لحساب السعرات والبروتين والكارب والدهون.
 publish_to: 'none'
 
-version: 1.15.0+58
+version: 1.15.0+59
 
 
 environment:
@@ -112,6 +112,10 @@ flutter:
 
     # شعار الواجهة الجديد (لشاشة الترحيب)
     - assets/images/app_logo.png
+
+    # صور مدرب وازن الذكي
+    - assets/images/wazen_coach_full.png
+    - assets/images/wazen_coach_head.png
 
     # صور الواجهة الجديدة:
     # فئات البداية (المربعات: مطاعم/مقاهي)

@@ -2,6 +2,8 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
+import '../shared/wazen_coach_avatar.dart';
+
 class ChangelogPage extends StatelessWidget {
   const ChangelogPage({
     super.key,
@@ -18,27 +20,49 @@ class ChangelogPage extends StatelessWidget {
   // خله مختصر وواضح للمستخدم: وش تحسّن؟ وش انضاف؟ وش صار أذكى؟
   static const List<_ReleaseHighlight> _latestHighlights = [
     _ReleaseHighlight(
-      title: 'تجربة أهدأ وأفخم',
+      title: 'مدرب وازن الذكي صار أذكى',
       body:
-          'رتبنا واجهات البداية وتجربة الدخول حتى تبدأ رحلتك في وازن بشكل أوضح وأنظف.',
+          'صار يفهم أسئلتك عن أكلك ووصفاتك وجدولك بشكل أفضل، ويرد عليك بشكل أوضح وأسرع.',
     ),
     _ReleaseHighlight(
-      title: 'تحسين بياناتك الصحية',
+      title: 'تحديث بياناتك مع إعادة حساب الماكروز',
       body:
-          'تحسينات على صفحة البيانات والخطة عشان تكون قراءة الوزن والطول والهدف أوضح للمستخدم.',
+          'إذا عدّلت الطول أو الوزن أو الهدف من خلال مدرب وازن، يعيد التطبيق حساب السعرات والماكروز تلقائيًا حسب منطق وازن.',
     ),
     _ReleaseHighlight(
-      title: 'جاهزية أفضل لتتبع يومك',
+      title: 'احترام قفل تغيير الوزن',
       body:
-          'تحسينات عامة تساعد وازن يعرض تجربتك اليومية بشكل مرتب من السعرات إلى الماكروز.',
+          'إذا كان تغيير الوزن مقفول مؤقتًا بسبب مدة التحديث، مدرب وازن يخبرك بذلك وما يغيّر الوزن قبل الوقت المسموح.',
     ),
     _ReleaseHighlight(
-      title: ' مجتمع وازن',
-      body: ' أضفنا مجتمع لمستخدمين وازن تقدر من خلاله تشارك أفكارك.',
+      title: 'اقتراح وصفات بشكل أذكى',
+      body:
+          'مدرب وازن صار يقدر يرشح لك وصفات من وصفات وازن، أو يسوي لك وصفة جديدة عند الطلب فقط.',
+    ),
+    _ReleaseHighlight(
+      title: 'إنشاء جدول تمارين وحفظه لك',
+      body:
+          'تحسينات على جداول التمارين بحيث يقدر المدرب ينشئ لك جدولًا ويجهزه لك داخل صفحة الجداول بشكل أفضل.',
+    ),
+    _ReleaseHighlight(
+      title: 'بحث جديد في استكشاف الوصفات',
+      body:
+          'أضفنا بحث في صفحة استكشاف الوصفات وصغّرنا مساحة الفلاتر حتى تشوف الوصفات بوضوح وتأخذ راحتك بالتصفح.',
+    ),
+    _ReleaseHighlight(
+      title: 'تحسين تجربة محادثة المدرب',
+      body:
+          'صورة أجمل لمدرب وازن، وحفظ محلي للمحادثة، وتجربة ألطف عند بدء الدردشة وقراءة الردود.',
     ),
   ];
 
   static const List<_ReleaseHistoryItem> _history = [
+    _ReleaseHistoryItem(
+      version: 'هذا التحديث',
+      title: 'تطويرات كبيرة على مدرب وازن الذكي',
+      body:
+          'شملت تحسين فهم الأسئلة، اقتراح الوصفات، تحديث البيانات، وتحسين تجربة الجداول والماكروز.',
+    ),
     _ReleaseHistoryItem(
       version: 'v1.2.0',
       title: 'إضافة المطاعم والمقاهي',
@@ -52,7 +76,7 @@ class ChangelogPage extends StatelessWidget {
     _ReleaseHistoryItem(
       version: 'v1.0.0',
       title: 'إطلاق وازن',
-      body: 'تفعيل الدخول عبر Apple وبداية تجربة وازن الأساسية.',
+      body: 'بداية تجربة وازن الأساسية وتتبع السعرات والماكروز.',
     ),
   ];
 
@@ -99,11 +123,13 @@ class ChangelogPage extends StatelessWidget {
                   isDark: isDark,
                   versionLabel:
                       readableVersion.isEmpty ? null : readableVersion,
-                  title: 'وش الجديييييد في وازن .؟',
+                  title: 'وش الجديد في وازن؟',
                   subtitle:
-                      'حدثنا لك التجربة حتى تكون رحلتك الصحية أوضح، أهدأ، وأسهل في المتابعة اليومية.',
+                      'في هذا التحديث ركزنا على مدرب وازن الذكي، الوصفات، والجداول، مع تحسينات تخلي رحلتك الصحية أذكى وأسهل.',
                 ),
                 const SizedBox(height: 16),
+                _CoachSpotlightCard(primary: primary, isDark: isDark),
+                const SizedBox(height: 18),
                 Text(
                   'أبرز الجديد',
                   style: (tt.titleLarge ?? const TextStyle()).copyWith(
@@ -268,6 +294,78 @@ class _HeroCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+class _CoachSpotlightCard extends StatelessWidget {
+  const _CoachSpotlightCard({required this.primary, required this.isDark});
+
+  final Color primary;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(isDark ? 0.72 : 0.94),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: primary.withOpacity(isDark ? 0.18 : 0.11)),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withOpacity(isDark ? 0.14 : 0.09),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              color: primary.withOpacity(0.08),
+            ),
+            alignment: Alignment.center,
+            child: const WazenCoachAvatar(
+              size: 76,
+              headOnly: false,
+              withCircle: false,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'مدرب وازن الذكي',
+                  style: (tt.titleLarge ?? const TextStyle()).copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'صار يظهر بشكل ألطف ويخدمك بشكل أذكى: يفهم أكلك، يقترح لك وصفات، ويساعدك في الجداول والمتابعة.',
+                  style: (tt.bodyMedium ?? const TextStyle()).copyWith(
+                    height: 1.5,
+                    color: cs.onSurface.withOpacity(0.74),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

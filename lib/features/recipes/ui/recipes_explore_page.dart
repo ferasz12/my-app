@@ -103,6 +103,8 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
   // ---- explore state ----
   RecipeGoal? _filterGoal;
   RecipeSort _sort = RecipeSort.newest;
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
 
   final List<Recipe> _feed = <Recipe>[];
   final Map<String, int> _idToIndex = <String, int>{};
@@ -115,6 +117,11 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
+    _searchCtrl.addListener(() {
+      final q = _searchCtrl.text.trim();
+      if (q == _searchQuery) return;
+      setState(() => _searchQuery = q);
+    });
     _loadGuard();
     _listenMyRole();
     _subscribeRecipes();
@@ -124,6 +131,7 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
   void dispose() {
     _roleSub?.cancel();
     _recipesSub?.cancel();
+    _searchCtrl.dispose();
     _tabs.dispose();
     super.dispose();
   }
@@ -361,6 +369,20 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
     }
   }
 
+  bool _matchesSearch(Recipe r) {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    final haystack = <String>[
+      r.title,
+      r.caption ?? '',
+      r.method,
+      r.goal.labelAr,
+      r.ingredients.join(' '),
+      r.userName,
+    ].join(' ').toLowerCase();
+    return haystack.contains(q);
+  }
+
   List<Recipe> _sorted(List<Recipe> input) {
     if (input.isEmpty) return input;
     final out = List<Recipe>.from(input);
@@ -465,7 +487,9 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                         child: Column(
                           children: [
                             const _ExploreHero(),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
+                            _RecipeSearchBox(controller: _searchCtrl),
+                            const SizedBox(height: 8),
                             banner,
                             _ExploreFilters(
                               goal: _filterGoal,
@@ -484,7 +508,7 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                                 stream: repo.streamMyFavoriteIds(uid),
                                 builder: (context, favSnap) {
                                   final favIds = favSnap.data ?? const <String>{};
-                                  final items = _sorted(_feed);
+                                  final items = _sorted(_feed.where(_matchesSearch).toList());
 
                                   if (items.isEmpty) {
                                     return Center(
@@ -493,9 +517,11 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Text(
-                                              'لا توجد وصفات جديدة في هذا التصفح',
-                                              style: TextStyle(fontWeight: FontWeight.w900),
+                                            Text(
+                                              _searchQuery.trim().isNotEmpty
+                                                  ? 'ما لقينا وصفات مطابقة لبحثك'
+                                                  : 'لا توجد وصفات جديدة في هذا التصفح',
+                                              style: const TextStyle(fontWeight: FontWeight.w900),
                                             ),
                                             const SizedBox(height: 10),
                                             OutlinedButton.icon(
@@ -697,6 +723,51 @@ class _ExploreHero extends StatelessWidget {
   }
 }
 
+class _RecipeSearchBox extends StatelessWidget {
+  final TextEditingController controller;
+
+  const _RecipeSearchBox({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return TextField(
+      controller: controller,
+      textDirection: TextDirection.rtl,
+      decoration: InputDecoration(
+        hintText: 'ابحث عن وصفة، مكون، أو هدف...',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: ValueListenableBuilder<TextEditingValue>(
+          valueListenable: controller,
+          builder: (context, value, _) {
+            if (value.text.trim().isEmpty) return const SizedBox.shrink();
+            return IconButton(
+              tooltip: 'مسح البحث',
+              onPressed: controller.clear,
+              icon: const Icon(Icons.close_rounded),
+            );
+          },
+        ),
+        filled: true,
+        fillColor: cs.surface,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: cs.primary.withOpacity(0.12)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: cs.primary.withOpacity(0.12)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: cs.primary.withOpacity(0.45), width: 1.2),
+        ),
+      ),
+    );
+  }
+}
+
 class _ExploreFilters extends StatelessWidget {
   final RecipeGoal? goal;
   final RecipeSort sort;
@@ -715,58 +786,61 @@ class _ExploreFilters extends StatelessWidget {
     final t = Theme.of(context);
     final cs = t.colorScheme;
 
+    InputDecoration deco(String label) => InputDecoration(
+          labelText: label,
+          filled: true,
+          fillColor: cs.surface,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: cs.primary.withOpacity(0.12)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: cs.primary.withOpacity(0.45), width: 1.2),
+          ),
+        );
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: cs.primary.withOpacity(0.10)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.035),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        color: cs.surface.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withOpacity(0.08)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            'تصفية الوصفات',
-            style: t.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w900,
+          Expanded(
+            child: DropdownButtonFormField<RecipeGoal?>(
+              value: goal,
+              isDense: true,
+              items: <DropdownMenuItem<RecipeGoal?>>[
+                const DropdownMenuItem(value: null, child: Text('كل الأهداف')),
+                ...RecipeGoal.values.map(
+                  (g) => DropdownMenuItem(value: g, child: Text(g.labelAr)),
+                ),
+              ],
+              onChanged: onGoalChanged,
+              decoration: deco('الهدف'),
+              style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w800),
             ),
           ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<RecipeGoal?>(
-            value: goal,
-            items: <DropdownMenuItem<RecipeGoal?>>[
-              const DropdownMenuItem(value: null, child: Text('كل الأهداف')),
-              ...RecipeGoal.values.map(
-                (g) => DropdownMenuItem(value: g, child: Text(g.labelAr)),
-              ),
-            ],
-            onChanged: onGoalChanged,
-            decoration: InputDecoration(
-              labelText: 'الهدف',
-              filled: true,
-              fillColor: const Color(0xFFF6FAF8),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: cs.primary.withOpacity(0.12)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: cs.primary.withOpacity(0.45), width: 1.2),
-              ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButtonFormField<RecipeSort>(
+              value: sort,
+              isDense: true,
+              items: RecipeSort.values
+                  .map((s) => DropdownMenuItem(value: s, child: Text(s.labelAr)))
+                  .toList(),
+              onChanged: (v) {
+                if (v != null) onSortChanged(v);
+              },
+              decoration: deco('الترتيب'),
+              style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w800),
             ),
-            style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 12),
-          _SortSelector(sort: sort, onChanged: onSortChanged),
         ],
       ),
     );

@@ -4612,7 +4612,9 @@ export const analyzeMealTextV2 = onCall(
       "Return ONLY valid compact JSON. No markdown. No extra text.",
       "Use Gemini reasoning only. Do NOT use any external database. Do NOT mention databases.",
       "Respect explicit user quantities first, including grams, ml, liters, cups, spoons, pieces, slices, and counts.",
-      "For mixed dishes, split the meal into the main calorie contributors only.",
+      "For mixed dishes and prepared meals, split the meal into real ingredient-level calorie contributors, not the dish title.",
+      "Never repeat the full meal name as multiple items. Each item name must be a real food component unless the input is a single whole food.",
+      "If the user says without/no/bلا/بدون/من غير, exclude that ingredient from items and macros.",
       "Each item must have kcal, protein_g, carbs_g, and fat_g.",
       "Never leave carbs missing. If carbs are effectively zero, return 0.",
       "Never output all-zero macros for a normal edible food with a positive portion.",
@@ -4640,6 +4642,11 @@ export const analyzeMealTextV2 = onCall(
         "- إذا ذكر المستخدم وزنًا أو عددًا أو حجمًا فاعتبره حقيقة.",
         "- إذا ذكر المستخدم أكثر من طعام أو مشروب أو إضافة، فأخرجها كعناصر منفصلة ولا تدمجها في عنصر عام واحد.",
         "- أمثلة يجب فصلها: ساندويتش + بطاطس + مشروب، أو توست + تونة + مايونيز + كولا دايت.",
+        "- قاعدة عامة مهمة: إذا كان الوصف اسم طبق مركب أو وجبة جاهزة، لا تضع اسم الطبق نفسه كعنصر. فككه إلى مكونات غذائية حقيقية ومؤثرة في السعرات.",
+        "- أمثلة للفئات المركبة التي يجب تفكيكها عمومًا: السلطات المركبة، الساندويتشات، البرجر، الراب، الشاورما، البيتزا، الباستا بالصوص، الصحون/البولات، الوجبات مع إضافات.",
+        "- ممنوع تكرار نفس اسم الطبق داخل items. كل item يجب أن يكون مكونًا مختلفًا مثل: خبز، بروتين، جبن، خضار، صوص، رز، بطاطس، إلخ حسب الوصف.",
+        "- إذا قال المستخدم بدون/بلا/من غير/no/without، احذف الشيء المستبعد من العناصر والماكروز ولا تحسبه.",
+        "- إذا كانت الوجبة مفردة وغير مركبة مثل تفاحة أو بيضة أو كوب حليب، أخرجها كعنصر واحد عادي.",
         "- إذا كانت الوجبة مركبة مثل ساندويتش أو شاورما أو برغر أو صحن رز مع دجاج، فككها إلى المكونات الرئيسية المفيدة غذائيًا.",
         "- لا تُرجع أصفارًا لأطعمة عادية قابلة للأكل إلا إذا كانت فعلاً شبه صفرية مثل الماء، الثلج، القهوة السوداء، الشاي بدون سكر، أو مشروب دايت/زيرو.",
         "- إذا ذكرت أرزًا أو خبزًا أو بطاطس أو تمرًا أو فاكهة أو عصيرًا أو حلى، يجب أن يكون الكارب محسوبًا بشكل منطقي.",
@@ -4810,6 +4817,111 @@ export const analyzeMealTextV2 = onCall(
       if (portion >= 10 && isLikelyCarbFoodText(sRaw) && carbs <= 0.01) return true;
       if (portion >= 20 && isLikelyProteinFoodText(sRaw) && protein <= 0.01) return true;
       return false;
+    };
+
+
+    const compositeDishCategoryHints = [
+      "salad", "sandwich", "burger", "wrap", "shawarma", "pizza", "pasta", "bowl", "plate", "meal",
+      "combo", "taco", "burrito", "quesadilla", "toastie", "sub", "roll", "dish", "with sauce",
+      "سلطه", "سلطة", "ساندويتش", "سندويتش", "برجر", "برغر", "راب", "شاورما", "بيتزا",
+      "باستا", "مكرونه", "مكرونة", "صحن", "طبق", "وجبه", "وجبة", "بول", "تاكو", "بوريتو",
+      "كاساديا", "صوص", "صلصه", "صلصة", "دريسنج", "تتبيله", "تتبيلة",
+    ];
+
+    const singleWholeFoodHints = [
+      "apple", "banana", "orange", "date", "egg", "milk", "yogurt", "water", "coffee", "tea", "rice",
+      "chicken", "tuna", "bread", "toast", "potato", "ماء", "موية", "قهوه", "قهوة", "شاي", "تفاح",
+      "موز", "برتقال", "تمر", "بيض", "حليب", "زبادي", "رز", "دجاج", "تونة", "خبز", "توست", "بطاطس",
+    ];
+
+    const getItemNameKey = (item: TextGeminiItem) => normFoodSignalText(`${item.name_ar || ""} ${item.name_en || ""}`);
+
+    const extractNegativeFoodClauses = (text: string) => {
+      const out: string[] = [];
+      const raw = normalizeDigits(String(text || ""));
+      const re = /(?:بدون|بلا|من\s+غير|no|without|without\s+any)\s+([^،,;.+\n\r]+)/gi;
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(raw)) !== null) {
+        const val = normStr(match[1] || "")
+          .replace(/^(الـ|ال)/, "")
+          .replace(/\s+(فقط|بس|نهائيا|نهائيًا)$/i, "")
+          .trim();
+        if (val.length >= 2) out.push(val);
+      }
+      return Array.from(new Set(out)).slice(0, 5);
+    };
+
+    const hasCompositeDishCue = (text: string) => {
+      const t = normFoodSignalText(text);
+      if (!t) return false;
+      if (hasAnyNeedle(t, compositeDishCategoryHints)) return true;
+      const hasJoiner = /(^|\s)(مع|و|plus|with|and)(\s|$)/i.test(t) || /[+،,;]/.test(t);
+      const macroSignals = [
+        isLikelyCarbFoodText(t),
+        isLikelyProteinFoodText(t),
+        hasAnyNeedle(t, ["cheese", "جبن", "جبنة", "sauce", "صوص", "صلصة", "دريسنج", "vegetables", "خضار"]),
+      ].filter(Boolean).length;
+      return hasJoiner && macroSignals >= 2;
+    };
+
+    const looksLikeSingleWholeFoodRequest = (text: string) => {
+      const t = normFoodSignalText(text);
+      if (!t || hasCompositeDishCue(t)) return false;
+      return hasAnyNeedle(t, singleWholeFoodHints) && !/(^|\s)(مع|و|plus|with|and)(\s|$)/i.test(t) && !/[+،,;]/.test(t);
+    };
+
+    const itemNameLooksLikeWholeDish = (itemName: string, mealName: string, originalText: string) => {
+      const itemKey = normFoodSignalText(itemName);
+      const mealKey = normFoodSignalText(mealName);
+      const originalKey = normFoodSignalText(originalText);
+      if (!itemKey) return true;
+      if (itemKey === mealKey || itemKey === originalKey) return true;
+      if (mealKey && (itemKey.includes(mealKey) || mealKey.includes(itemKey)) && diceSimilarity(itemKey, mealKey) >= 0.72) {
+        return true;
+      }
+      if (originalKey && (itemKey.includes(originalKey) || originalKey.includes(itemKey)) && diceSimilarity(itemKey, originalKey) >= 0.72) {
+        return true;
+      }
+      return false;
+    };
+
+    const getCollapsedTextIssues = (base: TextGeminiAnalysis) => {
+      const issues: string[] = [];
+      const mealName = `${base.meal?.name_ar || ""} ${base.meal?.name_en || ""}`.trim() || description;
+      const itemKeys = base.items.map(getItemNameKey).filter(Boolean);
+      const uniqueKeys = Array.from(new Set(itemKeys));
+      const compositeInput = hasCompositeDishCue(analysisDescription) || hasCompositeDishCue(mealName);
+      const singleWholeFood = looksLikeSingleWholeFoodRequest(analysisDescription);
+
+      if (!base.items.length && !base.need_clarification) issues.push("no_items_for_identifiable_food");
+      if (itemKeys.length >= 2 && uniqueKeys.length <= Math.max(1, Math.floor(itemKeys.length / 2))) {
+        issues.push("repeated_item_names");
+      }
+
+      const wholeDishNameCount = base.items.filter((it) => itemNameLooksLikeWholeDish(
+        `${it.name_ar || ""} ${it.name_en || ""}`,
+        mealName,
+        analysisDescription,
+      )).length;
+
+      if (!singleWholeFood && compositeInput && base.items.length <= 1) {
+        issues.push("composite_dish_returned_as_single_item");
+      }
+      if (!singleWholeFood && compositeInput && wholeDishNameCount >= Math.max(1, Math.ceil(base.items.length * 0.5))) {
+        issues.push("dish_title_used_as_ingredients");
+      }
+      if (!singleWholeFood && base.items.length >= 2 && wholeDishNameCount >= 2) {
+        issues.push("dish_title_repeated_in_items");
+      }
+
+      return Array.from(new Set(issues));
+    };
+
+    const realUniqueItemCount = (base: TextGeminiAnalysis) => {
+      const keys = base.items
+        .map(getItemNameKey)
+        .filter((x) => x && !["عنصر", "وجبه", "وجبة", "مكون", "اكل", "أكل", "طعام"].includes(x));
+      return new Set(keys).size;
     };
 
     const finalizeTextAnalysis = (base: TextGeminiAnalysis) => {
@@ -5041,21 +5153,27 @@ export const analyzeMealTextV2 = onCall(
 
     const repairCollapsedItemsWithGemini = async (base: TextGeminiAnalysis) => {
       const mentioned = splitFoodDescriptionCandidates(description);
-      const genericNames = ["عنصر", "وجبة", "مكون", "أكل", "طعام"];
-      const looksCollapsed =
-        (mentioned.length >= 2 && base.items.length <= 1) ||
-        base.items.some((it) => genericNames.includes(normStr(it.name_ar)));
+      const exclusions = extractNegativeFoodClauses(analysisDescription);
+      const issues = getCollapsedTextIssues(base);
 
-      if (!looksCollapsed) return base;
+      if (!issues.length) return base;
 
       const repairPrompt = [
-        "أعد بناء تحليل الوجبة النصية التالية مع المحافظة على العناصر التي ذكرها المستخدم صراحة.",
-        "المشكلة الحالية أن النتيجة اختزلت الوجبة أكثر من اللازم أو دمجت عدة عناصر في عنصر عام واحد.",
-        "إذا ذكر المستخدم عدة أطعمة أو إضافات أو مشروبات، فأخرجها كعناصر منفصلة ما لم تكن مجرد وصف غير غذائي.",
-        "استخدم Gemini reasoning فقط. لا تستخدم أي قاعدة بيانات. أعد فقط JSON بنفس الـ schema.",
+        "أعد بناء تحليل الوجبة النصية التالية كتصحيح عام وليس كحالة خاصة.",
+        "المشكلة الحالية أن بعض العناصر إما مكررة أو تستخدم اسم الطبق الكامل بدل مكونات غذائية حقيقية.",
+        "قاعدة عامة: إذا كان الوصف طبقًا مركبًا أو وجبة جاهزة، فككه إلى المكونات الرئيسية المؤثرة في السعرات.",
+        "لا تكتب اسم الطبق الكامل داخل items إلا إذا كان الوصف أصلًا طعامًا مفردًا غير مركب مثل تفاحة أو بيضة أو كوب حليب.",
+        "ممنوع تكرار نفس اسم العنصر. كل item يجب أن يمثل مكونًا مختلفًا واضحًا.",
+        "احذف أي مكون مستبعد بعبارات مثل بدون/بلا/من غير/no/without من العناصر ومن الماكروز.",
+        "حافظ على الكميات الصريحة التي كتبها المستخدم، وإذا لم يكتب كمية فاستخدم حصة واقعية وخفّض confidence.",
+        "اجعل total_macros مساويًا لمجموع العناصر بالضبط بعد التقريب.",
+        "استخدم Gemini reasoning فقط. لا تستخدم أي قاعدة بيانات. أعد فقط JSON كامل بنفس الـ schema.",
         "",
         `الوصف الأصلي: ${analysisDescription}`,
-        `العناصر/المقاطع المذكورة صراحة: ${JSON.stringify(mentioned)}`,
+        `اسم الوجبة الحالي: ${JSON.stringify(base.meal)}`,
+        `مؤشرات المشكلة المكتشفة: ${JSON.stringify(issues)}`,
+        `المقاطع المذكورة صراحة: ${JSON.stringify(mentioned)}`,
+        `المكونات المستبعدة صراحة: ${JSON.stringify(exclusions)}`,
         `التحليل الحالي: ${JSON.stringify(stripUndefinedDeep(base))}`,
       ].join("\n");
 
@@ -5066,16 +5184,27 @@ export const analyzeMealTextV2 = onCall(
           apiKey: geminiKey,
           systemInstruction,
           responseSchema: textResponseSchema,
-          temperature: 0.1,
-          maxOutputTokens: 1100,
+          temperature: 0.05,
+          maxOutputTokens: 2600,
           maxAttempts: 2,
         });
         const repairedRaw = tryExtractJson(repairedText);
         if (!repairedRaw) return base;
-        return normalizeTextAnalysis(repairedRaw);
+
+        const repaired = normalizeTextAnalysis(repairedRaw);
+        const repairedIssues = getCollapsedTextIssues(repaired);
+        const repairedUnique = realUniqueItemCount(repaired);
+        const baseUnique = realUniqueItemCount(base);
+        const repairedHasMacros = repaired.items.some((it) =>
+          num(it.est?.kcal) > 0 || num(it.est?.protein_g) > 0 || num(it.est?.carbs_g) > 0 || num(it.est?.fat_g) > 0
+        );
+
+        if (repairedHasMacros && (!repairedIssues.length || repairedUnique > baseUnique)) return repaired;
+        return base;
       } catch (e: any) {
-        logger.warn("text gemini collapsed-items repair failed", {
+        logger.warn("text gemini general itemization repair failed", {
           message: e?.message || String(e || ""),
+          issues,
         });
         return base;
       }
@@ -6121,9 +6250,201 @@ export const appleServerNotificationsV2 = onRequest(
 
 // =============================================================
 // (D) اسأل وازن — مدرب وازن الذكي (Gemini)
-// - زر واحد في اليوم لإرسال تقرير المستخدم الكامل
-// - بعدها يسمح بالدردشة بدون إعادة إرسال التقرير
+// - يقرأ تقرير المستخدم مباشرة عند كل محادثة إذا أرسله التطبيق.
+// - يبحث في وصفات Firestore عند أسئلة الوصفات فقط لتقليل التكلفة.
+// - يستطيع إنشاء وصفة باسم وصورة المستخدم عند الطلب الصريح.
 // =============================================================
+
+type CoachRecipeCard = {
+  id: string;
+  title: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  goal: string;
+  imageUrl?: string;
+  userName?: string;
+  userPhotoUrl?: string;
+  ingredients?: string[];
+  method?: string;
+  caption?: string;
+  likeCount?: number;
+  route?: string;
+};
+
+type CoachAction = {
+  type: string;
+  label: string;
+  route?: string;
+  payload?: any;
+};
+
+
+type CoachWorkoutExercise = {
+  name: string;
+  sets: number;
+  reps: number;
+  note?: string;
+};
+
+type CoachWorkoutDay = {
+  title: string;
+  items: CoachWorkoutExercise[];
+};
+
+type CoachWorkoutPlan = {
+  id: string;
+  name: string;
+  goal: string;
+  summary: string;
+  days: CoachWorkoutDay[];
+};
+
+type CoachUserIdentity = {
+  uid: string;
+  name: string;
+  email: string;
+  photoUrl: string;
+};
+
+function coachStr(value: any): string {
+  return String(value ?? '').trim();
+}
+
+function coachNum(value: any): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number(value.replace(',', '.'));
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function coachRound(value: any): number {
+  const n = coachNum(value);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function coachFirst(...values: any[]): string {
+  for (const v of values) {
+    const s = coachStr(v);
+    if (s) return s;
+  }
+  return '';
+}
+
+function coachMap(value: any): any {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function coachStringList(value: any, maxItems = 12): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((x) => coachStr(x))
+      .filter(Boolean)
+      .slice(0, maxItems);
+  }
+  const s = coachStr(value);
+  if (!s) return [];
+  return s
+    .split(/\n|،|,/g)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function coachTodayYmdKsa(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Riyadh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year')?.value || '1970';
+  const m = parts.find((p) => p.type === 'month')?.value || '01';
+  const d = parts.find((p) => p.type === 'day')?.value || '01';
+  return `${y}-${m}-${d}`;
+}
+
+function isCoachIdentityQuestion(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  if (!s) return false;
+  return /(مين|من|وش|ما هو|منو).{0,18}(سواك|طورك|برمجك|صممك|مالكك|مطورك|اللي سواك|اللي طورك)/i.test(s) ||
+    /(who|made|built|developed|created).{0,24}(you|wazen)/i.test(s);
+}
+
+function coachIdentityReply(): string {
+  return 'أنا مطوّر من فريق وازن السعودي 🇸🇦، وموجود هنا عشان أساعدك داخل تطبيق وازن في أكلك، هدفك، وصفاتك، وتمارينك بشكل واضح ومباشر.';
+}
+
+function shouldUseRecipesForCoach(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  return /(وصفة|وصفات|طبخة|اكل|أكل|وجبة|وجبات|فطور|غداء|عشاء|سناك|بروتين|دايت|تنشيف|تضخيم|كيتو|لو كارب|recipe|meal)/i.test(s);
+}
+
+function wantsWazenRecipeSource(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  return /(وصفات\s*وازن|من\s*وصفات\s*وازن|من\s*وازن|وصفة\s*من\s*وازن|الموجودة|المحفوظة|المضافة|wazen\s*recipes|from\s*wazen)/i.test(s);
+}
+
+function wantsCoachRecipeSource(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  return /(وصفة\s*من\s*عندك|وصفه\s*من\s*عندك|من\s*عندك|وصفة\s*جديدة|وصفه\s*جديدة|سو\s*لي\s*وصفة|سوي\s*لي\s*وصفة|اعمل\s*لي\s*وصفة|اكتب\s*لي\s*وصفة|صمم\s*لي\s*وصفة|انشئ\s*وصفة|أنشئ\s*وصفة|اضف\s*وصفة|أضف\s*وصفة|create\s+a\s+recipe|make\s+a\s+recipe|generate\s+a\s+recipe)/i.test(s);
+}
+
+function shouldAskRecipeSourceChoice(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  if (!shouldUseRecipesForCoach(s)) return false;
+  if (wantsWazenRecipeSource(s) || wantsCoachRecipeSource(s)) return false;
+  if (shouldOpenWorkoutFromCoach(s)) return false;
+  return /(اقترح|رشح|اختار|اختر|وش\s*أفضل|وش\s*افضل|وش\s*آكل|وش\s*اكل|ابي\s*اكله|أبي\s*أكله|suggest|recommend|best)/i.test(s);
+}
+
+function recipeSourceChoiceReply(): any {
+  return {
+    reply: 'تبيني أطلع لك وصفة من وصفات وازن الموجودة، ولا أسوي لك وصفة جديدة من عندي حسب هدفك ووجباتك اليوم؟',
+    actions: [
+      {
+        type: 'send_message',
+        label: 'من وصفات وازن',
+        payload: {message: 'اقترح لي وصفة من وصفات وازن تناسب هدفي ووجباتي اليوم'},
+      },
+      {
+        type: 'send_message',
+        label: 'وصفة من عندك',
+        payload: {message: 'سو لي وصفة جديدة من عندك واحفظها باسمي حسب هدفي ووجباتي اليوم'},
+      },
+    ],
+    recipes: [],
+    workoutPlans: [],
+  };
+}
+
+function shouldCreateRecipeFromCoach(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  if (!/(وصفة|وصفه|وجبة|recipe|meal|أكله|اكله|أكلة|اكلة)/i.test(s)) return false;
+  if (wantsWazenRecipeSource(s)) return false;
+  // لا ننشئ وصفة عند مجرد الترشيح أو السؤال. الإنشاء فقط عند طلب واضح بالحفظ/الإنشاء.
+  return /(سو\s*لي\s*وصفة|سوي\s*لي\s*وصفة|اعمل\s*لي\s*وصفة|اكتب\s*لي\s*وصفة|صمم\s*لي\s*وصفة|انشئ\s*وصفة|أنشئ\s*وصفة|اضف\s*وصفة|أضف\s*وصفة|احفظ\s*وصفة|وصفة\s*جديدة|وصفه\s*جديدة|وصفة\s*من\s*عندك|وصفه\s*من\s*عندك|create\s+a\s+recipe|make\s+a\s+recipe|generate\s+a\s+recipe)/i.test(s);
+}
+
+function shouldOpenWorkoutFromCoach(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  return /(تمرين|تمارين|جدول|نادي|جيم|workout|exercise|training|pdf)/i.test(s);
+}
+
+
+function shouldCreateWorkoutPlanFromCoach(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  if (!/(تمرين|تمارين|جدول|نادي|جيم|workout|exercise|training|pdf)/i.test(s)) return false;
+  return /(سو|سوي|اعمل|اكتب|صمم|انشئ|أنشئ|اضف|أضف|خل|جهز|اعتمد|create|make|generate|pdf)/i.test(s);
+}
+
+function shouldOpenProfileFromCoach(message: string): boolean {
+  const s = coachStr(message).toLowerCase();
+  return /(وزني|وزنك|طولي|طولك|بياناتي|صفحتي|الملف|الحساب|profile|weight)/i.test(s);
+}
 
 function buildCoachContextFromReport(report: any): string {
   const user = report?.user ?? {};
@@ -6133,23 +6454,23 @@ function buildCoachContextFromReport(report: any): string {
   const derived = report?.derived ?? {};
   const days = Array.isArray(report?.days) ? report.days : [];
 
-  const name = String(user?.name || "").trim() || "المستخدم";
-  const email = String(user?.email || "").trim();
-  const gender = String(profile?.gender || "");
-  const age = num(profile?.age);
-  const height = num(profile?.height_cm);
-  const weight = num(profile?.current_weight_kg);
+  const name = coachStr(user?.name) || 'المستخدم';
+  const email = coachStr(user?.email);
+  const gender = coachStr(profile?.gender);
+  const age = coachNum(profile?.age);
+  const height = coachNum(profile?.height_cm);
+  const weight = coachNum(profile?.current_weight_kg);
 
-  const goalName = String(goal?.name || "");
-  const goalDifficulty = String(goal?.difficulty || "");
-  const targetW = num(goal?.target_weight_kg);
-  const weeklyChange = num(goal?.weekly_change_kg);
+  const goalName = coachStr(goal?.name);
+  const goalDifficulty = coachStr(goal?.difficulty);
+  const targetW = coachNum(goal?.target_weight_kg);
+  const weeklyChange = coachNum(goal?.weekly_change_kg);
 
-  const tK = num(targets?.calories);
-  const tP = num(targets?.protein);
-  const tC = num(targets?.carbs);
-  const tF = num(targets?.fat);
-  const stepsTarget = num(profile?.steps_target);
+  const tK = coachNum(targets?.calories);
+  const tP = coachNum(targets?.protein);
+  const tC = coachNum(targets?.carbs);
+  const tF = coachNum(targets?.fat);
+  const stepsTarget = coachNum(profile?.steps_target);
 
   const lines: string[] = [];
   lines.push(`الاسم: ${name}`);
@@ -6169,39 +6490,406 @@ function buildCoachContextFromReport(report: any): string {
   }
   if (stepsTarget) lines.push(`هدف الخطوات: ${stepsTarget}`);
 
-  const avgK = num(derived?.avg_consumed_calories);
-  const avgP = num(derived?.avg_consumed_protein);
-  const underP = num(derived?.under_protein_days);
+  const avgK = coachNum(derived?.avg_consumed_calories);
+  const avgP = coachNum(derived?.avg_consumed_protein);
+  const underP = coachNum(derived?.under_protein_days);
   if (avgK) lines.push(`متوسط استهلاك السعرات آخر ${days.length || 7} أيام: ${avgK.toFixed(0)} kcal`);
   if (avgP) lines.push(`متوسط البروتين آخر ${days.length || 7} أيام: ${avgP.toFixed(0)} g`);
   if (underP) lines.push(`أيام البروتين منخفض (<85% من الهدف): ${underP}`);
 
-  // تلخيص آخر 7 أيام بشكل سطر لكل يوم (مختصر جدًا)
   const last = days.slice(0, 7).map((d: any) => {
-    const date = String(d?.date || "");
+    const date = coachStr(d?.date);
     const c = d?.consumed ?? {};
     const t = d?.target ?? {};
-    const water = num(d?.water_liters);
+    const water = coachNum(d?.water_liters);
     const act = d?.activity ?? {};
-    const steps = num(act?.steps);
-    const w = num(d?.weight_kg);
-    const p = num(c?.protein);
-    const kc = num(c?.calories);
-    const tp = num(t?.protein);
-    const tk = num(t?.calories);
+    const steps = coachNum(act?.steps);
+    const w = coachNum(d?.weight_kg);
+    const p = coachNum(c?.protein);
+    const kc = coachNum(c?.calories);
+    const tp = coachNum(t?.protein);
+    const tk = coachNum(t?.calories);
     const pStr = tp ? `${p.toFixed(0)}/${tp.toFixed(0)}g` : `${p.toFixed(0)}g`;
     const kStr = tk ? `${kc.toFixed(0)}/${tk.toFixed(0)}kcal` : `${kc.toFixed(0)}kcal`;
-    const waterStr = water ? `${water.toFixed(1)}L` : "-";
-    const stepsStr = steps ? `${steps} خطوة` : "-";
-    const wStr = w ? `${w.toFixed(1)}kg` : "-";
+    const waterStr = water ? `${water.toFixed(1)}L` : '-';
+    const stepsStr = steps ? `${steps} خطوة` : '-';
+    const wStr = w ? `${w.toFixed(1)}kg` : '-';
     return `${date}: سعرات ${kStr} | بروتين ${pStr} | ماء ${waterStr} | خطوات ${stepsStr} | وزن ${wStr}`;
- });
+  });
   if (last.length) {
-    lines.push("\nآخر 7 أيام (مختصر):");
+    lines.push('\nآخر 7 أيام (مختصر):');
     lines.push(...last);
   }
 
-  return lines.join("\n");
+  const todayMeals = coachMap(days?.[0]?.meals);
+  const mealItemsCount = coachNum(todayMeals?.total_items);
+  if (mealItemsCount > 0) {
+    lines.push('\nوجبات اليوم المسجلة داخل التطبيق:');
+    lines.push(`عدد الأطعمة المسجلة اليوم: ${mealItemsCount}`);
+    const firstItem = coachMap(todayMeals?.first_item);
+    const lastItem = coachMap(todayMeals?.last_item);
+    const firstName = coachStr(firstItem?.name);
+    const lastName = coachStr(lastItem?.name);
+    if (firstName) {
+      lines.push(
+        `أول طعام مسجل اليوم: ${firstName} ضمن ${coachStr(firstItem?.slot) || 'وجبة'} ` +
+        `(${coachRound(firstItem?.calories)} kcal, P=${coachRound(firstItem?.protein)}g)`
+      );
+    }
+    if (lastName) {
+      lines.push(
+        `آخر طعام مسجل اليوم: ${lastName} ضمن ${coachStr(lastItem?.slot) || 'وجبة'} ` +
+        `(${coachRound(lastItem?.calories)} kcal, P=${coachRound(lastItem?.protein)}g)`
+      );
+    }
+    const slots = Array.isArray(todayMeals?.slots) ? todayMeals.slots.slice(0, 5) : [];
+    for (const slot of slots) {
+      const sm = coachMap(slot);
+      const slotName = coachStr(sm?.name) || 'وجبة';
+      const items = Array.isArray(sm?.items) ? sm.items.slice(0, 5) : [];
+      const names = items.map((x: any) => coachStr(coachMap(x)?.name)).filter(Boolean).join('، ');
+      if (names) lines.push(`${slotName}: ${names}`);
+    }
+  } else {
+    lines.push('\nوجبات اليوم: لا توجد أطعمة مسجلة اليوم حتى الآن.');
+  }
+
+  return lines.join('\n');
+}
+
+function buildCoachContextFromUserDoc(data: any, identity: CoachUserIdentity): string {
+  const profile = coachMap(data?.profile);
+  const goal = coachMap(data?.goal);
+  const subscription = coachMap(data?.subscription);
+
+  const gender = coachFirst(data?.gender, profile?.gender);
+  const age = coachNum(coachFirst(data?.age, profile?.age));
+  const height = coachNum(coachFirst(data?.height_cm, data?.heightCm, data?.height, profile?.height_cm, profile?.height));
+  const weight = coachNum(coachFirst(data?.current_weight_kg, data?.currentWeightKg, data?.weight, profile?.current_weight_kg));
+  const targetWeight = coachNum(coachFirst(goal?.target_weight_kg, data?.targetWeightKg, data?.goal_target));
+  const goalName = coachFirst(goal?.name, data?.goalName, data?.goal, data?.user_goal);
+  const calories = coachNum(coachFirst(data?.caloriesNeeded, data?.calories, data?.targetCalories, profile?.calories));
+  const protein = coachNum(coachFirst(data?.protein, data?.targetProtein, profile?.protein));
+  const carbs = coachNum(coachFirst(data?.carbs, data?.targetCarbs, profile?.carbs));
+  const fat = coachNum(coachFirst(data?.fat, data?.targetFat, profile?.fat));
+
+  const lines: string[] = [];
+  lines.push(`الاسم: ${identity.name || 'المستخدم'}`);
+  if (identity.email) lines.push(`البريد: ${identity.email}`);
+  if (gender) lines.push(`الجنس: ${gender}`);
+  if (age) lines.push(`العمر: ${age}`);
+  if (height) lines.push(`الطول (سم): ${height}`);
+  if (weight) lines.push(`الوزن الحالي (كجم): ${weight}`);
+  if (goalName) lines.push(`الهدف: ${goalName}`);
+  if (targetWeight) lines.push(`الوزن المستهدف (كجم): ${targetWeight}`);
+  if (calories || protein || carbs || fat) {
+    lines.push(`أهداف المستخدم: kcal=${calories} | P=${protein}g | C=${carbs}g | F=${fat}g`);
+  }
+  if (subscription?.active === true || subscription?.isActive === true) lines.push('حالة الاشتراك: نشط');
+  return lines.join('\n');
+}
+
+function readCoachIdentity(uid: string, authToken: any, userData: any): CoachUserIdentity {
+  const profile = coachMap(userData?.profile);
+  const firstLast = [coachStr(userData?.firstName), coachStr(userData?.lastName)]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  const profileFirstLast = [coachStr(profile?.firstName), coachStr(profile?.lastName)]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  const name = coachFirst(
+    userData?.displayName,
+    userData?.fullName,
+    userData?.name,
+    firstLast,
+    profile?.displayName,
+    profile?.fullName,
+    profile?.name,
+    profileFirstLast,
+    authToken?.name,
+    userData?.userName,
+    userData?.username,
+    authToken?.email
+  ) || 'مستخدم وازن';
+  const email = coachFirst(userData?.email, authToken?.email);
+  const photoUrl = coachFirst(
+    userData?.photoUrl,
+    userData?.photoURL,
+    userData?.avatarUrl,
+    userData?.profileImageUrl,
+    profile?.photoUrl,
+    profile?.photoURL,
+    profile?.avatarUrl,
+    profile?.imagePath,
+    authToken?.picture
+  );
+  return {uid, name, email, photoUrl};
+}
+
+function recipeGoalLabel(goal: string): string {
+  switch (coachStr(goal).toLowerCase()) {
+    case 'cutting':
+      return 'تنشيف';
+    case 'bulking':
+      return 'تضخيم';
+    case 'weight_loss':
+      return 'تنزيل الوزن';
+    case 'weight_gain':
+      return 'رفع وزن';
+    case 'maintenance':
+      return 'محافظة';
+    default:
+      return coachStr(goal) || 'عام';
+  }
+}
+
+function sanitizeRecipeGoal(raw: any): string {
+  const s = coachStr(raw).toLowerCase();
+  if (/تنشيف|cut/.test(s)) return 'cutting';
+  if (/تضخيم|bulk/.test(s)) return 'bulking';
+  if (/نزول|تنزيل|تخسيس|weight.?loss|loss/.test(s)) return 'weight_loss';
+  if (/زيادة|رفع|gain/.test(s)) return 'weight_gain';
+  return 'maintenance';
+}
+
+function recipeCardFromDoc(doc: any): CoachRecipeCard | null {
+  const data = doc.data?.() ?? {};
+  const title = coachStr(data.title);
+  if (!title) return null;
+  return {
+    id: coachStr(doc.id),
+    title,
+    calories: coachRound(data.calories),
+    protein: coachRound(data.protein),
+    carbs: coachRound(data.carbs),
+    fat: coachRound(data.fat),
+    goal: recipeGoalLabel(coachStr(data.goal)),
+    imageUrl: coachStr(data.imageUrl || data.photoUrl || data.image) || undefined,
+    userName: coachStr(data.userName || data.displayName || data.name) || undefined,
+    userPhotoUrl: coachStr(data.userPhotoUrl || data.avatarUrl || data.photoURL) || undefined,
+    ingredients: coachStringList(data.ingredients, 8),
+    method: coachStr(data.method || data.instructions).slice(0, 550),
+    caption: coachStr(data.caption || data.description).slice(0, 220),
+    likeCount: coachRound(data.likeCount),
+    route: '/recipes',
+  };
+}
+
+function scoreCoachRecipe(card: CoachRecipeCard, message: string, context: string): number {
+  const s = `${message} ${context}`.toLowerCase();
+  const hay = `${card.title} ${card.goal} ${card.ingredients?.join(' ') || ''} ${card.caption || ''}`.toLowerCase();
+  let score = 0;
+  if (/بروتين|protein/.test(s)) score += card.protein * 2;
+  if (/قليل|خفيف|دايت|تنشيف|نزول|تنزيل|cut|loss/.test(s)) {
+    score += card.calories > 0 && card.calories <= 550 ? 35 : 0;
+    if (/تنشيف|تنزيل|نزول/.test(hay)) score += 30;
+  }
+  if (/تضخيم|زيادة|رفع|bulk|gain/.test(s)) {
+    score += card.calories >= 450 ? 30 : 0;
+    if (/تضخيم|رفع/.test(hay)) score += 25;
+  }
+  if (/كيتو|لو كارب|low carb|keto/.test(s)) score += card.carbs <= 25 ? 35 : -20;
+  if (/فطور/.test(s) && /فطور|بيض|شوفان|زبادي/.test(hay)) score += 30;
+  if (/غداء/.test(s) && /غداء|دجاج|رز|لحم|تونة/.test(hay)) score += 25;
+  if (/عشاء/.test(s) && /عشاء|سلطة|زبادي|تونة|دجاج/.test(hay)) score += 25;
+  score += Math.min(coachRound(card.likeCount), 50);
+  if (card.protein > 20) score += 12;
+  if (card.calories > 0) score += 5;
+  return score;
+}
+
+async function loadCoachRecipes(message: string, context: string, maxCards = 6): Promise<CoachRecipeCard[]> {
+  if (!shouldUseRecipesForCoach(message)) return [];
+  const recipes = new Map<string, CoachRecipeCard>();
+  const queries = [
+    db.collection('recipes').orderBy('likeCount', 'desc').limit(24).get(),
+    db.collection('recipes').orderBy('createdAt', 'desc').limit(24).get(),
+    db.collection('recipes').limit(24).get(),
+  ];
+  const results = await Promise.allSettled(queries);
+  for (const r of results) {
+    if (r.status !== 'fulfilled') continue;
+    for (const doc of r.value.docs) {
+      const card = recipeCardFromDoc(doc);
+      if (card?.id) recipes.set(card.id, card);
+    }
+  }
+  return Array.from(recipes.values())
+    .map((card) => ({card, score: scoreCoachRecipe(card, message, context)}))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxCards)
+    .map((x) => x.card);
+}
+
+function coachRecipesPrompt(cards: CoachRecipeCard[]): string {
+  if (!cards.length) return '';
+  const compact = cards.map((r) => ({
+    id: r.id,
+    title: r.title,
+    calories: r.calories,
+    protein: r.protein,
+    carbs: r.carbs,
+    fat: r.fat,
+    goal: r.goal,
+    ingredients: (r.ingredients || []).slice(0, 6),
+  }));
+  return `\nوصفات متاحة من وازن لاختيار الأنسب منها:\n${JSON.stringify(compact, null, 2)}\n`;
+}
+
+function coachActionsForMessage(message: string, recipes: CoachRecipeCard[]): CoachAction[] {
+  const actions: CoachAction[] = [];
+  if (recipes.length || shouldUseRecipesForCoach(message)) {
+    actions.push({type: 'open_route', label: 'اذهب للوصفات', route: '/recipes'});
+  }
+  if (shouldOpenWorkoutFromCoach(message)) {
+    actions.push({type: 'open_route', label: 'افتح جداول التمارين', route: '/schedulePicker'});
+  }
+  if (shouldOpenProfileFromCoach(message)) {
+    actions.push({type: 'open_route', label: 'افتح بياناتي', route: '/profile'});
+    actions.push({type: 'open_route', label: 'افتح تتبع الوزن', route: '/weight'});
+  }
+  return actions.slice(0, 4);
+}
+
+
+function sanitizeCoachWorkoutPlan(raw: any): CoachWorkoutPlan | null {
+  const obj = coachMap(raw);
+  const name = coachStr(obj?.name || obj?.title).slice(0, 70) || `جدول مدرب وازن ${coachTodayYmdKsa()}`;
+  const goal = coachStr(obj?.goal || obj?.summary || obj?.description).slice(0, 120);
+  const summary = coachStr(obj?.summary || obj?.description).slice(0, 240);
+  const rawDays = Array.isArray(obj?.days) ? obj.days : [];
+  const days: CoachWorkoutDay[] = rawDays
+    .map((d: any, index: number) => {
+      const dm = coachMap(d);
+      const title = coachStr(dm?.title || dm?.day || dm?.name || `اليوم ${index + 1}`).slice(0, 50);
+      const rawItems = Array.isArray(dm?.items)
+        ? dm.items
+        : Array.isArray(dm?.exercises)
+          ? dm.exercises
+          : Array.isArray(dm?.workouts)
+            ? dm.workouts
+            : [];
+      const items: CoachWorkoutExercise[] = rawItems
+        .map((it: any) => {
+          const im = coachMap(it);
+          const exName = coachStr(im?.name || im?.exercise || im?.title).slice(0, 70);
+          if (!exName) return null;
+          return {
+            name: exName,
+            sets: Math.max(1, Math.min(8, coachRound(im?.sets) || 3)),
+            reps: Math.max(1, Math.min(60, coachRound(im?.reps) || 10)),
+            note: coachStr(im?.note || im?.notes).slice(0, 100) || undefined,
+          } as CoachWorkoutExercise;
+        })
+        .filter(Boolean)
+        .slice(0, 9) as CoachWorkoutExercise[];
+      return {title, items};
+    })
+    .filter((d: CoachWorkoutDay) => d.title && d.items.length)
+    .slice(0, 7);
+
+  if (!days.length) return null;
+  return {
+    id: `coach_${Date.now()}`,
+    name,
+    goal: goal || 'جدول مخصص من مدرب وازن',
+    summary,
+    days,
+  };
+}
+
+async function maybeCreateWorkoutPlanFromCoach(params: {
+  message: string;
+  context: string;
+  model: string;
+  geminiKey: string;
+}): Promise<CoachWorkoutPlan | null> {
+  if (!shouldCreateWorkoutPlanFromCoach(params.message)) return null;
+  const prompt =
+    'أنت مدرب تمارين داخل تطبيق وازن. المطلوب إنشاء جدول تمارين واحد فقط بصيغة JSON.\n' +
+    'أرجع JSON فقط بدون Markdown وبدون شرح. لا تستخدم علامات ** أو نجوم.\n' +
+    'Schema: {"name":"","goal":"","summary":"","days":[{"title":"","items":[{"name":"","sets":3,"reps":10,"note":""}]}]}\n' +
+    'القواعد: اجعل الجدول عملي وآمن، 3 إلى 6 أيام غالبًا، 4 إلى 8 تمارين لليوم، بدون نصائح طبية.\n' +
+    'إذا المستخدم طلب PDF، أنشئ له جدولًا منظّمًا يصلح للعرض داخل صفحة الجداول بدل ملف سحابي.\n' +
+    'استخدم أسماء تمارين عربية واضحة، وعدّل الشدة حسب بيانات المستخدم وهدفه إن وجدت.\n' +
+    `بيانات المستخدم:\n${params.context || 'لا توجد بيانات كافية.'}\n\nطلب المستخدم:\n${params.message}`;
+  const raw = await geminiGenerate([{text: prompt}], params.model, params.geminiKey, 0.25, 2400);
+  return sanitizeCoachWorkoutPlan(tryExtractJson(raw));
+}
+
+async function maybeCreateRecipeFromCoach(params: {
+  uid: string;
+  message: string;
+  context: string;
+  identity: CoachUserIdentity;
+  model: string;
+  geminiKey: string;
+}): Promise<CoachRecipeCard | null> {
+  if (!shouldCreateRecipeFromCoach(params.message)) return null;
+  const prompt =
+    'أنت مساعد وصفات داخل تطبيق وازن. المطلوب إنشاء وصفة واحدة فقط بناءً على طلب المستخدم وبياناته.\n' +
+    'أرجع JSON فقط بدون Markdown وبدون شرح. لا تستخدم علامات ** أو نجوم.\n' +
+    'Schema: {"title":"","ingredients":[""],"method":"","calories":0,"protein":0,"carbs":0,"fat":0,"goal":"maintenance|cutting|bulking|weight_loss|weight_gain","caption":""}\n' +
+    'القواعد: الوصفة صحية وعملية، الماكروز واقعية، المقادير واضحة، والطريقة مختصرة.\n' +
+    `بيانات المستخدم:\n${params.context}\n\nطلب المستخدم:\n${params.message}`;
+  const raw = await geminiGenerate([{text: prompt}], params.model, params.geminiKey, 0.25, 1800);
+  const parsed = tryExtractJson(raw) || {};
+  const title = coachStr(parsed?.title).slice(0, 80);
+  const ingredients = coachStringList(parsed?.ingredients, 14);
+  const method = coachStr(parsed?.method).slice(0, 1400);
+  if (!title || ingredients.length < 2 || !method) return null;
+
+  const data = stripUndefinedDeep({
+    userId: params.uid,
+    uid: params.uid,
+    ownerId: params.uid,
+    authorId: params.uid,
+    userName: params.identity.name,
+    displayName: params.identity.name,
+    name: params.identity.name,
+    userPhotoUrl: params.identity.photoUrl || null,
+    photoUrl: params.identity.photoUrl || null,
+    avatarUrl: params.identity.photoUrl || null,
+    user: {
+      uid: params.uid,
+      displayName: params.identity.name,
+      name: params.identity.name,
+      photoUrl: params.identity.photoUrl || null,
+    },
+    title,
+    ingredients,
+    method,
+    protein: coachRound(parsed?.protein),
+    fat: coachRound(parsed?.fat),
+    carbs: coachRound(parsed?.carbs),
+    calories: coachRound(parsed?.calories),
+    goal: sanitizeRecipeGoal(parsed?.goal),
+    caption: coachStr(parsed?.caption).slice(0, 220) || 'تم إنشاؤها بواسطة مدرب وازن الذكي.',
+    likeCount: 0,
+    createdAt: FieldValue.serverTimestamp(),
+    createdByCoach: true,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  const doc = await db.collection('recipes').add(data);
+  return {
+    id: doc.id,
+    title,
+    calories: coachRound(parsed?.calories),
+    protein: coachRound(parsed?.protein),
+    carbs: coachRound(parsed?.carbs),
+    fat: coachRound(parsed?.fat),
+    goal: recipeGoalLabel(sanitizeRecipeGoal(parsed?.goal)),
+    userName: params.identity.name,
+    userPhotoUrl: params.identity.photoUrl || undefined,
+    ingredients,
+    method,
+    caption: data.caption,
+    likeCount: 0,
+    route: '/recipes',
+  };
 }
 
 export const askWazenCoach = onCall(
@@ -6209,108 +6897,320 @@ export const askWazenCoach = onCall(
     region: WAZEN_REGION,
     secrets: [GEMINI_API_KEY],
     timeoutSeconds: 120,
-    memory: "512MiB",
+    memory: '512MiB',
     cpu: 1,
     minInstances: 0,
     maxInstances: WAZEN_COACH_MAX_INSTANCES,
     concurrency: WAZEN_COACH_CONCURRENCY,
     enforceAppCheck: false,
     cors: true,
- },
+  },
   async (req) => {
     if (!req.auth?.uid) {
-      throw new HttpsError("unauthenticated", "يجب تسجيل الدخول لاستخدام مدرب وازن الذكي.");
-   }
+      throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول لاستخدام مدرب وازن الذكي.');
+    }
 
     const uid = req.auth.uid;
-    const mode = String(req.data?.mode || "chat");
-    const ymd = String(req.data?.ymd || "");
+    const mode = coachStr(req.data?.mode || 'chat');
+    const ymd = coachStr(req.data?.ymd || '');
 
-    const userRef = db.collection("users").doc(uid);
+    const userRef = db.collection('users').doc(uid);
     const snap = await userRef.get();
-    const coach = (snap.data()?.coach ?? {}) as any;
-    const lastYmd = String(coach?.lastYmd || "");
-    let context = String(coach?.context || "");
+    const userData = snap.data() || {};
+    const identity = readCoachIdentity(uid, req.auth.token, userData);
+    const coach = (userData?.coach ?? {}) as any;
+    const lastYmd = coachStr(coach?.lastYmd || '');
+    let context = coachStr(coach?.context || '');
+
+    const report = req.data?.report;
+    if (report && typeof report === 'object') {
+      context = buildCoachContextFromReport(report);
+      await userRef.set(
+        {
+          coach: {
+            context,
+            lastAutoContextYmd: coachStr(report?.ymd) || coachTodayYmdKsa(),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+        },
+        {merge: true}
+      );
+    }
+    if (!context) context = buildCoachContextFromUserDoc(userData, identity);
+
+
+    if (mode === 'profile_update') {
+      const fields = (req.data?.fields && typeof req.data.fields === 'object') ? req.data.fields : {};
+      const patch: Record<string, any> = {};
+      const metricsPatch: Record<string, any> = {};
+      const updated: Record<string, any> = {};
+      const stamp = Date.now();
+      const now = FieldValue.serverTimestamp();
+
+      const fieldHasValue = (names: string[]): boolean => names.some((name) => {
+        if (!Object.prototype.hasOwnProperty.call(fields, name)) return false;
+        const value = fields[name];
+        if (value === undefined || value === null) return false;
+        if (typeof value === 'string' && !value.trim()) return false;
+        return true;
+      });
+
+      const metricsIn = (fields.metrics && typeof fields.metrics === "object") ? fields.metrics : {};
+      const allowMetricNum = (targetKey: string, ...sourceKeys: string[]) => {
+        const raw = coachFirst(...sourceKeys.map((k) => metricsIn[k]));
+        if (raw === undefined || raw === null || raw === "") return;
+        const value = coachNum(raw);
+        if (Number.isFinite(value) && value >= 0) metricsPatch[targetKey] = value;
+      };
+      allowMetricNum('caloriesNeeded', 'caloriesNeeded', 'targetCalories');
+      allowMetricNum('maintenanceCalories', 'maintenanceCalories');
+      allowMetricNum('protein', 'protein', 'proteinG');
+      allowMetricNum('carbs', 'carbs', 'carbsG');
+      allowMetricNum('fat', 'fat', 'fatG');
+      allowMetricNum('activityFactor', 'activityFactor');
+      const macroMode = coachStr(metricsIn.macroMode || '').trim();
+      if (macroMode) metricsPatch.macroMode = macroMode;
+      const macroPlanId = coachStr(metricsIn.macroPlanId || '').trim();
+      if (macroPlanId) metricsPatch.macroPlanId = macroPlanId;
+
+      if (fieldHasValue(['heightCm', 'height', 'height_cm'])) {
+        const heightCm = coachNum(coachFirst(fields.heightCm, fields.height, fields.height_cm));
+        if (heightCm < 80 || heightCm > 230) {
+          throw new HttpsError('invalid-argument', 'الطول لازم يكون بين 80 و 230 سم.');
+        }
+        patch.heightCm = heightCm;
+        patch.height = heightCm;
+        updated.heightCm = heightCm;
+      }
+
+      if (fieldHasValue(['currentWeightKg', 'weightKg', 'weight'])) {
+        const currentWeightKg = coachNum(coachFirst(fields.currentWeightKg, fields.weightKg, fields.weight));
+        if (currentWeightKg < 30 || currentWeightKg > 250) {
+          throw new HttpsError('invalid-argument', 'الوزن لازم يكون بين 30 و 250 كجم.');
+        }
+        const oldWeight = coachNum(coachFirst(
+          userData?.currentWeightKg,
+          userData?.weightKg,
+          userData?.weight,
+          userData?.metrics?.currentWeightKg
+        ));
+        const lastWeightChangeAtMs = coachNum(coachFirst(
+          userData?.lastWeightChangeAtMs,
+          userData?.metrics?.lastWeightChangeAtMs
+        ));
+        const sevenMs = 7 * 24 * 60 * 60 * 1000;
+        if (
+          lastWeightChangeAtMs > 0 &&
+          Date.now() - lastWeightChangeAtMs < sevenMs &&
+          Math.abs(oldWeight - currentWeightKg) > 0.01
+        ) {
+          const daysLeft = Math.ceil((sevenMs - (Date.now() - lastWeightChangeAtMs)) / (24 * 60 * 60 * 1000));
+          throw new HttpsError(
+            'failed-precondition',
+            `ما أقدر أغير الوزن الآن. تقدر تعدله بعد ${daysLeft} يوم من آخر تعديل.`
+          );
+        }
+        const weightStamp = coachNum(fields.lastWeightChangeAtMs) || stamp;
+        patch.currentWeightKg = currentWeightKg;
+        patch.weightKg = currentWeightKg;
+        patch.weight = currentWeightKg;
+        patch.lastWeightChangeAtMs = weightStamp;
+        metricsPatch.currentWeightKg = currentWeightKg;
+        metricsPatch.lastWeightChangeAtMs = weightStamp;
+        updated.currentWeightKg = currentWeightKg;
+      }
+
+      if (fieldHasValue(['targetWeightKg', 'targetWeight', 'goal_target'])) {
+        const targetWeightKg = coachNum(coachFirst(fields.targetWeightKg, fields.targetWeight, fields.goal_target));
+        if (targetWeightKg < 30 || targetWeightKg > 250) {
+          throw new HttpsError('invalid-argument', 'الوزن المستهدف لازم يكون بين 30 و 250 كجم.');
+        }
+        patch.targetWeightKg = targetWeightKg;
+        patch.targetWeight = targetWeightKg;
+        patch.goal_target = targetWeightKg;
+        updated.targetWeightKg = targetWeightKg;
+      }
+
+      const goal = fieldHasValue(['goal', 'goalType']) ? coachStr(fields.goal || fields.goalType || '').trim() : '';
+      if (goal) {
+        const allowedGoals = new Set(['إنقاص الوزن', 'زيادة الوزن', 'المحافظة على الوزن', 'تنشيف الدهون', 'نمط حياة صحي']);
+        if (!allowedGoals.has(goal)) {
+          throw new HttpsError('invalid-argument', 'الهدف غير مدعوم داخل وازن.');
+        }
+        patch.goal = goal;
+        patch.goalType = goal;
+        updated.goal = goal;
+      }
+
+      if (!Object.keys(updated).length) {
+        throw new HttpsError('invalid-argument', 'ما فيه بيانات صالحة للتعديل.');
+      }
+
+      patch.profileUpdatedAtMs = stamp;
+      patch.updatedAt = now;
+      patch.flags = {
+        userDataEntered: true,
+        updatedAt: now,
+      };
+      patch.coach = {
+        ...(userData?.coach || {}),
+        lastProfileUpdateAt: now,
+      };
+      patch.metrics = {
+        ...(Object.keys(metricsPatch).length ? metricsPatch : {}),
+        updatedAtMs: stamp,
+        updatedAt: now,
+      };
+
+      await userRef.set(stripUndefinedDeep(patch), {merge: true});
+
+      return {
+        ok: true,
+        updated,
+        profileUpdatedAtMs: stamp,
+        reply: 'تم تحديث بياناتك في السحابة.',
+        actions: [],
+        recipes: [],
+        workoutPlans: [],
+      };
+    }
 
     const geminiKey = GEMINI_API_KEY.value();
-    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const model = process.env.GEMINI_COACH_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-    // (1) إرسال تقرير اليوم
-    if (mode === "daily") {
+    if (mode === 'daily') {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
-        throw new HttpsError("invalid-argument", "قيمة ymd غير صحيحة.");
-     }
+        throw new HttpsError('invalid-argument', 'قيمة ymd غير صحيحة.');
+      }
       if (lastYmd === ymd) {
-        throw new HttpsError("resource-exhausted", "تم إرسال تقرير اليوم مسبقًا. تقدر ترسل مرة ثانية بكرة.");
-     }
-
-      const report = req.data?.report;
-      if (!report || typeof report !== "object") {
-        throw new HttpsError("invalid-argument", "report مطلوب.");
-     }
+        throw new HttpsError('resource-exhausted', 'تم إرسال تقرير اليوم مسبقًا. تقدر ترسل مرة ثانية بكرة.');
+      }
+      if (!report || typeof report !== 'object') {
+        throw new HttpsError('invalid-argument', 'report مطلوب.');
+      }
 
       context = buildCoachContextFromReport(report);
-
       await userRef.set(
         {
           coach: {
             lastYmd: ymd,
             context,
             updatedAt: FieldValue.serverTimestamp(),
-         },
-       },
+          },
+        },
         {merge: true}
       );
 
       const prompt =
-        `أنت "مدرب وازن الذكي" داخل تطبيق صحي في السعودية.\n` +
-        `تتكلم عربي واضح وبنبرة مدرب شخصي محترف (بدون مبالغة).\n` +
-        `المطلوب: حلّل بيانات المستخدم ثم قدّم توصيات عملية.\n\n` +
-        `قواعد مهمة:\n` +
-        `- ابدأ بتحية قصيرة بالاسم إن وجد.\n` +
-        `- اعطِ (3) ملاحظات رئيسية بالأرقام.\n` +
-        `- اعطِ (3) خطوات عملية لليوم + (3) للأسبوع.\n` +
-        `- لا تقدّم نصائح طبية/دوائية.\n` +
-        `- اجعل الرد منسقًا بنقاط وعناوين قصيرة.\n\n` +
+        'أنت "مدرب وازن الذكي" داخل تطبيق صحي سعودي. تتكلم سعودي واضح ومحترم بدون مبالغة.\n' +
+        'إذا سألك المستخدم من سواك أو من طورك، قل: أنا مطور من فريق وازن السعودي.\n' +
+        'المطلوب: حلّل بيانات المستخدم ثم قدّم توصيات عملية.\n\n' +
+        'قواعد مهمة:\n' +
+        '- ابدأ بتحية قصيرة بالاسم إن وجد.\n' +
+        '- اعطِ 3 ملاحظات رئيسية بالأرقام.\n' +
+        '- اعطِ 3 خطوات عملية لليوم + 3 للأسبوع.\n' +
+        '- لا تقدّم نصائح طبية/دوائية.\n' +
+        '- اجعل الرد منسقًا بنقاط وعناوين قصيرة وبلهجة سعودية مفهومة.\n' +
+        '- لا تستخدم Markdown ولا علامات ** ولا تضع الرد داخل علامات اقتباس.\n\n' +
         `بيانات المستخدم (مختصر):\n${context}`;
 
-      const reply = await geminiGenerate([{text: prompt}], model, geminiKey, 0.35, 10000);
-      return {reply};
-   }
+      const reply = await geminiGenerate([{text: prompt}], model, geminiKey, 0.3, 5000);
+      return {reply, actions: coachActionsForMessage('تقرير اليوم', []), recipes: [], workoutPlans: []};
+    }
 
-    // (2) دردشة عادية
-    const message = String(req.data?.message || "").trim();
-    if (!message) {
-      throw new HttpsError("invalid-argument", "message مطلوب.");
-   }
+    const message = coachStr(req.data?.message || '');
+    if (!message) throw new HttpsError('invalid-argument', 'message مطلوب.');
+
+    if (isCoachIdentityQuestion(message)) {
+      return {reply: coachIdentityReply(), actions: [], recipes: [], workoutPlans: []};
+    }
+
+    if (shouldAskRecipeSourceChoice(message)) {
+      return recipeSourceChoiceReply();
+    }
 
     const history = Array.isArray(req.data?.history) ? req.data.history : [];
     const histText = history
-      .slice(-12)
+      .slice(-10)
       .map((m: any) => {
-        const r = String(m?.role || "");
-        const t = String(m?.text || "");
-        if (!t) return "";
-        return `${r === "assistant" ? "المدرب" : "المستخدم"}: ${t}`;
-     })
+        const r = coachStr(m?.role || '');
+        const t = coachStr(m?.text || '');
+        if (!t) return '';
+        return `${r === 'assistant' ? 'المدرب' : 'المستخدم'}: ${t}`;
+      })
       .filter(Boolean)
-      .join("\n");
+      .join('\n');
 
-    const coachContext = context
-      ? `بيانات المستخدم (مختصر):\n${context}\n\n`
-      : `ملاحظة: لا يوجد تقرير حديث. اطلب من المستخدم إرسال تقرير اليوم أولًا للحصول على نصائح شخصية.\n\n`;
+    const wantsWazenRecipe = wantsWazenRecipeSource(message);
+    const wantsCoachRecipe = wantsCoachRecipeSource(message) && shouldUseRecipesForCoach(message);
 
+    let recipes = wantsCoachRecipe ? [] : await loadCoachRecipes(message, context, 6);
+    let createdRecipe: CoachRecipeCard | null = null;
+    try {
+      createdRecipe = await maybeCreateRecipeFromCoach({uid, message, context, identity, model, geminiKey});
+      if (createdRecipe) recipes = [createdRecipe, ...recipes.filter((r) => r.id !== createdRecipe?.id)].slice(0, 6);
+    } catch (e: any) {
+      logger.warn('askWazenCoach create recipe fallback', {uid, error: String(e?.message || e).slice(0, 180)});
+    }
+
+    if (wantsWazenRecipe && shouldUseRecipesForCoach(message) && recipes.length === 0) {
+      return {
+        reply: 'فتشت في وصفات وازن وما لقيت وصفة مناسبة كفاية الآن. تبي أسوي لك وصفة جديدة من عندي حسب هدفك؟',
+        actions: [
+          {
+            type: 'send_message',
+            label: 'سو وصفة من عندك',
+            payload: {message: 'سو لي وصفة جديدة من عندك واحفظها باسمي حسب هدفي ووجباتي اليوم'},
+          },
+          {type: 'open_route', label: 'افتح الوصفات', route: '/recipes'},
+        ],
+        recipes: [],
+        workoutPlans: [],
+      };
+    }
+
+    let workoutPlan: CoachWorkoutPlan | null = null;
+    try {
+      workoutPlan = await maybeCreateWorkoutPlanFromCoach({message, context, model, geminiKey});
+    } catch (e: any) {
+      logger.warn('askWazenCoach create workout fallback', {uid, error: String(e?.message || e).slice(0, 180)});
+    }
+
+    const recipesPrompt = coachRecipesPrompt(recipes);
+    const routeHint = shouldOpenWorkoutFromCoach(message)
+      ? '\nإذا أُرفق جدول تمارين منظم، قل له إن التطبيق سيحفظه محليًا في صفحة الجداول.\n'
+      : '';
     const prompt =
-      `أنت "مدرب وازن الذكي". أجب باختصار مفيد وبالعربي.\n` +
-      `إذا السؤال يحتاج بيانات المستخدم ولم يتوفر تقرير، اطلب منه إرسال تقرير اليوم.\n\n` +
-      coachContext +
-      (histText ? `سجل المحادثة:\n${histText}\n\n` : "") +
-      `سؤال المستخدم الآن: ${message}`;
+      'أنت "مدرب وازن الذكي" داخل تطبيق وازن الصحي السعودي.\n' +
+      'شخصيتك: سعودي بحت، واضح، مختصر، محترم، عملي، بدون فصحى ثقيلة وبدون مبالغة.\n' +
+      'اكتب نصًا عاديًا خامًا فقط: بدون JSON، بدون Markdown، بدون علامات **، وبدون وضع الرد داخل علامات اقتباس.\n' +
+      'هوية المنتج: إذا انسألت من سواك أو من طورك فقل: أنا مطور من فريق وازن السعودي.\n' +
+      'لا تقول إنك Gemini أو نموذج من Google أو OpenAI.\n' +
+      'عندك وصول للبيانات المختصرة المعطاة لك فقط، لا تخترع أرقام غير موجودة.\n' +
+      'لا تقدم تشخيص طبي أو أدوية.\n' +
+      'لو فيه وصفات مرفقة من وازن، رشّح الأنسب منها واذكر الماكروز بوضوح ولا تخترع وصفة غير موجودة.\n' +
+      'إذا لم يتم إنشاء وصفة فعليًا في هذا الطلب، لا تقل أبدًا إنها انضافت للوصفات أو انحفظت باسم المستخدم.\n' +
+      'إذا طلب المستخدم وصفة من وصفات وازن، التزم بالوصفات المرفقة فقط.\n' +
+      (createdRecipe
+        ? 'تم إنشاء وصفة فعليًا وحفظها في Firestore باسم المستخدم. قل له إنها انضافت باسمه ويقدر يفتحها من الزر.\n'
+        : 'لم يتم إنشاء وصفة في هذا الرد. لو رشّحت وصفة من وازن، قل إنها من وصفات وازن فقط ولا تقل إنها انضافت أو انحفظت.\n') +
+      routeHint +
+      `\nبيانات المستخدم الحالية:\n${context || 'لا توجد بيانات كافية.'}\n` +
+      recipesPrompt +
+      (workoutPlan ? `\nجدول تمارين جاهز للحفظ محليًا:\n${JSON.stringify(workoutPlan, null, 2)}\n` : '') +
+      (histText ? `\nسجل المحادثة المختصر:\n${histText}\n` : '') +
+      `\nرسالة المستخدم الآن: ${message}`;
 
-    const reply = await geminiGenerate([{text: prompt}], model, geminiKey, 0.3, 10000);
-    return {reply};
- }
+    const reply = await geminiGenerate([{text: prompt}], model, geminiKey, 0.25, 4500);
+    return {
+      reply,
+      actions: coachActionsForMessage(message, recipes),
+      recipes,
+      workoutPlans: workoutPlan ? [workoutPlan] : [],
+    };
+  }
 );
+
 
 
 // =====================

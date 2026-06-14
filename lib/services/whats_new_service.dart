@@ -7,7 +7,7 @@ import '../settings/changelog_page.dart';
 class WhatsNewService {
   const WhatsNewService._();
 
-  static const String _seenVersionKey = 'wazen_whats_new_seen_version_build_v1';
+  static const String _seenVersionKey = 'wazen_whats_new_seen_version_build_v2';
 
   static Future<String> _currentVersionBuildKey() async {
     final info = await PackageInfo.fromPlatform();

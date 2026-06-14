@@ -36,6 +36,7 @@ import 'food_ai_screen.dart';
 import 'barcode_scanner_page.dart';
 import 'gemini_chat_screen.dart';
 import 'ask_wazen_coach_screen.dart';
+import '../shared/wazen_coach_avatar.dart';
 import 'notifications_inbox_screen.dart';
 import '../notifications/wazen_inbox_service.dart';
 import 'calories_history_screen.dart';
@@ -3662,20 +3663,7 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
               MaterialPageRoute(builder: (_) => const AskWazenCoachScreen()),
             );
           },
-          icon: Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Theme.of(context).colorScheme.primaryContainer,
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.psychology_alt_rounded,
-              size: 21,
-              color: Theme.of(context).colorScheme.onPrimaryContainer,
-            ),
-          ),
+          icon: const WazenCoachAvatar(size: 34, headOnly: true),
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,

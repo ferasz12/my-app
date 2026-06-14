@@ -80,7 +80,7 @@ class _MyDataPageState extends State<MyDataPage> {
 
     // ✅ تحديث فوري إذا تغيّرت أهداف الماكروز من صفحة ثانية (مثل الملخص الصحي)
     _macroRevListener = () {
-      _refreshMacrosFromPrefs(force: true);
+      unawaited(_bootstrap());
     };
     MacroTargetsController.revision.addListener(_macroRevListener!);
   }
