@@ -39,16 +39,19 @@ double calculateMaintenanceCalories({
   required double activityFactor,
 }) {
   final bmr = calculateBmr(age: age, gender: gender, weight: weight, height: height);
-  final factor = (activityFactor.isFinite && activityFactor > 0) ? activityFactor : 1.55;
+  final factor = _safeActivityFactor(activityFactor);
   return (bmr * factor).roundToDouble();
 }
 
 /// يحسب السعرات النهائية حسب الهدف.
 ///
-/// ملاحظة مهمة:
-/// - الهدفان "زيادة النشاط اليومي" و"ضبط مستوى السكر" لا نعتبرهما عجز/فائض
-///   من ناحية السعرات، بل صيانة، والاختلاف يكون في توزيع الماكروز.
-/// - يوجد حد أمان حتى لا تنخفض السعرات بشكل مبالغ فيه.
+/// ملاحظات:
+/// - BMR = Mifflin-St Jeor من الجنس/العمر/الوزن/الطول.
+/// - TDEE = BMR × معامل النشاط.
+/// - العجز/الفائض صار نسبيًا مع حدود منطقية بدل رقم ثابت دائمًا.
+///   هذا يمنع نزول السعرات بقوة عند الأوزان الصغيرة، ويعطي هدفًا أوضح عند الأوزان العالية.
+/// - أهداف "زيادة النشاط اليومي" و"ضبط السكر" تعتبر صيانة من ناحية السعرات،
+///   والاختلاف يكون في توزيع الماكروز.
 double calculateCalories({
   required int age,
   required String gender,
@@ -70,16 +73,16 @@ double calculateCalories({
 
   switch (normalizedGoal) {
     case 'إنقاص الوزن':
-      target = maintenance - 500;
+      target = maintenance - _clampDouble(maintenance * 0.20, 300.0, 700.0);
       break;
     case 'تنشيف الدهون':
-      target = maintenance * 0.78;
+      target = maintenance - _clampDouble(maintenance * 0.22, 350.0, 800.0);
       break;
     case 'بناء العضلات':
-      target = maintenance + 300;
+      target = maintenance + _clampDouble(maintenance * 0.08, 150.0, 350.0);
       break;
     case 'زيادة الوزن':
-      target = maintenance + 500;
+      target = maintenance + _clampDouble(maintenance * 0.15, 250.0, 650.0);
       break;
     case 'نمط حياة صحي':
     default:
@@ -107,4 +110,14 @@ double _applySafetyFloor({
     return math.max(900.0, maintenance);
   }
   return math.max(target, floor);
+}
+
+double _safeActivityFactor(double activityFactor) {
+  if (!activityFactor.isFinite || activityFactor <= 0) return 1.55;
+  return _clampDouble(activityFactor, 1.2, 1.95);
+}
+
+double _clampDouble(double value, double min, double max) {
+  if (!value.isFinite) return min;
+  return value.clamp(min, max).toDouble();
 }

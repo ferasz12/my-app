@@ -424,6 +424,7 @@ class _SetGoalPageState extends State<SetGoalPage> {
       goal: effectiveGoal,
       maintenanceCalories: maintenanceCalories,
       weightKg: weight,
+      heightCm: height,
       gender: gender,
       bmr: bmr,
     );
@@ -436,6 +437,7 @@ class _SetGoalPageState extends State<SetGoalPage> {
     final double protein = selectedPlan.proteinG;
     final double carbs = selectedPlan.carbsG;
     final double fat = selectedPlan.fatG;
+    final String macroCalculationNote = selectedPlan.calculationNote;
 
     final today = DateTime.now().toIso8601String().split('T').first;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -448,6 +450,7 @@ class _SetGoalPageState extends State<SetGoalPage> {
     await prefs.setDouble('activityFactor_$email', activityFactor);
     await prefs.setString('macroMode_$email', MacroPlanEngine.modeAuto);
     await prefs.setString('macroPlanId_$email', macroPlanId);
+    await prefs.setString('macroCalculationNote_$email', macroCalculationNote);
     await prefs.setInt('macrosUpdatedAt_$email', nowMs);
     await prefs.setString('lastUpdated_$email', today);
 
@@ -463,6 +466,7 @@ class _SetGoalPageState extends State<SetGoalPage> {
           'activityFactor': activityFactor,
           'macroMode': MacroPlanEngine.modeAuto,
           'macroPlanId': macroPlanId,
+          'macroCalculationNote': macroCalculationNote,
           'updatedAt': FieldValue.serverTimestamp(),
         };
         if (lifestyleScore >= 0) {

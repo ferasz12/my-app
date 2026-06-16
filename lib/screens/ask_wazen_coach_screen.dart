@@ -76,8 +76,8 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
 
   String get _welcomeText =>
       'أهلًا 👋\nأنا مدرب وازن الذكي.\n\n'
-      'اسألني مباشرة عن أكلك، وصفاتك، أو جدولك؛ أقرأ تقريرًا خفيفًا مع رسالتك.\n'
-      'وأقدر أرشح لك وصفات، أو أنشئ لك جدول تمارين وأحفظه محليًا في صفحة الجداول.';
+      'أقرأ بياناتك الصحية الحالية فقط عشان أعطيك نصائح أدق، لكن ما أعدل وزنك أو طولك أو هدفك من هنا.\n'
+      'اسألني عن أكلك، وصفاتك، أو جدولك؛ إذا طلبت وصفة بخيّرك بين وصفات وازن الموجودة أو وصفة جديدة من مدرب وازن مصممة على بياناتك، وأقدر أنشئ لك جدول تمارين وأحفظه محليًا في صفحة الجداول.';
 
   Future<String> _currentEmail(SharedPreferences prefs) async {
     return (prefs.getString('currentEmail') ??
@@ -591,6 +591,7 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
       goal: effectiveGoal,
       maintenanceCalories: maintenance,
       weightKg: nextWeight,
+      heightCm: nextHeight,
       gender: gender,
       bmr: bmr,
     );
@@ -608,6 +609,7 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
       'activityFactor': activityFactor,
       'macroMode': MacroPlanEngine.modeAuto,
       'macroPlanId': selected.id,
+      'macroCalculationNote': selected.calculationNote,
     };
   }
 
@@ -626,6 +628,10 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
       await prefs.setDouble('activityFactor_$alias', (macros['activityFactor'] as num).toDouble());
       await prefs.setString('macroMode_$alias', (macros['macroMode'] ?? MacroPlanEngine.modeAuto).toString());
       await prefs.setString('macroPlanId_$alias', (macros['macroPlanId'] ?? '').toString());
+      await prefs.setString(
+        'macroCalculationNote_$alias',
+        (macros['macroCalculationNote'] ?? '').toString(),
+      );
       await prefs.setInt('macrosUpdatedAt_$alias', DateTime.now().millisecondsSinceEpoch);
     }
     MacroTargetsController.bump();
@@ -711,113 +717,289 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
   }
 
   Future<String?> _tryHandleLocalAccountCommand(String text) async {
-    final s = text.trim();
-    if (!_looksLikeUpdateCommand(s)) return null;
+    final s = _normalizeArabicNumbers(text);
+    final wantsProfileEdit = _looksLikeUpdateCommand(s) &&
+        RegExp(
+          r'(وزني|الوزن|طولي|الطول|هدف|هدفي|target|weight|height|goal|كجم|كيلو|سم|cm)',
+          caseSensitive: false,
+        ).hasMatch(s);
 
-    final prefs = await SharedPreferences.getInstance();
-    final user = FirebaseAuth.instance.currentUser;
-    final identity = user != null
-        ? await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs)
-        : await WazenIdentityStore.currentIdentity(migrate: false);
-    final changed = <String>[];
-    double? heightCm;
-    double? weightKg;
-    double? targetWeightKg;
-    String? newGoal;
+    if (!wantsProfileEdit) return null;
 
-    if (_hasHeightIntent(s)) {
-      final h = _extractHeightCm(s);
-      if (h == null) {
-        return 'اكتب الطول برقم واضح، مثل: غير طولي إلى 174.';
-      }
-      if (h < 80 || h > 230) {
-        return 'الطول لازم يكون رقم منطقي بالسنتيمتر، مثل: غير طولي إلى 174.';
-      }
-      heightCm = h;
-      changed.add('الطول إلى ${_fmtNum(h)} سم');
+    return 'ما أقدر أعدل وزنك أو طولك أو هدفك من مدرب وازن ✅\n\n'
+        'أنا أقرأ بياناتك فقط عشان أبني لك نصيحة أو جدول تمارين أو وصفة مناسبة. '
+        'تعديل المعلومات يكون من صفحة "بياناتي" أو صفحة إدخال البيانات فقط، عشان تبقى حساباتك دقيقة وآمنة.';
+  }
+
+  bool _looksLikeRecipeRequest(String text) {
+    final s = _normalizeArabicNumbers(text);
+    return RegExp(
+      r'(وصفه|وصفة|وصفات|وجبه|وجبة|اكله|أكله|طبخه|طبخة|سناك|فطور|غداء|عشاء|شاورما|سلطه|سلطة|باول|ساندويتش|ساندوتش|meal|recipe)',
+      caseSensitive: false,
+    ).hasMatch(s);
+  }
+
+  bool _isExplicitCoachRecipeRequest(String text) {
+    final s = _normalizeArabicNumbers(text);
+    final hasRecipe = _looksLikeRecipeRequest(text);
+    final hasCoach = RegExp(
+      r'(مدرب وازن|وصفات المدرب|وصفات مدرب|من عندك|انت سو|انت تسوي|اخترت وصفات مدرب|coach recipe|generated recipe)',
+      caseSensitive: false,
+    ).hasMatch(s);
+    final hasWazenOnly = RegExp(
+      r'(وصفات وازن|من وصفات وازن|وصفات التطبيق|الموجوده|الموجودة)',
+      caseSensitive: false,
+    ).hasMatch(s);
+    return hasRecipe && hasCoach && !hasWazenOnly;
+  }
+
+  bool _isExplicitWazenRecipeRequest(String text) {
+    final s = _normalizeArabicNumbers(text);
+    return _looksLikeRecipeRequest(text) &&
+        RegExp(
+          r'(وصفات وازن|من وصفات وازن|وصفات التطبيق|الموجوده|الموجودة)',
+          caseSensitive: false,
+        ).hasMatch(s);
+  }
+
+  List<CoachAction> _recipeSourceActions(String originalPrompt) {
+    return <CoachAction>[
+      CoachAction(
+        type: 'recipe_source_choice',
+        label: 'وصفات وازن',
+        payload: <String, dynamic>{
+          'source': 'wazen',
+          'originalPrompt': originalPrompt,
+        },
+      ),
+      CoachAction(
+        type: 'recipe_source_choice',
+        label: 'وصفات مدرب وازن',
+        payload: <String, dynamic>{
+          'source': 'coach',
+          'originalPrompt': originalPrompt,
+        },
+      ),
+    ];
+  }
+
+  Future<bool> _tryOfferRecipeSourceChoice(String clean) async {
+    if (!_looksLikeRecipeRequest(clean)) return false;
+    if (_isExplicitCoachRecipeRequest(clean) || _isExplicitWazenRecipeRequest(clean)) {
+      return false;
     }
 
-    if (_hasTargetWeightIntent(s)) {
-      final tw = _extractTargetWeightKg(s);
-      if (tw == null) {
-        return 'اكتب الوزن المستهدف برقم واضح، مثل: غير وزني المستهدف إلى 72.';
-      }
-      if (tw < 30 || tw > 250) {
-        return 'الوزن المستهدف لازم يكون رقم منطقي، مثل: غير وزني المستهدف إلى 72.';
-      }
-      targetWeightKg = tw;
-      changed.add('الوزن المستهدف إلى ${_fmtNum(tw)} كجم');
-    } else if (_hasCurrentWeightIntent(s)) {
-      final w = _extractCurrentWeightKg(s);
-      if (w == null) {
-        return 'اكتب الوزن برقم واضح، مثل: غير وزني إلى 78.';
-      }
-      if (w < 30 || w > 250) {
-        return 'الوزن لازم يكون رقم منطقي، مثل: غير وزني إلى 78.';
-      }
-      final daysLeft = _coachWeightDaysLeft(prefs, identity);
-      if (daysLeft > 0) {
-        return 'ما أقدر أغير الوزن الآن. تقدر تعدله بعد $daysLeft يوم من آخر تعديل.';
-      }
-      weightKg = w;
-      changed.add('الوزن الحالي إلى ${_fmtNum(w)} كجم');
+    if (!mounted) return true;
+    setState(() {
+      _msgs.add(_ChatMsg(
+        role: 'assistant',
+        text: 'تبغاني أجيب لك وصفات من أي مصدر؟\n\n'
+            '• وصفات وازن: أرشح لك من الوصفات الموجودة في التطبيق.\n'
+            '• وصفات مدرب وازن: أصمم لك وصفة جديدة من عندي حسب وزنك وهدفك وسعراتك وماكروزك.',
+        actions: _recipeSourceActions(clean),
+      ));
+      _sending = false;
+    });
+    await _saveChatLocal();
+    _scrollToBottom();
+    return true;
+  }
+
+  double _coachReportNum(Map<dynamic, dynamic> map, String key) {
+    final v = map[key];
+    if (v is num) return v.toDouble();
+    return double.tryParse('$v'.replaceAll(',', '.')) ?? 0.0;
+  }
+
+  int _roundCoachMacro(double value, {int min = 0, int max = 9999}) {
+    if (!value.isFinite) return min;
+    final rounded = value.round();
+    if (rounded < min) return min;
+    if (rounded > max) return max;
+    return rounded;
+  }
+
+  String _goalFromReport(Map<String, dynamic> report) {
+    final goal = report['goal'];
+    if (goal is Map) {
+      final name = (goal['name'] ?? '').toString().trim();
+      if (name.isNotEmpty) return name;
+    }
+    return 'هدفك الحالي';
+  }
+
+  CoachRecipeCard _buildLocalCoachRecipe({
+    required String originalPrompt,
+    required Map<String, dynamic> report,
+  }) {
+    final normalized = _normalizeArabicNumbers(originalPrompt);
+    final targets = report['targets'] is Map
+        ? Map<String, dynamic>.from(report['targets'] as Map)
+        : <String, dynamic>{};
+    final profile = report['profile'] is Map
+        ? Map<String, dynamic>.from(report['profile'] as Map)
+        : <String, dynamic>{};
+
+    final goalName = _goalFromReport(report);
+    final goalNorm = _normalizeArabicNumbers(goalName);
+    final caloriesTarget = _coachReportNum(targets, 'calories');
+    final proteinTarget = _coachReportNum(targets, 'protein');
+    final weightKg = _coachReportNum(profile, 'current_weight_kg');
+
+    final isGain = RegExp(r'(زياده|زيادة|تضخيم|عضل|بناء|gain|bulk)').hasMatch(goalNorm);
+    final isLoss = RegExp(r'(انقاص|تنزيل|نزول|خساره|خسارة|تنشيف|دهون|loss|cut)').hasMatch(goalNorm);
+    final isLowCarb = RegExp(r'(كيتو|لو كارب|منخفض الكارب|low.?carb|keto)').hasMatch(goalNorm);
+
+    final mealCal = caloriesTarget > 0
+        ? (isGain ? caloriesTarget * 0.34 : isLoss ? caloriesTarget * 0.26 : caloriesTarget * 0.30)
+        : (isGain ? 650.0 : isLoss ? 430.0 : 520.0);
+    final kcal = _roundCoachMacro(
+      mealCal,
+      min: isGain ? 560 : isLoss ? 330 : 420,
+      max: isGain ? 850 : isLoss ? 560 : 700,
+    );
+
+    final wantedProtein = proteinTarget > 0
+        ? proteinTarget * (isGain ? 0.30 : 0.28)
+        : (weightKg > 0 ? weightKg * 0.45 : 38.0);
+    final protein = _roundCoachMacro(
+      wantedProtein,
+      min: isGain ? 38 : 30,
+      max: isGain ? 65 : 55,
+    );
+    final fatTarget = isLoss
+        ? kcal * 0.22 / 9.0
+        : isGain
+            ? kcal * 0.28 / 9.0
+            : kcal * 0.25 / 9.0;
+    final fat = _roundCoachMacro(fatTarget, min: isLoss ? 8 : 12, max: isGain ? 28 : 22);
+    final carbsCalories = kcal - (protein * 4) - (fat * 9);
+    final carbs = isLowCarb
+        ? _roundCoachMacro(carbsCalories / 4, min: 8, max: 28)
+        : _roundCoachMacro(
+            carbsCalories / 4,
+            min: isGain ? 55 : 25,
+            max: isGain ? 120 : isLoss ? 65 : 90,
+          );
+
+    final isShawarma = RegExp(r'(شاورما|shawarma)').hasMatch(normalized);
+    final isBreakfast = RegExp(r'(فطور|صبح|breakfast|افطار)').hasMatch(normalized);
+    final isSnack = RegExp(r'(سناك|تحليه|حلى|حلويات|dessert|snack)').hasMatch(normalized);
+
+    String title;
+    String caption;
+    List<String> ingredients;
+    String method;
+
+    if (isShawarma) {
+      final chickenG = protein >= 45 ? 170 : 140;
+      title = 'شاورما دجاج صحية من مدرب وازن';
+      caption = isLoss
+          ? 'نسخة عالية البروتين وخفيفة الدهون مناسبة للتنشيف أو نزول الوزن.'
+          : isGain
+              ? 'نسخة مشبعة بطاقة أعلى وبروتين مناسب لبناء العضلات.'
+              : 'وصفة متوازنة تناسب هدفك الحالي بدون صوصات دسمة.';
+      ingredients = <String>[
+        'صدر دجاج مشوي $chickenG غرام',
+        isLowCarb ? 'خس روماني كبير بدل الخبز' : 'خبز صاج أو تورتيلا بر متوسط',
+        'زبادي يوناني 60 غرام',
+        'ليمون وخل وبهارات شاورما',
+        'خس وخيار ومخلل خفيف',
+        isGain ? 'بطاطس مشوية 120 غرام أو رز أبيض 100 غرام' : 'رشة ثوم بودرة بدون مايونيز',
+      ];
+      method = 'تبّل الدجاج بالليمون والبهارات ثم اشوه على حرارة عالية. '
+          'اخلط الزبادي مع الثوم والليمون كصوص خفيف. '
+          'لف الدجاج مع الخضار في الخبز أو الخس، وقدّمها بدون صوصات عالية الدهون.';
+    } else if (isBreakfast) {
+      title = 'فطور بروتين متوازن من مدرب وازن';
+      caption = 'فطور سريع يحافظ على الشبع ويرفع بروتين يومك.';
+      ingredients = <String>[
+        'بيضتان كاملتان أو بيضة كاملة مع 3 بياض',
+        isLowCarb ? 'أفوكادو 50 غرام' : 'شريحة توست بر أو شوفان 40 غرام',
+        'لبنة أو زبادي يوناني 80 غرام',
+        'خيار وطماطم وخس',
+        'رشة ملح وفلفل وليمون',
+      ];
+      method = 'اطبخ البيض بدون زيت كثير، ثم قدّمه مع الخضار ومصدر الكارب أو الدهون حسب نظامك. '
+          'خلّ الزبادي أو اللبنة بجانب الطبق لرفع البروتين.';
+    } else if (isSnack) {
+      title = 'سناك زبادي بروتين من مدرب وازن';
+      caption = 'سناك خفيف يعطيك حلاوة وبروتين بدون سعرات مبالغ فيها.';
+      ingredients = <String>[
+        'زبادي يوناني 170 غرام',
+        'توت أو فراولة 80 غرام',
+        isGain ? 'شوفان 35 غرام' : 'شوفان 15 غرام أو بدون',
+        'قرفة أو فانيلا',
+        'ملعقة صغيرة عسل اختياري',
+      ];
+      method = 'اخلط الزبادي مع الفانيلا والقرفة، ثم أضف التوت والشوفان. '
+          'لو هدفك نزول الوزن قلّل العسل، ولو هدفك زيادة الوزن ارفع الشوفان قليلًا.';
+    } else {
+      title = isGain ? 'باول دجاج ورز لبناء العضلات' : 'باول دجاج صحي من مدرب وازن';
+      caption = isGain
+          ? 'وجبة عالية الطاقة تساعدك ترفع السعرات والبروتين بشكل نظيف.'
+          : 'وجبة مشبعة ومتوازنة مناسبة لهدفك الحالي وتخلي البروتين واضح.';
+      ingredients = <String>[
+        'صدر دجاج مشوي ${protein >= 45 ? 170 : 140} غرام',
+        isLowCarb ? 'خضار ورقية وخيار وفلفل رومي' : 'رز أبيض أو بطاطس مشوية ${isGain ? 180 : 120} غرام',
+        'زبادي يوناني 50 غرام كصوص',
+        'خضار مشكلة',
+        'ليمون وبهارات وملح خفيف',
+        isGain ? 'ملعقة صغيرة زيت زيتون' : 'رشة سماق أو فلفل أسود',
+      ];
+      method = 'اشوِ الدجاج بالبهارات، وجهّز الرز أو البطاطس بالكمية المناسبة، ثم رتب الطبق مع الخضار والصوص الخفيف. '
+          'لو بقي عندك كارب قليل في يومك استبدل الرز بخضار أكثر.';
     }
 
-    if (RegExp(r'(هدفي|الهدف|goal)', caseSensitive: false).hasMatch(s)) {
-      if (RegExp(r'(انقاص|إنقاص|نزول|تنزيل|تخسيس|loss|cut)', caseSensitive: false).hasMatch(s)) {
-        newGoal = 'إنقاص الوزن';
-      } else if (RegExp(r'(زيادة|تضخيم|رفع|gain|bulk)', caseSensitive: false).hasMatch(s)) {
-        newGoal = 'زيادة الوزن';
-      } else if (RegExp(r'(ثبات|محافظة|حفاظ|maintenance)', caseSensitive: false).hasMatch(s)) {
-        newGoal = 'المحافظة على الوزن';
-      }
-      if (newGoal != null) changed.add('الهدف إلى $newGoal');
-    }
+    final noteParts = <String>[
+      'مصممة حسب $goalName',
+      if (caloriesTarget > 0) 'هدفك اليومي ${caloriesTarget.round()} سعرة',
+      if (proteinTarget > 0) 'بروتينك اليومي ${proteinTarget.round()}غ',
+    ];
 
-    if (changed.isEmpty) return null;
+    return CoachRecipeCard(
+      id: 'coach_recipe_${DateTime.now().millisecondsSinceEpoch}',
+      title: title,
+      calories: kcal,
+      protein: protein,
+      carbs: carbs,
+      fat: fat,
+      goal: 'وصفة مدرب وازن',
+      ingredients: ingredients,
+      method: method,
+      caption: '${noteParts.join(' • ')}. $caption',
+      route: '/recipes',
+    );
+  }
 
-    final macros = (heightCm != null || weightKg != null || newGoal != null)
-        ? _buildCoachMacroPlan(
-            prefs: prefs,
-            identity: identity,
-            heightCm: heightCm,
-            weightKg: weightKg,
-            goal: newGoal,
-          )
-        : null;
-    final weightStamp = weightKg != null ? DateTime.now().millisecondsSinceEpoch : null;
-    final fields = <String, dynamic>{
-      if (heightCm != null) 'heightCm': heightCm,
-      if (weightKg != null) 'currentWeightKg': weightKg,
-      if (weightStamp != null) 'lastWeightChangeAtMs': weightStamp,
-      if (targetWeightKg != null) 'targetWeightKg': targetWeightKg,
-      if (newGoal != null) 'goal': newGoal,
-      if (macros != null) 'metrics': macros,
-    };
+  Future<bool> _tryGenerateLocalCoachRecipe(String clean) async {
+    if (!_isExplicitCoachRecipeRequest(clean)) return false;
 
+    Map<String, dynamic> report;
     try {
-      await AskWazenCoachApi.updateUserProfile(fields: fields);
-      await _mirrorCoachProfilePrefs(
-        prefs: prefs,
-        identity: identity,
-        heightCm: heightCm,
-        weightKg: weightKg,
-        targetWeightKg: targetWeightKg,
-        goal: newGoal,
-        lastWeightChangeAtMs: weightStamp,
-        macros: macros,
-      );
-      if (macros != null) {
-        await _mirrorCoachMacrosPrefs(prefs: prefs, identity: identity, macros: macros);
-      }
-      return 'تم ✅\nعدّلت ${changed.join(' و ')} في السحابة، وحدثت التطبيق عندك مباشرة.';
-    } on CoachApiException catch (e) {
-      return e.message.isNotEmpty
-          ? e.message
-          : 'تعذر تعديل بياناتك في السحابة الآن. حاول مرة ثانية.';
+      report = await AskWazenReportBuilder.build(days: 7);
     } catch (_) {
-      return 'تعذر تعديل بياناتك في السحابة الآن. حاول مرة ثانية.';
+      report = <String, dynamic>{};
     }
+
+    final recipe = _buildLocalCoachRecipe(
+      originalPrompt: clean,
+      report: report,
+    );
+
+    if (!mounted) return true;
+    setState(() {
+      _msgs.add(_ChatMsg(
+        role: 'assistant',
+        text: 'جهزت لك وصفة جديدة من مدرب وازن، مب من وصفات التطبيق ✅\n'
+            'الوصفة مبنية على بياناتك وهدفك الحالي قدر الإمكان، وتقدر تستخدمها كفكرة وتعدل كمياتها من سجل السعرات إذا احتجت.',
+        recipes: <CoachRecipeCard>[recipe],
+      ));
+      _sending = false;
+    });
+    await _saveChatLocal();
+    _scrollToBottom();
+    return true;
   }
 
   Future<void> _sendChatText(String text) async {
@@ -844,6 +1026,9 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
       _scrollToBottom();
       return;
     }
+
+    if (await _tryOfferRecipeSourceChoice(clean)) return;
+    if (await _tryGenerateLocalCoachRecipe(clean)) return;
 
     try {
       final response = await AskWazenCoachApi.chat(
@@ -967,6 +1152,26 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
 
   Future<void> _handleCoachAction(CoachAction action) async {
     final type = action.type.trim().toLowerCase();
+
+    if (type == 'recipe_source_choice') {
+      final source = (action.payload['source'] ?? '').toString().trim().toLowerCase();
+      final originalPrompt = (action.payload['originalPrompt'] ?? '').toString().trim();
+      if (source == 'coach') {
+        await _sendChatText(
+          'وصفات مدرب وازن: صمم لي وصفة جديدة من عندك، مناسبة لبياناتي وهدفي، '
+          'واعرضها كبطاقة وصفة كاملة. طلبي الأساسي: $originalPrompt',
+        );
+        return;
+      }
+      if (source == 'wazen') {
+        await _sendChatText(
+          'وصفات وازن: رشح لي من وصفات التطبيق الموجودة ما يناسب هدفي. '
+          'طلبي الأساسي: $originalPrompt',
+        );
+        return;
+      }
+    }
+
     final payloadMessage = (action.payload['message'] ?? action.payload['text'] ?? '')
         .toString()
         .trim();
@@ -985,6 +1190,10 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
 
   IconData _actionIcon(CoachAction action) {
     final type = action.type.trim().toLowerCase();
+    if (type == 'recipe_source_choice') {
+      final source = (action.payload['source'] ?? '').toString().trim().toLowerCase();
+      return source == 'coach' ? Icons.auto_awesome_rounded : Icons.restaurant_menu_rounded;
+    }
     if (type == 'send_message' || type == 'coach_message') {
       return Icons.chat_bubble_outline_rounded;
     }
@@ -1012,6 +1221,57 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
     );
   }
 
+  Widget _coachMacroTile({
+    required String emoji,
+    required String label,
+    required String value,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.30)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        textDirection: TextDirection.rtl,
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 15)),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onSurface.withOpacity(0.65),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _recipeCards(List<CoachRecipeCard> recipes) {
     if (recipes.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
@@ -1020,76 +1280,150 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
       padding: const EdgeInsets.only(top: 10),
       child: Column(
         children: recipes.take(3).map((r) {
-          final ingredients = r.ingredients.take(5).join('، ');
+          final ingredients = r.ingredients.take(6).join('، ');
+          final hasImage = r.imageUrl.trim().isNotEmpty;
+          final methodPreview = r.method.trim();
+          final caption = r.caption.trim();
+
           return Container(
             width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 10),
+            clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: theme.colorScheme.surface.withOpacity(0.72),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: theme.colorScheme.primary.withOpacity(0.16),
-              ),
+              color: theme.colorScheme.surface.withOpacity(0.82),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: theme.colorScheme.primary.withOpacity(0.16)),
+              boxShadow: [
+                BoxShadow(
+                  blurRadius: 16,
+                  color: Colors.black.withOpacity(0.06),
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  textDirection: TextDirection.rtl,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        r.title,
-                        textDirection: TextDirection.rtl,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14.5,
-                        ),
+                if (hasImage)
+                  AspectRatio(
+                    aspectRatio: 16 / 7,
+                    child: Image.network(
+                      r.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        alignment: Alignment.center,
+                        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.60),
+                        child: const Text('🍽️', style: TextStyle(fontSize: 30)),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        color: theme.colorScheme.primary.withOpacity(0.10),
-                      ),
-                      child: Text(
-                        r.goal.isEmpty ? 'وصفة' : r.goal,
-                        textDirection: TextDirection.rtl,
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '🔥 ${r.calories} كالوري  •  🥩 ${r.protein}g  •  🍞 ${r.carbs}g  •  🧈 ${r.fat}g',
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
-                ),
-                if (ingredients.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    ingredients,
-                    textDirection: TextDirection.rtl,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.35,
-                      color: theme.colorScheme.onSurface.withOpacity(0.72),
                     ),
                   ),
-                ],
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () => _openCoachRoute(r.route.isEmpty ? '/recipes' : r.route),
-                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                    label: const Text('اذهب للوصفة'),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              r.title,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15.5,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(999),
+                              color: theme.colorScheme.primary.withOpacity(0.10),
+                            ),
+                            child: Text(
+                              r.goal.isEmpty ? 'وصفة وازن' : r.goal,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (caption.isNotEmpty) ...[
+                        const SizedBox(height: 7),
+                        Text(
+                          caption,
+                          textDirection: TextDirection.rtl,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                            color: theme.colorScheme.onSurface.withOpacity(0.72),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 7,
+                        runSpacing: 7,
+                        alignment: WrapAlignment.end,
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          _coachMacroTile(emoji: '🔥', label: 'السعرات', value: '${r.calories} kcal'),
+                          _coachMacroTile(emoji: '🥩', label: 'بروتين', value: '${r.protein}g'),
+                          _coachMacroTile(emoji: '🍞', label: 'كارب', value: '${r.carbs}g'),
+                          _coachMacroTile(emoji: '🥑', label: 'دهون', value: '${r.fat}g'),
+                        ],
+                      ),
+                      if (ingredients.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          'المكونات: $ingredients',
+                          textDirection: TextDirection.rtl,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                            color: theme.colorScheme.onSurface.withOpacity(0.78),
+                          ),
+                        ),
+                      ],
+                      if (methodPreview.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'الطريقة: $methodPreview',
+                          textDirection: TextDirection.rtl,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                            color: theme.colorScheme.onSurface.withOpacity(0.78),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: () => _openCoachRoute(r.route.isEmpty ? '/recipes' : r.route),
+                            icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                            label: const Text('صفحة الوصفات'),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: _sending
+                                ? null
+                                : () => _sendChatText('سو لي وصفة مشابهة لـ ${r.title} ومناسبة لهدفي'),
+                            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                            label: const Text('وصفة مشابهة'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1331,12 +1665,12 @@ class _AskWazenCoachScreenState extends State<AskWazenCoachScreen> {
       builder: (ctx) {
         final items = <String>[
           'اسألني: وش آكل اليوم حسب هدفي ووجباتي؟',
-          'اطلب: رشّح لي وصفة من وصفات وازن.',
-          'اطلب: سو لي وصفة جديدة واحفظها باسمي.',
+          'اطلب أي وصفة، وبخيّرك بين وصفات وازن أو وصفات مدرب وازن.',
+          'اختر وصفات مدرب وازن عشان أصمم لك وصفة جديدة حسب وزنك وهدفك وسعراتك.',
           'اسألني: كم باقي لي بروتين أو سعرات اليوم؟',
           'قل: سو لي جدول تمارين 4 أيام، وأحفظه لك محليًا في صفحة الجداول.',
-          'عدّل بياناتك بوضوح: غير وزني إلى 78، غير طولي إلى 174، غير وزني المستهدف إلى 72.',
-          'غيّر هدفك: غير هدفي إلى إنقاص الوزن / زيادة الوزن / المحافظة.',
+          'أقرأ وزنك وطولك وهدفك للتخصيص فقط، ولا أعدل بياناتك من داخل المدرب.',
+          'لتعديل الوزن أو الطول أو الهدف استخدم صفحة بياناتي أو صفحة إدخال البيانات.',
         ];
         return SafeArea(
           child: Padding(

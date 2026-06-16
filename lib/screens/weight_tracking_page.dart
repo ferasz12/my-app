@@ -70,6 +70,123 @@ double _asSafeDouble(dynamic value, {double fallback = 0.0}) {
   return fallback;
 }
 
+class _MealLogItem {
+  final String slot;
+  final String name;
+  final double calories;
+  final double protein;
+  final double carbs;
+  final double fat;
+
+  const _MealLogItem({
+    required this.slot,
+    required this.name,
+    required this.calories,
+    required this.protein,
+    required this.carbs,
+    required this.fat,
+  });
+}
+
+String _cleanMealSlot(dynamic raw) {
+  final value = (raw ?? '').toString().replaceAll(RegExp(r'[🍳🍽️🌙🥗🍱☕️☕🥣]'), '').trim();
+  return value.isEmpty ? 'وجبة' : value;
+}
+
+String _foodLogItemName(Map<dynamic, dynamic> map) {
+  final raw = map['name'] ??
+      map['meal_name'] ??
+      map['title'] ??
+      map['foodName'] ??
+      map['label'] ??
+      map['arabicName'] ??
+      map['englishName'] ??
+      '';
+  final value = raw.toString().trim();
+  return value.isEmpty ? 'عنصر غذائي' : value;
+}
+
+double _foodLogCal(Map<dynamic, dynamic> map) {
+  final raw = map['k'] ??
+      map['cal'] ??
+      map['kcal'] ??
+      map['calories'] ??
+      map['caloriesKcal'] ??
+      (map['energy'] is Map ? (map['energy'] as Map)['kcal'] : map['energy']);
+  var calories = _toD(raw);
+  if (calories <= 0) {
+    calories = _toD(map['p'] ?? map['protein'] ?? map['protein_g']) * 4 +
+        _toD(map['c'] ?? map['carb'] ?? map['carbs'] ?? map['carb_g']) * 4 +
+        _toD(map['f'] ?? map['fat'] ?? map['fat_g']) * 9;
+  }
+  return calories;
+}
+
+_MealLogItem _mealLogItemFromMap(Map<dynamic, dynamic> map, {required String slot}) {
+  return _MealLogItem(
+    slot: _cleanMealSlot(slot),
+    name: _foodLogItemName(map),
+    calories: _foodLogCal(map),
+    protein: _toD(map['p'] ?? map['protein'] ?? map['protein_g']),
+    carbs: _toD(map['c'] ?? map['carb'] ?? map['carbs'] ?? map['carb_g']),
+    fat: _toD(map['f'] ?? map['fat'] ?? map['fat_g']),
+  );
+}
+
+List<_MealLogItem> _extractMealLogItems(dynamic data, {String slot = 'وجبة'}) {
+  final out = <_MealLogItem>[];
+
+  void walk(dynamic node, String currentSlot) {
+    if (node == null) return;
+    if (node is String) {
+      try {
+        walk(jsonDecode(node), currentSlot);
+      } catch (_) {}
+      return;
+    }
+    if (node is List) {
+      for (final item in node) {
+        walk(item, currentSlot);
+      }
+      return;
+    }
+    if (node is! Map) return;
+
+    final map = Map<dynamic, dynamic>.from(node as Map);
+    final nextSlot = _cleanMealSlot(map['slot'] ?? map['mealSlot'] ?? map['mealType'] ?? map['name'] ?? map['title'] ?? currentSlot);
+    final nested = map['items'] ?? map['foods'] ?? map['entries'] ?? map['meals'];
+    if (nested is List && nested.isNotEmpty) {
+      for (final item in nested) {
+        walk(item, nextSlot);
+      }
+      return;
+    }
+
+    final hasNutrition = _foodLogCal(map) > 0 ||
+        _toD(map['p'] ?? map['protein'] ?? map['protein_g']) > 0 ||
+        _toD(map['c'] ?? map['carb'] ?? map['carbs'] ?? map['carb_g']) > 0 ||
+        _toD(map['f'] ?? map['fat'] ?? map['fat_g']) > 0;
+    if (hasNutrition) {
+      out.add(_mealLogItemFromMap(map, slot: currentSlot));
+    }
+  }
+
+  walk(data, slot);
+  return out;
+}
+
+Map<String, double> _sumMealLogItems(List<_MealLogItem> items) {
+  double cal = 0, p = 0, c = 0, f = 0;
+  for (final item in items) {
+    cal += item.calories;
+    p += item.protein;
+    c += item.carbs;
+    f += item.fat;
+  }
+  return {'cal': cal, 'p': p, 'c': c, 'f': f};
+}
+
+
 /// Sum possible nutrient maps/lists (k/cal, p, c, f)
 Map<String, double> sumFromIterable(Iterable items) {
   double cal = 0, p = 0, c = 0, f = 0;
@@ -346,6 +463,11 @@ Future<Map<String, double>> _readTotalsForDate(
     if (raw == null) continue;
     try {
       final data = jsonDecode(raw);
+      final mealItems = _extractMealLogItems(data);
+      if (mealItems.isNotEmpty) {
+        final s = _sumMealLogItems(mealItems);
+        if (s.values.any((v) => v > 0)) return s;
+      }
       if (data is List) {
         final s = sumFromIterable(data);
         if (s.values.any((v)=> v>0)) return s;
@@ -367,6 +489,55 @@ Future<Map<String, double>> _readTotalsForDate(
 
   return {'cal': 0, 'p': 0, 'c': 0, 'f': 0};
 }
+
+List<_MealLogItem> _readMealItemsForDate(
+  SharedPreferences prefs, {
+  required List<String> aliases,
+  required String ymd,
+  required bool isToday,
+}) {
+  final out = <_MealLogItem>[];
+  final seen = <String>{};
+
+  void addFromRaw(String? raw, String sourceSlot) {
+    if (raw == null || raw.trim().isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      for (final item in _extractMealLogItems(decoded, slot: sourceSlot)) {
+        final signature = '${item.slot}|${item.name}|${item.calories.toStringAsFixed(1)}|${item.protein.toStringAsFixed(1)}|${item.carbs.toStringAsFixed(1)}|${item.fat.toStringAsFixed(1)}';
+        if (seen.add(signature)) out.add(item);
+      }
+    } catch (_) {}
+  }
+
+  void addFromStringList(List<String>? list, String sourceSlot) {
+    if (list == null || list.isEmpty) return;
+    for (final raw in list) {
+      addFromRaw(raw, sourceSlot);
+    }
+  }
+
+  for (final alias in aliases.where((e) => e.trim().isNotEmpty && e != 'unknown_user')) {
+    addFromRaw(prefs.getString('intake_entries_${alias}_$ymd'), 'سجل السعرات');
+    addFromRaw(prefs.getString('meals_${alias}_$ymd'), 'وجبة');
+    addFromRaw(prefs.getString('kcal_entries_${alias}_$ymd'), 'سجل السعرات');
+    addFromRaw(prefs.getString('intakes_${alias}_$ymd'), 'سجل السعرات');
+    addFromRaw(prefs.getString('food_log_${alias}_$ymd'), 'سجل السعرات');
+    addFromRaw(prefs.getString('food_log_${ymd}_$alias'), 'سجل السعرات');
+    addFromStringList(prefs.getStringList('intake_entries_${alias}_$ymd'), 'سجل السعرات');
+    addFromStringList(prefs.getStringList('meals_${alias}_$ymd'), 'وجبة');
+    if (isToday) {
+      addFromRaw(prefs.getString('meals_$alias'), 'وجبة');
+      addFromStringList(prefs.getStringList('meals_$alias'), 'وجبة');
+    }
+  }
+
+  if (out.isEmpty) {
+    addFromRaw(prefs.getString('diet_$ymd'), 'إجمالي اليوم');
+  }
+  return out;
+}
+
 
 /// ====== نموذج معلومات المستخدم للتقرير ======
 class _UserProfile {
@@ -756,6 +927,7 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
       final week = await _collectSeries(daysBack: 7);
       final month = await _collectSeries(daysBack: 30);
       final year = await _collectSeries(daysBack: 365);
+      final weekMealItems = await _collectMealItemsForDates(week.dates);
       final allWeightPoints = await _loadAllWeightPointsForReport();
 
       final tajawal =
@@ -933,6 +1105,85 @@ class _WeightTrackingPageState extends State<WeightTrackingPage>
               ),
             ),
           ),
+        ),
+      );
+
+      // تفاصيل سجل السعرات اليومي — يعتمد على نفس مفاتيح سجل السعرات.
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (ctx) {
+            final widgets = <pw.Widget>[
+              pw.Directionality(
+                textDirection: pw.TextDirection.rtl,
+                child: header('تفاصيل الأكل من سجل السعرات — آخر 7 أيام'),
+              ),
+              pw.Directionality(
+                textDirection: pw.TextDirection.rtl,
+                child: pw.Text(
+                  'هذه الصفحة تقرأ تفاصيل الأكل المسجلة لكل يوم من سجل السعرات نفسه. إذا سجل المستخدم أكلًا يوم الخميس سيظهر هنا بنفس اليوم داخل التقرير.',
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
+              ),
+              pw.SizedBox(height: 10),
+            ];
+
+            for (final day in week.dates) {
+              final ymd = DateFormat('yyyy-MM-dd').format(day);
+              final title = '${DateFormat('EEEE', 'ar').format(day)} — ${DateFormat('yyyy/MM/dd').format(day)}';
+              final items = weekMealItems[ymd] ?? const <_MealLogItem>[];
+              widgets.add(
+                pw.Directionality(
+                  textDirection: pw.TextDirection.rtl,
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.SizedBox(height: 8),
+                      _sectionTitle(title),
+                      if (items.isEmpty)
+                        pw.Text('لا يوجد أكل مسجل في سجل السعرات لهذا اليوم.', style: const pw.TextStyle(fontSize: 9))
+                      else
+                        pw.Table(
+                          border: pw.TableBorder.all(color: PdfColors.grey300),
+                          columnWidths: const {
+                            0: pw.FlexColumnWidth(1.1),
+                            1: pw.FlexColumnWidth(2.2),
+                            2: pw.FlexColumnWidth(0.9),
+                            3: pw.FlexColumnWidth(0.9),
+                            4: pw.FlexColumnWidth(0.9),
+                            5: pw.FlexColumnWidth(0.9),
+                          },
+                          children: [
+                            pw.TableRow(
+                              decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                              children: [
+                                pw.Padding(padding: pw.EdgeInsets.all(5), child: pw.Text('الوجبة')),
+                                pw.Padding(padding: pw.EdgeInsets.all(5), child: pw.Text('الصنف')),
+                                pw.Padding(padding: pw.EdgeInsets.all(5), child: pw.Text('سعرات')),
+                                pw.Padding(padding: pw.EdgeInsets.all(5), child: pw.Text('بروتين')),
+                                pw.Padding(padding: pw.EdgeInsets.all(5), child: pw.Text('كارب')),
+                                pw.Padding(padding: pw.EdgeInsets.all(5), child: pw.Text('دهون')),
+                              ],
+                            ),
+                            ...items.map((item) => pw.TableRow(
+                                  children: [
+                                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(item.slot, style: const pw.TextStyle(fontSize: 8))),
+                                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(item.name, style: const pw.TextStyle(fontSize: 8))),
+                                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(item.calories.toStringAsFixed(0), style: const pw.TextStyle(fontSize: 8))),
+                                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(item.protein.toStringAsFixed(0), style: const pw.TextStyle(fontSize: 8))),
+                                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(item.carbs.toStringAsFixed(0), style: const pw.TextStyle(fontSize: 8))),
+                                    pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(item.fat.toStringAsFixed(0), style: const pw.TextStyle(fontSize: 8))),
+                                  ],
+                                )),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }
+            return widgets;
+          },
         ),
       );
 
@@ -1579,6 +1830,30 @@ final dir = await getApplicationDocumentsDirectory();
       burned: burned,
       weights: weights,
     );
+  }
+
+  Future<Map<String, List<_MealLogItem>>> _collectMealItemsForDates(
+    List<DateTime> dates,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final email = await _currentEmail() ?? 'unknown_user';
+    final aliases = <String>{
+      email,
+      ...await _currentProfileAliases(),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final result = <String, List<_MealLogItem>>{};
+    for (final date in dates) {
+      final ymd = DateFormat('yyyy-MM-dd').format(date);
+      final items = _readMealItemsForDate(
+        prefs,
+        aliases: aliases.toList(growable: false),
+        ymd: ymd,
+        isToday: ymd == today,
+      );
+      if (items.isNotEmpty) result[ymd] = items;
+    }
+    return result;
   }
 
   _Grouped _groupAverage({

@@ -56,6 +56,7 @@ class _SummaryPageState extends State<SummaryPage> {
 
   // --- analysis text ---
   String analysisText = '';
+  String macroCalculationNote = '';
 
   @override
   void initState() {
@@ -250,6 +251,7 @@ class _SummaryPageState extends State<SummaryPage> {
     final double? _prefsC = prefs.getDouble('carbs_$email');
     final double? _prefsF = prefs.getDouble('fat_$email');
     final String? _prefsUpdated = prefs.getString('lastUpdated_$email');
+    final String? _prefsMacroNote = prefs.getString('macroCalculationNote_$email');
 
     // --- BMR (Mifflin–St Jeor) بنفس صيغتك ---
     if (gender == 'ذكر') {
@@ -269,6 +271,7 @@ class _SummaryPageState extends State<SummaryPage> {
       goal: goal,
       maintenanceCalories: maintenanceCalories,
       weightKg: weight,
+      heightCm: height,
       gender: gender,
       bmr: bmr,
     );
@@ -287,6 +290,7 @@ class _SummaryPageState extends State<SummaryPage> {
       protein = selected.proteinG;
       carbs = selected.carbsG;
       fat = selected.fatG;
+      macroCalculationNote = selected.calculationNote;
     } else {
       // تخصيص يدوي: نستخدم المحفوظ (إذا موجود) أو fallback
       if (adjustedCalories <= 0) {
@@ -317,6 +321,7 @@ class _SummaryPageState extends State<SummaryPage> {
       fat = _prefsF;
       lastSavedCalories = _prefsK;
       lastUpdatedDate = _prefsUpdated;
+      macroCalculationNote = _prefsMacroNote ?? macroCalculationNote;
     } else {
       // لو كان عندنا قيم محفوظة (غير اليوم) ولا نستخدم تخصيص، نأخذها كـ fallback.
       if (macroMode == MacroPlanEngine.modeCustom && kPref != null && pPref != null && cPref != null && fPref != null) {
@@ -343,6 +348,7 @@ class _SummaryPageState extends State<SummaryPage> {
       protein = opt.proteinG;
       carbs = opt.carbsG;
       fat = opt.fatG;
+      macroCalculationNote = opt.calculationNote;
     });
 
     final prefs = await SharedPreferences.getInstance();
@@ -378,6 +384,7 @@ class _SummaryPageState extends State<SummaryPage> {
       await prefs.setDouble('fat_$k', fat);
       await prefs.setString('macroMode_$k', macroMode);
       await prefs.setString('macroPlanId_$k', macroPlanId);
+      await prefs.setString('macroCalculationNote_$k', macroCalculationNote);
       await prefs.setString('lastUpdated_$k', today);
       await prefs.setInt('macrosUpdatedAt_$k', DateTime.now().millisecondsSinceEpoch);
     }
@@ -401,6 +408,7 @@ class _SummaryPageState extends State<SummaryPage> {
             'metrics.activityFactor': activityFactor,
             'metrics.macroMode': macroMode,
             'metrics.macroPlanId': macroPlanId,
+            'metrics.macroCalculationNote': macroCalculationNote,
             'metrics.updatedAt': now,
             'flags.userDataEntered': true,
             'flags.updatedAt': now,
@@ -750,6 +758,17 @@ class _SummaryPageState extends State<SummaryPage> {
                                     textAlign: TextAlign.start,
                                   ),
                                 ),
+                                if (macroCalculationNote.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      macroCalculationNote,
+                                      style: base14Muted.copyWith(fontWeight: FontWeight.w700),
+                                      textAlign: TextAlign.start,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),

@@ -991,6 +991,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   bool _restoreInFlight = false;
   Timer? _restoreTimeout;
 
+  Timer? _purchaseTimeout;
 
   // لمنع تفعيل اشتراكات 'restored' تلقائياً عند فتح الصفحة (بدون شراء فعلي)
   DateTime? _purchaseInitiatedAt;
@@ -1008,12 +1009,14 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     _userDocSub?.cancel();
     _noticeTimer?.cancel();
     _restoreTimeout?.cancel();
+    _purchaseTimeout?.cancel();
     _couponCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _init() async {
     await _loadCachedStatus();
+    await _clearExpiredCachedStatusForRepurchase();
     await _ensureAppAccountToken();
     _startUserDocListener();
     await _initIAP();
@@ -1048,6 +1051,23 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
       });
     } catch (_) {}
+  }
+
+
+  Future<void> _clearExpiredCachedStatusForRepurchase() async {
+    final exp = _expiry;
+    if (exp == null || exp.isAfter(DateTime.now())) return;
+
+    try {
+      await SubscriptionEntitlementService.clearExpiredLocalForCurrentUser(expiry: exp);
+    } catch (_) {}
+
+    if (!mounted) return;
+    setState(() {
+      _start = null;
+      _expiry = null;
+      _activeProductId = null;
+    });
   }
 
   Future<void> _ensureAppAccountToken() async {
@@ -1109,10 +1129,15 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
         if (!mounted) return;
         setState(() {
-          if (remoteStart != null) _start = remoteStart;
-          if (remoteExpiry != null) _expiry = remoteExpiry;
-          if ((remotePid ?? '').isNotEmpty) _activeProductId = remotePid;
-
+          if (remoteExpiry != null && remoteExpiry.isAfter(DateTime.now())) {
+            if (remoteStart != null) _start = remoteStart;
+            _expiry = remoteExpiry;
+            if ((remotePid ?? '').isNotEmpty) _activeProductId = remotePid;
+          } else if (remoteExpiry != null && _expiry != null && !_expiry!.isAfter(DateTime.now())) {
+            _start = null;
+            _expiry = null;
+            _activeProductId = null;
+          }
         });
       },
       onError: (_) {},
@@ -1418,6 +1443,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   }
 
   Future<void> _buyPlan(_Plan plan) async {
+    await _clearExpiredCachedStatusForRepurchase();
+
     if (_isActive) {
       _setNotice(
         _PaywallNoticeKind.info,
@@ -1428,7 +1455,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     }
 
     _busyLabel = 'جاري فتح المتجر…';
-    _busyHint = 'أكمل الدفع من App Store ';
+    _busyHint = 'أكمل الدفع من App Store أو Google Play';
 
     if (!_storeAvailable) {
       if (mounted) {
@@ -1458,12 +1485,19 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
       return;
     }
 
-    setState(() => _busy = true);
-    _setNotice(_PaywallNoticeKind.info, 'جاري بدء عملية الاشتراك…', subtitle: 'قد تظهر نافذة المتجر الآن.');
+    _purchaseTimeout?.cancel();
     _purchaseInitiatedAt = DateTime.now();
+    _restoreRequestedAt = null;
+
+    if (mounted) setState(() => _busy = true);
+    _setNotice(
+      _PaywallNoticeKind.info,
+      'جاري بدء عملية الاشتراك…',
+      subtitle: 'إذا كان اشتراكك السابق منتهيًا فسيبدأ المتجر اشتراكًا جديدًا بشكل طبيعي.',
+    );
+    _startPurchaseTimeout();
+
     try {
-      // ✅ Android subscriptions (new Google Play model) may require an offerToken.
-      // The in_app_purchase_android implementation will pass the offerToken to Billing.
       final PurchaseParam param;
       if (defaultTargetPlatform == TargetPlatform.android) {
         String? offerToken;
@@ -1475,178 +1509,212 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           offerToken: offerToken,
         );
       } else {
-        param = PurchaseParam(productDetails: product, applicationUserName: _appAccountToken ?? FirebaseAuth.instance.currentUser?.uid);
+        param = PurchaseParam(
+          productDetails: product,
+          applicationUserName: _appAccountToken ?? FirebaseAuth.instance.currentUser?.uid,
+        );
       }
 
       final started = await _iap.buyNonConsumable(purchaseParam: param);
       if (!started) {
+        _purchaseTimeout?.cancel();
         if (!mounted) return;
         setState(() => _busy = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذّر بدء عملية الشراء من المتجر')));
+        _setNotice(
+          _PaywallNoticeKind.error,
+          'تعذّر بدء عملية الشراء',
+          subtitle: 'أعد المحاولة، أو اضغط استعادة المشتريات إذا كان المتجر يقول إن لديك اشتراكًا سابقًا.',
+          autoHide: const Duration(seconds: 8),
+        );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر بدء الشراء: $e')));
-        setState(() => _busy = false);
-      }
+      _purchaseTimeout?.cancel();
+      if (!mounted) return;
+      setState(() => _busy = false);
+      final msg = _friendlyPurchaseStartError(e);
+      _setNotice(_PaywallNoticeKind.error, 'تعذّر بدء الشراء', subtitle: msg, autoHide: const Duration(seconds: 9));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
-Future<void> _restore() async {
-  // UI فقط: نظهر تغبيش كامل وننتظر نتيجة الاستعادة بدل ما يختفي المؤشر فوراً.
-  _busyLabel = 'جاري استعادة المشتريات…';
-  _busyHint = 'قد تستغرق العملية عدة ثوانٍ';
-
-  _restoreTimeout?.cancel();
-  _restoreInFlight = true;
-  _restoreRequestedAt = DateTime.now();
-
-  if (mounted) {
-    setState(() => _busy = true);
-  }
-  _setNotice(
-    _PaywallNoticeKind.info,
-    'جاري استعادة مشترياتك…',
-    subtitle: 'إذا كنت مشتركًا سابقًا سيتم تفعيل اشتراكك تلقائيًا.',
-    autoHide: const Duration(seconds: 6),
-  );
-
-  // إذا لم يصل أي restored خلال فترة معقولة نعرض رسالة واضحة.
-  _restoreTimeout = Timer(const Duration(seconds: 10), () {
-    if (!mounted) return;
-    if (_restoreInFlight && !_isActive) {
-      _restoreInFlight = false;
+  void _startPurchaseTimeout() {
+    _purchaseTimeout?.cancel();
+    _purchaseTimeout = Timer(const Duration(seconds: 45), () {
+      if (!mounted) return;
+      if (!_busy) return;
       setState(() => _busy = false);
       _setNotice(
         _PaywallNoticeKind.warning,
-        'لم يتم العثور على مشتريات لاستعادتها',
-        subtitle: 'تأكد أنك تستخدم نفس حساب المتجر الذي اشتركت منه سابقًا ثم جرّب مرة أخرى.',
-        autoHide: const Duration(seconds: 8),
+        'لم يصل تأكيد من المتجر',
+        subtitle: 'إذا اكتملت عملية الدفع، اضغط "استعادة المشتريات". وإذا لم تكتمل، جرّب الاشتراك مرة أخرى.',
+        autoHide: const Duration(seconds: 10),
       );
-    }
-  });
-
-  try {
-    await _iap.restorePurchases();
-    // ننتظر تحديثات stream — لا نطفئ busy هنا.
-  } catch (e) {
-    _restoreInFlight = false;
-    _restoreTimeout?.cancel();
-    if (mounted) {
-      setState(() => _busy = false);
-      _setNotice(_PaywallNoticeKind.error, 'تعذّرت الاستعادة', subtitle: '$e');
-    }
+    });
   }
-}
 
-Future<void> _onPurchaseUpdated(List<PurchaseDetails> purchases) async {
-for (final p in purchases) {
-  if (p.status == PurchaseStatus.pending) {
-    _busyLabel = 'بانتظار تأكيد المتجر…';
-    _busyHint = 'لا تغلق التطبيق أثناء إتمام العملية';
+  String _friendlyPurchaseStartError(Object e) {
+    final raw = e.toString();
+    final lower = raw.toLowerCase();
+    if (lower.contains('storekit_duplicate_product_object') ||
+        lower.contains('duplicate') ||
+        lower.contains('pending') ||
+        lower.contains('already')) {
+      return 'يوجد طلب شراء سابق معلق من المتجر. اضغط استعادة المشتريات، أو انتظر قليلًا ثم جرّب الاشتراك مرة أخرى.';
+    }
+    return 'تعذّر بدء الشراء: $raw';
+  }
+
+  Future<void> _restore() async {
+    _busyLabel = 'جاري استعادة المشتريات…';
+    _busyHint = 'قد تستغرق العملية عدة ثوانٍ';
+
+    _restoreTimeout?.cancel();
+    _purchaseTimeout?.cancel();
+    _restoreInFlight = true;
+    _restoreRequestedAt = DateTime.now();
+    _purchaseInitiatedAt = null;
+
     if (mounted) setState(() => _busy = true);
     _setNotice(
       _PaywallNoticeKind.info,
-      'بانتظار تأكيد المتجر…',
-      subtitle: 'أكمل العملية من نافذة المتجر ثم ارجع للتطبيق.',
+      'جاري استعادة مشترياتك…',
+      subtitle: 'إذا كان لديك اشتراك نشط سيتم تفعيله، وإذا كان منتهيًا سيبقى بإمكانك الاشتراك من جديد.',
       autoHide: const Duration(seconds: 6),
     );
-    continue;
-  }
 
-  if (mounted) setState(() => _busy = false);
-
-  if (p.status == PurchaseStatus.error) {
-    _restoreInFlight = false;
-    _restoreTimeout?.cancel();
-    if (mounted) {
-      _setNotice(_PaywallNoticeKind.error, 'فشلت العملية', subtitle: '${p.error}');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل العملية: ${p.error}')));
-    }
-    continue;
-  }
-      if (p.status == PurchaseStatus.canceled) {
+    _restoreTimeout = Timer(const Duration(seconds: 12), () {
+      if (!mounted) return;
+      if (_restoreInFlight && !_isActive) {
         _restoreInFlight = false;
-        _restoreTimeout?.cancel();
+        setState(() => _busy = false);
         _setNotice(
           _PaywallNoticeKind.warning,
-          'تم إلغاء العملية',
-          subtitle: 'لم يتم إجراء أي تغيير على اشتراكك.',
-          autoHide: const Duration(seconds: 6),
+          'لم يتم العثور على اشتراك نشط',
+          subtitle: 'إذا كان اشتراكك السابق منتهيًا فهذا طبيعي. اختر الخطة الشهرية أو السنوية للاشتراك مرة ثانية.',
+          autoHide: const Duration(seconds: 9),
         );
-        continue;
       }
-
-      //  على iOS قد يصل حدث "restored" تلقائياً عند فتح صفحة الاشتراك بسبب مزامنة المتجر،
-      // ولا نريد اعتباره اشتراكاً جديداً أو نكتب بيانات في Firestore إلا إذا المستخدم ضغط "اشترك" أو "استعادة".
-      final now = DateTime.now();
-      final purchaseInitiatedRecently =
-          _purchaseInitiatedAt != null && now.difference(_purchaseInitiatedAt!).inMinutes < 5;
-      final restoreRequestedRecently =
-          _restoreRequestedAt != null && now.difference(_restoreRequestedAt!).inMinutes < 5;
-
-      if (p.status == PurchaseStatus.restored && !(purchaseInitiatedRecently || restoreRequestedRecently)) {
-        // تجاهل restored التلقائي (بدون إجراء من المستخدم).
-        continue;
-      }
-
-
-
-      if (p.status == PurchaseStatus.purchased || p.status == PurchaseStatus.restored) {
-        _purchaseInitiatedAt = null;
-        _restoreRequestedAt = null;
-        // ✅ حدّث الاشتراك (يشمل Trial) من الإيصال/المتجر
-        final ent = await SubscriptionEntitlementService.refreshAndSyncForCurrentUser(fromPurchase: p);
-
-        // ملاحظة: على بعض إصدارات Dart/Flutter قد لا تتم ترقية (promotion) المتغيرات القابلة للـ null
-        // بالشكل المتوقع داخل شروط مركّبة. لذلك نفصل القيم هنا لضمان توافق تام.
-        final expiry = ent?.expiry;
-        final productId = ent?.productId;
-
-if (expiry != null) {
-  _restoreInFlight = false;
-  _restoreTimeout?.cancel();
-
-  if (!mounted) return;
-  setState(() {
-    _start = ent?.start;
-    _expiry = expiry;
-    _activeProductId = productId;
-  });
-
-  final isRestore = (p.status == PurchaseStatus.restored);
-  final title = isRestore ? 'تمت استعادة اشتراكك بنجاح ✅' : 'تم تفعيل اشتراكك بنجاح ✅';
-  final subtitle = 'الخطة: ${_planLabel(productId)} • ينتهي: ${_fmt(expiry)}';
-
-  _setNotice(_PaywallNoticeKind.success, title, subtitle: subtitle, autoHide: const Duration(seconds: 6));
-
-  // ✅ بعد نجاح التفعيل (بما في ذلك بدء Trial) نقفل صفحة الاشتراك تلقائيًا.
-  // نعطي المستخدم لحظة قصيرة ليشوف رسالة النجاح.
-  if (expiry.isAfter(DateTime.now())) {
-    Future.delayed(const Duration(milliseconds: 650), () {
-      if (!mounted) return;
-      Navigator.of(context).maybePop();
     });
-  }
-} else {
-  _restoreInFlight = false;
-  _restoreTimeout?.cancel();
-  if (mounted) {
-    _setNotice(
-      _PaywallNoticeKind.error,
-      'تمت العملية لكن لم يتم تفعيل الاشتراك',
-      subtitle: 'جرّب "استعادة المشتريات" وتأكد من إعدادات Shared Secret في iOS.',
-      autoHide: const Duration(seconds: 9),
-    );
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('تمت عملية الشراء، لكن لم نتمكن من تفعيل الاشتراك. جرّب "استعادة المشتريات" وتأكد من إعدادات Shared Secret في iOS.'),
-    ));
-  }
-}
-      }
 
-      if (p.pendingCompletePurchase) {
-        await _iap.completePurchase(p);
+    try {
+      await _iap.restorePurchases();
+    } catch (e) {
+      _restoreInFlight = false;
+      _restoreTimeout?.cancel();
+      if (mounted) {
+        setState(() => _busy = false);
+        _setNotice(_PaywallNoticeKind.error, 'تعذّرت الاستعادة', subtitle: '$e');
+      }
+    }
+  }
+
+  Future<void> _completePendingPurchaseSafely(PurchaseDetails purchase) async {
+    if (!purchase.pendingCompletePurchase) return;
+    try {
+      await _iap.completePurchase(purchase);
+    } catch (_) {}
+  }
+
+  Future<void> _onPurchaseUpdated(List<PurchaseDetails> purchases) async {
+    for (final p in purchases) {
+      try {
+        if (p.status == PurchaseStatus.pending) {
+          _busyLabel = 'بانتظار تأكيد المتجر…';
+          _busyHint = 'لا تغلق التطبيق أثناء إتمام العملية';
+          if (mounted) setState(() => _busy = true);
+          _setNotice(
+            _PaywallNoticeKind.info,
+            'بانتظار تأكيد المتجر…',
+            subtitle: 'أكمل العملية من نافذة المتجر ثم ارجع للتطبيق.',
+            autoHide: const Duration(seconds: 6),
+          );
+          continue;
+        }
+
+        _purchaseTimeout?.cancel();
+        if (mounted) setState(() => _busy = false);
+
+        if (p.status == PurchaseStatus.error) {
+          _restoreInFlight = false;
+          _restoreTimeout?.cancel();
+          if (mounted) {
+            final msg = '${p.error}';
+            _setNotice(_PaywallNoticeKind.error, 'فشلت العملية', subtitle: msg, autoHide: const Duration(seconds: 9));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل العملية: $msg')));
+          }
+          continue;
+        }
+
+        if (p.status == PurchaseStatus.canceled) {
+          _restoreInFlight = false;
+          _restoreTimeout?.cancel();
+          _setNotice(
+            _PaywallNoticeKind.warning,
+            'تم إلغاء العملية',
+            subtitle: 'لم يتم إجراء أي تغيير على اشتراكك.',
+            autoHide: const Duration(seconds: 6),
+          );
+          continue;
+        }
+
+        final now = DateTime.now();
+        final purchaseInitiatedRecently =
+            _purchaseInitiatedAt != null && now.difference(_purchaseInitiatedAt!).inMinutes < 5;
+        final restoreRequestedRecently =
+            _restoreRequestedAt != null && now.difference(_restoreRequestedAt!).inMinutes < 5;
+
+        if (p.status == PurchaseStatus.restored && !(purchaseInitiatedRecently || restoreRequestedRecently)) {
+          // حدث restored تلقائي من النظام. نكمله حتى لا يبقى معلقًا ثم نتجاهله.
+          continue;
+        }
+
+        if (p.status == PurchaseStatus.purchased || p.status == PurchaseStatus.restored) {
+          final wasRestore = p.status == PurchaseStatus.restored;
+          final allowClientSideFallback = p.status == PurchaseStatus.purchased;
+
+          final ent = await SubscriptionEntitlementService.refreshAndSyncForCurrentUser(
+            fromPurchase: p,
+            allowClientSideFallback: allowClientSideFallback,
+          );
+
+          final expiry = ent?.expiry;
+          final productId = ent?.productId;
+          final active = expiry != null && expiry.isAfter(DateTime.now());
+
+          _restoreInFlight = false;
+          _restoreTimeout?.cancel();
+          _purchaseInitiatedAt = null;
+          _restoreRequestedAt = null;
+
+          if (active) {
+            if (!mounted) return;
+            setState(() {
+              _start = ent?.start;
+              _expiry = expiry;
+              _activeProductId = productId;
+              _busy = false;
+            });
+
+            final title = wasRestore ? 'تمت استعادة اشتراكك بنجاح ✅' : 'تم تفعيل اشتراكك بنجاح ✅';
+            final subtitle = 'الخطة: ${_planLabel(productId)} • ينتهي: ${_fmt(expiry)}';
+            _setNotice(_PaywallNoticeKind.success, title, subtitle: subtitle, autoHide: const Duration(seconds: 6));
+
+            Future.delayed(const Duration(milliseconds: 650), () {
+              if (!mounted) return;
+              Navigator.of(context).maybePop();
+            });
+          } else {
+            await _clearExpiredCachedStatusForRepurchase();
+            if (!mounted) return;
+            final title = wasRestore ? 'الاشتراك السابق منتهي' : 'تمت العملية ولم يظهر اشتراك نشط';
+            final subtitle = wasRestore
+                ? 'اكتشفنا عملية قديمة منتهية وتم تنظيفها. اختر الخطة الشهرية أو السنوية للاشتراك من جديد.'
+                : 'إذا تم خصم المبلغ فعلًا، اضغط استعادة المشتريات. إذا لم يتم الخصم، جرّب الاشتراك مرة أخرى.';
+            _setNotice(_PaywallNoticeKind.warning, title, subtitle: subtitle, autoHide: const Duration(seconds: 10));
+          }
+        }
+      } finally {
+        await _completePendingPurchaseSafely(p);
       }
     }
   }
@@ -3267,7 +3335,7 @@ class SubscriptionEntitlementService {
   /// - iOS/macOS: نحاول verifyReceipt، وإذا فشل لأي سبب نستخدم fallback محلي (يضمن فتح المزايا بدل ما "يعلق" المستخدم).
   /// - Android: بدون Backend لا يمكن استخراج expiry الحقيقي من Google Play بشكل آمن داخل التطبيق؛
   ///   لذلك نستخدم fallback محلي (تقريبي) لفتح المزايا فورًا، ويمكن لاحقًا استبداله بتحقق سيرفر.
-  static Future<SubscriptionEntitlement?> refreshAndSyncForCurrentUser({PurchaseDetails? fromPurchase, bool allowRestore = false}) async {
+  static Future<SubscriptionEntitlement?> refreshAndSyncForCurrentUser({PurchaseDetails? fromPurchase, bool allowRestore = false, bool allowClientSideFallback = false}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) return null;
 
@@ -3294,18 +3362,35 @@ class SubscriptionEntitlementService {
         return ent;
       }
 
-      // 3) iOS/macOS: التحقق الرسمي عبر السيرفر (Firebase Callable Functions)
+      // 3) iOS/macOS: التحقق الرسمي عبر السيرفر (Firebase Callable Functions).
+      // إذا كان الشراء جديدًا ورجع السيرفر ببطء، نفعّل محليًا بشكل مؤقت من عملية StoreKit نفسها،
+      // حتى لا يعلق المستخدم بعد انتهاء الشهر عند محاولة الاشتراك مرة أخرى.
       if (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS) {
         final txId = (purchase.purchaseID ?? '').toString().trim();
         final ent = await _verifyAppleViaServer(transactionId: txId);
 
-        // إذا فشل التحقق، لا نفتح المزايا بشكل تخميني — نرجع لآخر حالة معروفة.
-        if (ent == null) return cached;
+        if (ent != null && ent.expiry != null && ent.expiry!.isAfter(DateTime.now())) {
+          await _writeLocalForUser(prefs, uid: uid, email: email, start: ent.start, expiry: ent.expiry, productId: ent.productId);
+          return ent;
+        }
 
-        await _writeLocalForUser(prefs, uid: uid, email: email, start: ent.start, expiry: ent.expiry, productId: ent.productId);
+        if (allowClientSideFallback) {
+          final fallback = _approximateEntitlement(productId: pid, purchase: purchase, previousExpiry: cached.expiry);
+          if (fallback.expiry != null && fallback.expiry!.isAfter(DateTime.now())) {
+            await _writeLocalForUser(
+              prefs,
+              uid: uid,
+              email: email,
+              start: fallback.start,
+              expiry: fallback.expiry,
+              productId: fallback.productId,
+            );
+            await _writeFirestore(user.uid, fallback, source: 'IOS_DEVICE_PENDING_SERVER');
+            return fallback;
+          }
+        }
 
-        // ✅ على iOS: السيرفر هو اللي يكتب Firestore ويستقبل الإشعارات (Notifications V2)
-        return ent;
+        return ent ?? cached;
       }
 
 
@@ -3342,6 +3427,47 @@ class SubscriptionEntitlementService {
       expiry: bestMs != null ? DateTime.fromMillisecondsSinceEpoch(bestMs) : null,
       productId: pid,
     );
+  }
+
+
+  static Future<void> clearExpiredLocalForCurrentUser({DateTime? expiry}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final email = prefs.getString('currentEmail') ?? (user.email ?? 'unknown_user');
+    final cached = _readLocalForUser(prefs, uid: user.uid, email: email);
+    final exp = expiry ?? cached.expiry;
+
+    if (exp == null || exp.isAfter(DateTime.now())) return;
+
+    await _writeLocalForUser(
+      prefs,
+      uid: user.uid,
+      email: email,
+      start: null,
+      expiry: null,
+      productId: null,
+    );
+
+    try {
+      final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      await ref.set(
+        {
+          'subscription': {
+            'active': false,
+            'expiry': FieldValue.delete(),
+            'expiryMillis': FieldValue.delete(),
+            'start': FieldValue.delete(),
+            'startMillis': FieldValue.delete(),
+            'productId': FieldValue.delete(),
+            'source': 'CLIENT_EXPIRED_READY_FOR_REPURCHASE',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {}
   }
 
 
@@ -3577,21 +3703,30 @@ static SubscriptionEntitlement _readLocal(SharedPreferences prefs, String email)
       }
     }
 
-    // بعد التحقق، السيرفر يحدّث users/{uid}.subscription
-    try {
-      final snap = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final data = snap.data();
+    // بعد التحقق، السيرفر يحدّث users/{uid}.subscription.
+    // أحيانًا دالة التحقق أو App Store Server Notifications تتأخر ثواني بسيطة،
+    // لذلك نعيد القراءة عدة مرات بدل ما نرجع للمستخدم أن الاشتراك لم يتفعل.
+    for (var attempt = 0; attempt < 6; attempt++) {
+      try {
+        if (attempt > 0) {
+          await Future<void>.delayed(Duration(milliseconds: 700 + (attempt * 250)));
+        }
 
-      final expiry = readExpiryFromUserDoc(data);
-      final start = readStartFromUserDoc(data);
-      final pid = readProductIdFromUserDoc(data);
+        final snap = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final data = snap.data();
 
-      if (expiry == null) {
-        return const SubscriptionEntitlement(start: null, expiry: null, productId: null);
+        final expiry = readExpiryFromUserDoc(data);
+        final start = readStartFromUserDoc(data);
+        final pid = readProductIdFromUserDoc(data);
+
+        if (expiry != null) {
+          return SubscriptionEntitlement(start: start, expiry: expiry, productId: pid);
+        }
+      } catch (_) {
+        // جرّب القراءة التالية.
       }
-      return SubscriptionEntitlement(start: start, expiry: expiry, productId: pid);
-    } catch (_) {
-      return null;
     }
+
+    return const SubscriptionEntitlement(start: null, expiry: null, productId: null);
   }
 }

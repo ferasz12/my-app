@@ -25,14 +25,8 @@ class ChangelogPage extends StatelessWidget {
           'صار يفهم أسئلتك عن أكلك ووصفاتك وجدولك بشكل أفضل، ويرد عليك بشكل أوضح وأسرع.',
     ),
     _ReleaseHighlight(
-      title: 'تحديث بياناتك مع إعادة حساب الماكروز',
-      body:
-          'إذا عدّلت الطول أو الوزن أو الهدف من خلال مدرب وازن، يعيد التطبيق حساب السعرات والماكروز تلقائيًا حسب منطق وازن.',
-    ),
-    _ReleaseHighlight(
-      title: 'احترام قفل تغيير الوزن',
-      body:
-          'إذا كان تغيير الوزن مقفول مؤقتًا بسبب مدة التحديث، مدرب وازن يخبرك بذلك وما يغيّر الوزن قبل الوقت المسموح.',
+      title: 'تطوير واجهة المستخحدم',
+      body: ' تم تحسين تجربة المستخدم ليصبح التنقل عبر الشاشات سهل وسلس',
     ),
     _ReleaseHighlight(
       title: 'اقتراح وصفات بشكل أذكى',
@@ -46,13 +40,12 @@ class ChangelogPage extends StatelessWidget {
     ),
     _ReleaseHighlight(
       title: 'بحث جديد في استكشاف الوصفات',
-      body:
-          'أضفنا بحث في صفحة استكشاف الوصفات وصغّرنا مساحة الفلاتر حتى تشوف الوصفات بوضوح وتأخذ راحتك بالتصفح.',
+      body: 'أضفنا بحث في صفحة استكشاف الوصفات .',
     ),
     _ReleaseHighlight(
-      title: 'تحسين تجربة محادثة المدرب',
+      title: '  صار يمديك تضيف أكلك في اليوم الي قبله  ',
       body:
-          'صورة أجمل لمدرب وازن، وحفظ محلي للمحادثة، وتجربة ألطف عند بدء الدردشة وقراءة الردود.',
+          '  الان صار يمديك تضيف أكلك بالايام الي فاتتك وترجع تقفل اليوم نفسه وتحفظه .',
     ),
   ];
 
@@ -65,7 +58,7 @@ class ChangelogPage extends StatelessWidget {
     ),
     _ReleaseHistoryItem(
       version: 'v1.2.0',
-      title: 'إضافة المطاعم والمقاهي',
+      title: ' المطاعم والمقاهي',
       body: 'تقدر تستعرض خيارات جاهزة من مطاعم ومقاهي وتضيفها ليومك بسهولة.',
     ),
     _ReleaseHistoryItem(
@@ -299,7 +292,6 @@ class _HeroCard extends StatelessWidget {
   }
 }
 
-
 class _CoachSpotlightCard extends StatelessWidget {
   const _CoachSpotlightCard({required this.primary, required this.isDark});
 
@@ -347,7 +339,7 @@ class _CoachSpotlightCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'مدرب وازن الذكي',
+                  ' مين مدرب وازن الذكي ؟ ',
                   style: (tt.titleLarge ?? const TextStyle()).copyWith(
                     fontWeight: FontWeight.w900,
                     color: cs.onSurface,
@@ -355,7 +347,7 @@ class _CoachSpotlightCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'صار يظهر بشكل ألطف ويخدمك بشكل أذكى: يفهم أكلك، يقترح لك وصفات، ويساعدك في الجداول والمتابعة.',
+                  '  مدرب وازن صار يساعدك على تحقيق هدفك بطريقة أسهل  .',
                   style: (tt.bodyMedium ?? const TextStyle()).copyWith(
                     height: 1.5,
                     color: cs.onSurface.withOpacity(0.74),

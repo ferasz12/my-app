@@ -134,12 +134,13 @@ Future<LegacyOnboardingStatus> loadOnboardingStatus({String? uid}) async {
     });
   }
 
-  Future<void> saveUserInputStep({required String gender, required int age, required double heightCm, required double currentWeightKg, required String bio, required Map<String, dynamic> social, String? goal, String? goalType, required double caloriesNeeded, required double maintenanceCalories, required double protein, required double carbs, required double fat, required int lifestyleScore, required double activityFactor}) async {
+  Future<void> saveUserInputStep({required String gender, required int age, required double heightCm, required double currentWeightKg, required String bio, required Map<String, dynamic> social, String? goal, String? goalType, required double caloriesNeeded, required double maintenanceCalories, required double protein, required double carbs, required double fat, required int lifestyleScore, required double activityFactor, String? macroCalculationNote}) async {
     await _updateRootWithStepAtLeast(_requireUser().uid, stepAtLeast: 2, patch: {
       'gender': gender, 'age': age, 'heightCm': heightCm, 'currentWeightKg': currentWeightKg, 'bio': bio, 'social': social,
       if (goal != null) 'goal': goal,
       'metrics.caloriesNeeded': caloriesNeeded, 'metrics.maintenanceCalories': maintenanceCalories,
       'metrics.protein': protein, 'metrics.carbs': carbs, 'metrics.fat': fat, 'metrics.lifestyleScore': lifestyleScore, 'metrics.activityFactor': activityFactor,
+      if ((macroCalculationNote ?? '').trim().isNotEmpty) 'metrics.macroCalculationNote': macroCalculationNote!.trim(),
       'flags.userDataEntered': true, 'updatedAt': Timestamp.now(),
     });
   }

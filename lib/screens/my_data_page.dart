@@ -43,6 +43,7 @@ class _MyDataPageState extends State<MyDataPage> {
   // خطة الماكروز
   String macroMode = MacroPlanEngine.modeAuto; // auto | custom
   String macroPlanId = '';
+  String macroCalculationNote = '';
 
   int _lastMacrosUpdatedAtMs = 0;
   int _lastProfileUpdatedAtMs = 0;
@@ -183,6 +184,7 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setDouble('${_Prefs.fat}_$storageKey', fatG);
     await prefs.setString('macroMode_$storageKey', macroMode);
     await prefs.setString('macroPlanId_$storageKey', macroPlanId);
+    await prefs.setString('macroCalculationNote_$storageKey', macroCalculationNote);
     await prefs.setInt('${_Prefs.waterMlTarget}_$storageKey', waterMlTarget);
     await prefs.setInt('${_Prefs.stepsTarget}_$storageKey', stepsTarget);
     await prefs.setDouble('${_Prefs.sleepHoursTarget}_$storageKey', sleepHoursTarget);
@@ -247,6 +249,8 @@ class _MyDataPageState extends State<MyDataPage> {
 
       final cloudMacroMode = (metrics['macroMode'] ?? '').toString().trim();
       final cloudMacroPlanId = (metrics['macroPlanId'] ?? '').toString().trim();
+      final cloudMacroCalculationNote =
+          (metrics['macroCalculationNote'] ?? '').toString().trim();
 
       // نطبّق السحابة فقط إذا عندها قيم منطقية
       if (cloudGender.isNotEmpty) {
@@ -311,6 +315,13 @@ class _MyDataPageState extends State<MyDataPage> {
         macroPlanId = cloudMacroPlanId;
         await prefs.setString('macroPlanId_$storageKey', cloudMacroPlanId);
       }
+      if (cloudMacroCalculationNote.isNotEmpty) {
+        macroCalculationNote = cloudMacroCalculationNote;
+        await prefs.setString(
+          'macroCalculationNote_$storageKey',
+          cloudMacroCalculationNote,
+        );
+      }
       if (cloudStamp > 0) {
         _lastProfileUpdatedAtMs = cloudStamp;
         _lastMacrosUpdatedAtMs = math.max(_lastMacrosUpdatedAtMs, cloudStamp);
@@ -355,6 +366,8 @@ class _MyDataPageState extends State<MyDataPage> {
 
       macroMode = prefs.getString('macroMode_$storageKey') ?? macroMode;
       macroPlanId = prefs.getString('macroPlanId_$storageKey') ?? macroPlanId;
+      macroCalculationNote =
+          prefs.getString('macroCalculationNote_$storageKey') ?? macroCalculationNote;
       _lastWeightChangeAtMs =
           prefs.getInt('${_Prefs.lastWeightChangeAt}_$storageKey');
 
@@ -422,6 +435,8 @@ class _MyDataPageState extends State<MyDataPage> {
 
       final newMode = prefs.getString('macroMode_$storageKey') ?? macroMode;
       final newPlanId = prefs.getString('macroPlanId_$storageKey') ?? macroPlanId;
+      final newNote =
+          prefs.getString('macroCalculationNote_$storageKey') ?? macroCalculationNote;
 
       if (!mounted) return;
       setState(() {
@@ -432,6 +447,7 @@ class _MyDataPageState extends State<MyDataPage> {
         fatG = newF;
         macroMode = newMode;
         macroPlanId = newPlanId;
+        macroCalculationNote = newNote;
       });
     } catch (_) {}
   }
@@ -464,6 +480,7 @@ class _MyDataPageState extends State<MyDataPage> {
           goal: effectiveGoal,
           maintenanceCalories: maintenanceCalories,
           weightKg: weight,
+          heightCm: height,
           gender: gender,
           bmr: bmr,
         );
@@ -473,6 +490,7 @@ class _MyDataPageState extends State<MyDataPage> {
         proteinG = selected.proteinG;
         carbsG = selected.carbsG;
         fatG = selected.fatG;
+        macroCalculationNote = selected.calculationNote;
         macroMode = MacroPlanEngine.modeAuto;
         macroPlanId = selected.id;
       }
@@ -490,6 +508,7 @@ class _MyDataPageState extends State<MyDataPage> {
         goal: effectiveGoal,
         maintenanceCalories: maintenanceCalories,
         weightKg: weight,
+        heightCm: height,
         gender: gender,
         bmr: bmr,
       );
@@ -505,6 +524,11 @@ class _MyDataPageState extends State<MyDataPage> {
       proteinG = selected.proteinG;
       carbsG = selected.carbsG;
       fatG = selected.fatG;
+      macroCalculationNote = selected.calculationNote;
+    }
+
+    if (macroMode == MacroPlanEngine.modeCustom) {
+      macroCalculationNote = _customMacroNote(targetCalories, proteinG, carbsG, fatG);
     }
 
     waterMlTarget = math.max((weight * 35).round(), 2000);
@@ -522,8 +546,43 @@ class _MyDataPageState extends State<MyDataPage> {
 
       macroMode = prefs.getString('macroMode_$currentEmail') ?? macroMode;
       macroPlanId = prefs.getString('macroPlanId_$currentEmail') ?? macroPlanId;
+      macroCalculationNote =
+          prefs.getString('macroCalculationNote_$currentEmail') ?? macroCalculationNote;
     }
     if (mounted) setState(() {});
+  }
+
+
+  String _autoMacroNote(String planId) {
+    final effectiveGoal = (goalFatShred || goal.trim() == 'تنشيف الدهون') ? 'تنشيف الدهون' : goal;
+    final bmr = calculateBmr(age: age, gender: gender, weight: weight, height: height);
+    final opts = MacroPlanEngine.buildOptions(
+      goal: effectiveGoal,
+      maintenanceCalories: maintenanceCalories,
+      weightKg: weight,
+      heightCm: height,
+      gender: gender,
+      bmr: bmr,
+    );
+    final selected = opts.firstWhere(
+      (o) => o.id == planId,
+      orElse: () {
+        final def = MacroPlanEngine.defaultPlanIdForGoal(effectiveGoal);
+        return opts.firstWhere((o) => o.id == def, orElse: () => opts.first);
+      },
+    );
+    return selected.calculationNote;
+  }
+
+  String _customMacroNote(double kcal, double protein, double carbs, double fat) {
+    final macroKcal = (protein * 4) + (carbs * 4) + (fat * 9);
+    final diff = kcal - macroKcal;
+    final diffText = diff.abs() < 20
+        ? 'القيم متوازنة تقريبًا مع السعرات.'
+        : diff > 0
+            ? 'باقي تقريبًا ${diff.round()} سعرة غير موزعة على الماكروز.'
+            : 'الماكروز أعلى من السعرات بحوالي ${diff.abs().round()} سعرة.';
+    return 'تخصيص يدوي: السعرات ${kcal.round()}، البروتين ${protein.round()}جم × 4، الكارب ${carbs.round()}جم × 4، الدهون ${fat.round()}جم × 9. $diffText';
   }
 
   double _activityFromScore(int s) {
@@ -592,6 +651,7 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setDouble('${_Prefs.fat}_$currentEmail', fatG);
     await prefs.setString('macroMode_$currentEmail', macroMode);
     await prefs.setString('macroPlanId_$currentEmail', macroPlanId);
+    await prefs.setString('macroCalculationNote_$currentEmail', macroCalculationNote);
     // "نبضة" محلية لتحديد الأحدث عند المقارنة مع Firestore
     await prefs.setInt('profileUpdatedAt_$currentEmail', stamp);
     await prefs.setInt('macrosUpdatedAt_$currentEmail', stamp);
@@ -644,6 +704,7 @@ class _MyDataPageState extends State<MyDataPage> {
           'metrics.activityFactor': activityFactor,
           'metrics.macroMode': macroMode,
           'metrics.macroPlanId': macroPlanId,
+          'metrics.macroCalculationNote': macroCalculationNote,
           'metrics.updatedAtMs': stamp,
           if (_lastWeightChangeAtMs != null)
             'metrics.lastWeightChangeAtMs': _lastWeightChangeAtMs,
@@ -683,6 +744,7 @@ class _MyDataPageState extends State<MyDataPage> {
             'activityFactor': activityFactor,
             'macroMode': macroMode,
             'macroPlanId': macroPlanId,
+            'macroCalculationNote': macroCalculationNote,
             'updatedAtMs': stamp,
             if (_lastWeightChangeAtMs != null)
               'lastWeightChangeAtMs': _lastWeightChangeAtMs,
@@ -829,6 +891,10 @@ class _MyDataPageState extends State<MyDataPage> {
                                   onCustom: _openSmartMacrosBottomSheet,
                                   onTargets: _openTargetsBottomSheet,
                                 ),
+                                if (macroCalculationNote.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  _CalculationNoteCard(note: macroCalculationNote),
+                                ],
                               ],
                             ),
                           ),
@@ -1272,6 +1338,7 @@ class _MyDataPageState extends State<MyDataPage> {
                                 proteinG = p;
                                 carbsG = c;
                                 fatG = f;
+                                macroCalculationNote = _customMacroNote(kcal, p, c, f);
                               });
 
                               final stamp = DateTime.now().millisecondsSinceEpoch;
@@ -1281,6 +1348,10 @@ class _MyDataPageState extends State<MyDataPage> {
                               await prefs.setDouble('${_Prefs.fat}_$storageKey', f);
                               await prefs.setString('macroMode_$storageKey', macroMode);
                               await prefs.setString('macroPlanId_$storageKey', macroPlanId);
+                              await prefs.setString(
+                                'macroCalculationNote_$storageKey',
+                                macroCalculationNote,
+                              );
                               await prefs.setInt('profileUpdatedAt_$storageKey', stamp);
                               await prefs.setInt('macrosUpdatedAt_$storageKey', stamp);
 
@@ -1329,6 +1400,7 @@ class _MyDataPageState extends State<MyDataPage> {
           goal: effectiveGoal,
           gender: gender,
           weightKg: weight,
+          heightCm: height,
           maintenanceCalories: maintenanceCalories,
           bmr: bmr,
           macroMode: macroMode,
@@ -1347,6 +1419,9 @@ class _MyDataPageState extends State<MyDataPage> {
             proteinG = p;
             carbsG = c;
             fatG = f;
+            macroCalculationNote = mode == MacroPlanEngine.modeCustom
+                ? _customMacroNote(kcal, p, c, f)
+                : _autoMacroNote(planId);
             waterMlTarget = w;
             stepsTarget = s;
             sleepHoursTarget = h;
@@ -2160,6 +2235,46 @@ class _KcalChip extends StatelessWidget {
   }
 }
 
+
+
+class _CalculationNoteCard extends StatelessWidget {
+  const _CalculationNoteCard({required this.note});
+
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withOpacity(0.20),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.primary.withOpacity(0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.calculate_rounded, size: 18, color: cs.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              note,
+              textAlign: TextAlign.right,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                height: 1.45,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _PlanActionsBar extends StatelessWidget {
   const _PlanActionsBar({
@@ -3321,6 +3436,7 @@ class _TargetsSheet extends StatefulWidget {
       {required this.goal,
       required this.gender,
       required this.weightKg,
+      required this.heightCm,
       required this.maintenanceCalories,
       required this.bmr,
       required this.macroMode,
@@ -3337,6 +3453,7 @@ class _TargetsSheet extends StatefulWidget {
   final String goal;
   final String gender;
   final double weightKg;
+  final double heightCm;
   final double maintenanceCalories;
   final double bmr;
 
@@ -3382,6 +3499,7 @@ class _TargetsSheetState extends State<_TargetsSheet> {
     goal: widget.goal,
     maintenanceCalories: widget.maintenanceCalories,
     weightKg: widget.weightKg,
+    heightCm: widget.heightCm,
     gender: widget.gender,
     bmr: widget.bmr,
   );
@@ -3430,6 +3548,29 @@ class _TargetsSheetState extends State<_TargetsSheet> {
     carb = c.roundToDouble();
     fat = f.roundToDouble();
     return true;
+  }
+
+
+  String _currentCalculationNote() {
+    if (custom) {
+      final k = double.tryParse(kcalCtrl.text.trim()) ?? kcal;
+      final p = double.tryParse(proCtrl.text.trim()) ?? pro;
+      final c = double.tryParse(carbCtrl.text.trim()) ?? carb;
+      final f = double.tryParse(fatCtrl.text.trim()) ?? fat;
+      final macroKcal = (p * 4) + (c * 4) + (f * 9);
+      final diff = k - macroKcal;
+      final diffText = diff.abs() < 20
+          ? 'القيم متوازنة تقريبًا مع السعرات.'
+          : diff > 0
+              ? 'باقي تقريبًا ${diff.round()} سعرة غير موزعة.'
+              : 'الماكروز أعلى من السعرات بحوالي ${diff.abs().round()} سعرة.';
+      return 'تخصيص يدوي: البروتين = ${p.round()}جم × 4، الكارب = ${c.round()}جم × 4، الدهون = ${f.round()}جم × 9. $diffText';
+    }
+    final selected = options.firstWhere(
+      (o) => o.id == planId,
+      orElse: () => options.first,
+    );
+    return selected.calculationNote;
   }
 
   @override
@@ -3571,6 +3712,8 @@ class _TargetsSheetState extends State<_TargetsSheet> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  _CalculationNoteCard(note: _currentCalculationNote()),
                 ],
               ),
             ),

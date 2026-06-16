@@ -72,6 +72,26 @@ class AskWazenReportBuilder {
       final items = rawItems is List ? rawItems : const [];
       final slotItems = <Map<String, dynamic>>[];
 
+      if (items.isEmpty) {
+        final name = _foodName(meal);
+        final cal = _toD(meal['cal'] ?? meal['calories'] ?? meal['kcal'] ?? meal['k']);
+        final protein = _toD(meal['protein'] ?? meal['p']);
+        final carbs = _toD(meal['carb'] ?? meal['carbs'] ?? meal['c']);
+        final fat = _toD(meal['fat'] ?? meal['f']);
+        if (name.isNotEmpty && (cal > 0 || protein > 0 || carbs > 0 || fat > 0)) {
+          final one = <String, dynamic>{
+            'slot': slotName.isEmpty ? 'وجبة' : slotName,
+            'name': name,
+            'calories': cal,
+            'protein': protein,
+            'carbs': carbs,
+            'fat': fat,
+          };
+          slotItems.add(one);
+          allItems.add(one);
+        }
+      }
+
       for (final item in items) {
         if (item is! Map) continue;
         final name = _foodName(item);
@@ -107,6 +127,61 @@ class AskWazenReportBuilder {
     };
   }
 
+
+  static Map<String, dynamic> _totalsFromMealsSummary(Map<String, dynamic> mealsSummary) {
+    final items = mealsSummary['items_flat'];
+    if (items is! List) return <String, dynamic>{};
+    double k = 0, p = 0, c = 0, f = 0;
+    for (final item in items) {
+      if (item is! Map) continue;
+      k += _toD(item['calories']);
+      p += _toD(item['protein']);
+      c += _toD(item['carbs']);
+      f += _toD(item['fat']);
+    }
+    return {'k': k, 'p': p, 'c': c, 'f': f};
+  }
+
+  static Map<String, dynamic> _readTotalsForDay(
+    SharedPreferences prefs, {
+    required String email,
+    required String storageKey,
+    required String ymd,
+  }) {
+    final keys = <String>{
+      'kcal_daytotals_${email}_$ymd',
+      'kcal_daytotals_${storageKey}_$ymd',
+    }..removeWhere((e) => e.contains('unknown_user'));
+
+    for (final key in keys) {
+      final totals = _jsonMap(prefs.getString(key));
+      if (_toD(totals['k']) > 0 || _toD(totals['p']) > 0 || _toD(totals['c']) > 0 || _toD(totals['f']) > 0) {
+        return totals;
+      }
+    }
+
+    for (final key in <String>{
+      'intake_entries_${email}_$ymd',
+      'intake_entries_${storageKey}_$ymd',
+      'kcal_entries_${email}_$ymd',
+      'kcal_entries_${storageKey}_$ymd',
+    }) {
+      final raw = prefs.getString(key);
+      final list = _jsonList(raw);
+      double k = 0, p = 0, c = 0, f = 0;
+      for (final item in list) {
+        if (item is! Map) continue;
+        k += _toD(item['k'] ?? item['cal'] ?? item['calories']);
+        p += _toD(item['p'] ?? item['protein']);
+        c += _toD(item['c'] ?? item['carb'] ?? item['carbs']);
+        f += _toD(item['f'] ?? item['fat']);
+      }
+      if (k > 0 || p > 0 || c > 0 || f > 0) return {'k': k, 'p': p, 'c': c, 'f': f};
+    }
+
+    return <String, dynamic>{};
+  }
+
   static List<dynamic> _readMealsForDay(
     SharedPreferences prefs, {
     required String email,
@@ -116,6 +191,8 @@ class AskWazenReportBuilder {
   }) {
     final raw = prefs.getString('meals_${storageKey}_$ymd') ??
         prefs.getString('meals_${email}_$ymd') ??
+        prefs.getString('intake_entries_${storageKey}_$ymd') ??
+        prefs.getString('intake_entries_${email}_$ymd') ??
         (isToday ? prefs.getString('meals_$storageKey') : null) ??
         (isToday ? prefs.getString('meals_$email') : null);
     return _jsonList(raw);
@@ -227,8 +304,13 @@ class AskWazenReportBuilder {
           ? Map<String, dynamic>.from(dailyTargets[ymd] as Map)
           : <String, dynamic>{};
 
-      // استهلاك اليوم
-      final totals = _jsonMap(prefs.getString('kcal_daytotals_${email}_$ymd'));
+      // استهلاك اليوم من نفس سجل السعرات، مع دعم مفاتيح البريد ومفتاح التخزين.
+      var totals = _readTotalsForDay(
+        prefs,
+        email: email,
+        storageKey: storageKey,
+        ymd: ymd,
+      );
 
       // وجبات اليوم: تساعد المدرب يعرف هل هذه أول/ثاني وجبة وما الذي أُكل فعليًا.
       final mealsRaw = _readMealsForDay(
@@ -239,6 +321,9 @@ class AskWazenReportBuilder {
         isToday: i == 0,
       );
       final mealsSummary = _summarizeMeals(mealsRaw);
+      if (_toD(totals['k']) == 0 && _toD(totals['p']) == 0 && _toD(totals['c']) == 0 && _toD(totals['f']) == 0) {
+        totals = _totalsFromMealsSummary(mealsSummary);
+      }
 
       // ماء اليوم (Liters)
       final waterStr = prefs.getString('water_total_${email}_$ymd');

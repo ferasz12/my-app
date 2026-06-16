@@ -252,6 +252,7 @@ class _UserInputPageState extends State<UserInputPage> {
       goal: effectiveGoal,
       maintenanceCalories: maintenanceCalories,
       weightKg: weight,
+      heightCm: height,
       gender: storeGender,
       bmr: bmr,
     );
@@ -264,6 +265,7 @@ class _UserInputPageState extends State<UserInputPage> {
     final protein = selectedPlan.proteinG;
     final carbs = selectedPlan.carbsG;
     final fat = selectedPlan.fatG;
+    final macroCalculationNote = selectedPlan.calculationNote;
 
     final today = DateTime.now().toIso8601String().split('T').first;
 
@@ -275,6 +277,7 @@ class _UserInputPageState extends State<UserInputPage> {
     await prefs.setDouble('carbs_$email', carbs);
     await prefs.setString('macroMode_$email', MacroPlanEngine.modeAuto);
     await prefs.setString('macroPlanId_$email', macroPlanId);
+    await prefs.setString('macroCalculationNote_$email', macroCalculationNote);
     await prefs.setInt('macrosUpdatedAt_$email', DateTime.now().millisecondsSinceEpoch);
     await prefs.setString('lastUpdated_$email', today);
     await prefs.setBool('goal_fat_shred_$email', _isFatShred(goalToStore));
@@ -359,6 +362,7 @@ class _UserInputPageState extends State<UserInputPage> {
               fat: fat,
               lifestyleScore: widget.lifestyleScore,
               activityFactor: activityFactor,
+              macroCalculationNote: macroCalculationNote,
             )
             .timeout(const Duration(seconds: 45));
       } finally {

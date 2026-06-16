@@ -24,6 +24,7 @@ class UserDataProvider extends ChangeNotifier {
   double fat = 0;
   double carbs = 0;
   double maintenanceCalories = 0;
+  String macroCalculationNote = '';
 
   String _normEmail(String email) => email.trim().toLowerCase();
 
@@ -77,6 +78,7 @@ class UserDataProvider extends ChangeNotifier {
     protein = prefs.getDouble(kP) ?? 0;
     fat = prefs.getDouble(kF) ?? 0;
     carbs = prefs.getDouble(kC) ?? 0;
+    macroCalculationNote = prefs.getString('macroCalculationNote_$e') ?? '';
 
     if (calories <= 0 || protein <= 0 || fat < 0 || carbs < 0) {
       await _calculateMacros(e);
@@ -167,6 +169,7 @@ class UserDataProvider extends ChangeNotifier {
       goal: effectiveGoal,
       maintenanceCalories: maintenanceCalories,
       weightKg: weight,
+      heightCm: height,
       gender: gender,
       bmr: bmr,
     );
@@ -182,6 +185,7 @@ class UserDataProvider extends ChangeNotifier {
     protein = selected.proteinG;
     carbs = selected.carbsG;
     fat = selected.fatG;
+    macroCalculationNote = selected.calculationNote;
 
     await prefs.setDouble('caloriesNeeded_$e', calories);
     await prefs.setDouble('maintenanceCalories_$e', maintenanceCalories);
@@ -191,6 +195,7 @@ class UserDataProvider extends ChangeNotifier {
     await prefs.setDouble('activityFactor_$e', activityFactor);
     await prefs.setString('macroMode_$e', MacroPlanEngine.modeAuto);
     await prefs.setString('macroPlanId_$e', selected.id);
+    await prefs.setString('macroCalculationNote_$e', macroCalculationNote);
     await prefs.setInt('macrosUpdatedAt_$e', DateTime.now().millisecondsSinceEpoch);
 
     final id = await WazenIdentityStore.currentIdentity(migrate: false);
@@ -202,6 +207,12 @@ class UserDataProvider extends ChangeNotifier {
     await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'activityFactor_$a', activityFactor);
     await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macroMode_$a', MacroPlanEngine.modeAuto);
     await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macroPlanId_$a', selected.id);
+    await WazenIdentityStore.writeToAllAliases(
+      prefs,
+      id.aliases,
+      (a) => 'macroCalculationNote_$a',
+      macroCalculationNote,
+    );
     await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macrosUpdatedAt_$a', DateTime.now().millisecondsSinceEpoch);
 
     notifyListeners();

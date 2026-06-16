@@ -104,20 +104,30 @@ class CoachRecipeCard {
   }
 
   factory CoachRecipeCard.fromMap(Map<dynamic, dynamic> map) {
+    final macros = map['macros'] is Map ? Map<dynamic, dynamic>.from(map['macros'] as Map) : const <dynamic, dynamic>{};
+    final nutrition = map['nutrition'] is Map
+        ? Map<dynamic, dynamic>.from(map['nutrition'] as Map)
+        : const <dynamic, dynamic>{};
+    final ingredients = _toList(map['ingredients']).isNotEmpty
+        ? _toList(map['ingredients'])
+        : _toList(map['items']);
+    final methodRaw = map['method'] ?? map['instructions'] ?? map['steps'];
+    final method = methodRaw is List ? methodRaw.map((e) => e.toString()).join('، ') : (methodRaw ?? '').toString();
+
     return CoachRecipeCard(
       id: (map['id'] ?? '').toString(),
-      title: (map['title'] ?? '').toString(),
-      calories: _toInt(map['calories']),
-      protein: _toInt(map['protein']),
-      carbs: _toInt(map['carbs']),
-      fat: _toInt(map['fat']),
-      goal: (map['goal'] ?? '').toString(),
-      imageUrl: (map['imageUrl'] ?? '').toString(),
-      userName: (map['userName'] ?? '').toString(),
-      userPhotoUrl: (map['userPhotoUrl'] ?? '').toString(),
-      ingredients: _toList(map['ingredients']),
-      method: (map['method'] ?? '').toString(),
-      caption: (map['caption'] ?? '').toString(),
+      title: (map['title'] ?? map['name'] ?? '').toString(),
+      calories: _toInt(map['calories'] ?? map['kcal'] ?? macros['calories'] ?? macros['kcal'] ?? nutrition['calories']),
+      protein: _toInt(map['protein'] ?? map['proteinG'] ?? macros['protein'] ?? macros['proteinG'] ?? nutrition['protein']),
+      carbs: _toInt(map['carbs'] ?? map['carb'] ?? map['carbsG'] ?? macros['carbs'] ?? macros['carb'] ?? nutrition['carbs']),
+      fat: _toInt(map['fat'] ?? map['fatG'] ?? macros['fat'] ?? macros['fatG'] ?? nutrition['fat']),
+      goal: (map['goal'] ?? map['targetGoal'] ?? '').toString(),
+      imageUrl: (map['imageUrl'] ?? map['photoUrl'] ?? map['image'] ?? '').toString(),
+      userName: (map['userName'] ?? map['authorName'] ?? '').toString(),
+      userPhotoUrl: (map['userPhotoUrl'] ?? map['authorPhotoUrl'] ?? '').toString(),
+      ingredients: ingredients,
+      method: method,
+      caption: (map['caption'] ?? map['description'] ?? '').toString(),
       route: (map['route'] ?? '/recipes').toString(),
     );
   }
@@ -276,6 +286,17 @@ class CoachWorkoutPlan {
       };
 }
 
+
+bool _isBlockedCoachProfileAction(CoachAction action) {
+  final type = action.type.trim().toLowerCase();
+  final route = action.route.trim().toLowerCase();
+  final payloadText = jsonEncode(action.payload).toLowerCase();
+  final joined = '$type $route $payloadText';
+  return RegExp(
+    r'(profile_update|update_profile|update_user_profile|edit_profile|set_weight|change_weight|set_height|change_height|change_goal|set_goal|weightkg|heightcm|targetweight)',
+  ).hasMatch(joined);
+}
+
 class CoachResponse {
   final String reply;
   final List<CoachAction> actions;
@@ -289,6 +310,32 @@ class CoachResponse {
     this.workoutPlans = const <CoachWorkoutPlan>[],
   });
 
+  static List _firstList(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value is List) return value;
+    }
+    return const [];
+  }
+
+  static List _recipeListFromData(Map<String, dynamic> data) => _firstList(data, const [
+        'recipes',
+        'recipeCards',
+        'coachRecipes',
+        'coachGeneratedRecipes',
+        'generatedRecipes',
+        'wazenRecipes',
+        'recommendedRecipes',
+        'suggestedRecipes',
+      ]);
+
+  static List _workoutPlanListFromData(Map<String, dynamic> data) => _firstList(data, const [
+        'workoutPlans',
+        'workoutPlanCards',
+        'generatedWorkoutPlans',
+        'plans',
+      ]);
+
   factory CoachResponse.fromData(dynamic raw) {
     final data = (raw as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     return CoachResponse(
@@ -298,22 +345,19 @@ class CoachResponse {
               .whereType<Map>()
               .map((e) => CoachAction.fromMap(e))
               .where((e) => e.label.trim().isNotEmpty)
+              .where((e) => !_isBlockedCoachProfileAction(e))
               .toList()
           : const <CoachAction>[],
-      recipes: (data['recipes'] is List)
-          ? (data['recipes'] as List)
-              .whereType<Map>()
-              .map((e) => CoachRecipeCard.fromMap(e))
-              .where((e) => e.title.trim().isNotEmpty)
-              .toList()
-          : const <CoachRecipeCard>[],
-      workoutPlans: (data['workoutPlans'] is List)
-          ? (data['workoutPlans'] as List)
-              .whereType<Map>()
-              .map((e) => CoachWorkoutPlan.fromMap(e))
-              .where((e) => e.name.trim().isNotEmpty && e.days.isNotEmpty)
-              .toList()
-          : const <CoachWorkoutPlan>[],
+      recipes: _recipeListFromData(data)
+          .whereType<Map>()
+          .map((e) => CoachRecipeCard.fromMap(e))
+          .where((e) => e.title.trim().isNotEmpty)
+          .toList(),
+      workoutPlans: _workoutPlanListFromData(data)
+          .whereType<Map>()
+          .map((e) => CoachWorkoutPlan.fromMap(e))
+          .where((e) => e.name.trim().isNotEmpty && e.days.isNotEmpty)
+          .toList(),
     );
   }
 }
@@ -479,24 +523,40 @@ class AskWazenCoachApi {
   static Future<Map<String, dynamic>> updateUserProfile({
     required Map<String, dynamic> fields,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      throw const CoachApiException(
-        code: 'unauthenticated',
-        message: 'يجب تسجيل الدخول لتعديل بياناتك.',
-      );
-    }
-
-    final data = await _callRaw({
-      'mode': 'profile_update',
-      'fields': fields,
-    });
-
-    if (data is Map) {
-      return Map<String, dynamic>.from(data);
-    }
-    return <String, dynamic>{'ok': true};
+    throw const CoachApiException(
+      code: 'permission-denied',
+      message: 'مدرب وازن يقرأ بياناتك فقط ولا يملك صلاحية تعديل الوزن أو الطول أو الهدف.',
+    );
   }
+
+
+  static Map<String, dynamic> _readOnlyCoachRules() => const <String, dynamic>{
+        'profileAccess': 'read_only',
+        'forbidProfileWrites': true,
+        'blockedFields': [
+          'weight',
+          'currentWeightKg',
+          'targetWeightKg',
+          'height',
+          'heightCm',
+          'goal',
+          'gender',
+          'age',
+          'activityFactor',
+          'caloriesNeeded',
+          'protein',
+          'carbs',
+          'fat',
+        ],
+        'allowedOutputs': [
+          'advice',
+          'recipe_recommendations',
+          'wazen_recipe_recommendations',
+          'coach_generated_recipes',
+          'generated_recipe_cards',
+          'workout_plans',
+        ],
+      };
 
   /// إرسال تقرير اليوم يدويًا، وما زال مقفل مرة واحدة يوميًا من السيرفر.
   static Future<CoachResponse> sendDailyReport({
@@ -515,6 +575,7 @@ class AskWazenCoachApi {
       'mode': 'daily',
       'ymd': ymd,
       'report': report,
+      'clientRules': _readOnlyCoachRules(),
     });
 
     return CoachResponse.fromData(data);
@@ -546,6 +607,19 @@ class AskWazenCoachApi {
       'message': message,
       'history': history,
       if (report != null) 'report': report,
+      'clientRules': _readOnlyCoachRules(),
+      'coachCapabilities': {
+        'canReadUserProfile': true,
+        'canModifyUserProfile': false,
+        'canCreateWorkoutPlans': true,
+        'canRecommendRecipes': true,
+        'canRecommendWazenRecipes': true,
+        'canGenerateOwnRecipes': true,
+        'canGenerateRecipeCards': true,
+        'recipeSources': ['wazen_existing_recipes', 'coach_generated_recipes'],
+        'recipeSourceRule':
+            'When the user asks for a recipe, support two sources: existing Wazen recipes and new coach-generated recipes. If the message asks for coach recipes, generate a new recipe card yourself instead of saying you can only use Wazen recipes.',
+      },
     });
 
     return CoachResponse.fromData(data);
