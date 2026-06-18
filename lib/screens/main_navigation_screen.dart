@@ -270,11 +270,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 label: 'تتبع الوزن',
               ),
               NavigationDestination(
-                icon: WazenNavIcon(name: 'regimen', fallbackIcon: Icons.health_and_safety_rounded),
+                icon: WazenNavIcon(name: 'regimen', fallbackIcon: Icons.restaurant_menu_rounded),
                 selectedIcon: WazenNavIcon(
                   name: 'regimen',
                   selected: true,
-                  fallbackIcon: Icons.health_and_safety_rounded,
+                  fallbackIcon: Icons.restaurant_menu_rounded,
                 ),
                 label: 'رجيمي',
               ),
@@ -382,14 +382,22 @@ class _GlassAdaptiveNavBar extends StatelessWidget {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: isDark
-                      ? [cs.surface.withOpacity(0.42), cs.surfaceVariant.withOpacity(0.30)]
-                      : [cs.surface.withOpacity(0.70), cs.surfaceVariant.withOpacity(0.52)],
+                      ? [
+                          const Color(0xF21E1E20),
+                          Color.alphaBlend(cs.primary.withOpacity(0.025), const Color(0xF2222224)),
+                        ]
+                      : [cs.surface.withOpacity(0.82), cs.surfaceVariant.withOpacity(0.62)],
                 ),
-                border: Border.all(color: cs.outlineVariant.withOpacity(0.5), width: 1),
+                border: Border.all(
+                  color: isDark
+                      ? const Color(0xFF3A3A3D).withOpacity(0.88)
+                      : cs.outlineVariant.withOpacity(0.55),
+                  width: 1,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(isDark ? 0.28 : 0.10),
-                    blurRadius: 16,
+                    color: Colors.black.withOpacity(isDark ? 0.42 : 0.10),
+                    blurRadius: isDark ? 20 : 16,
                     offset: const Offset(0, 8),
                   ),
                 ],
@@ -397,7 +405,7 @@ class _GlassAdaptiveNavBar extends StatelessWidget {
               child: NavigationBarTheme(
                 data: NavigationBarThemeData(
                   height: height,
-                  indicatorColor: activeColor.withOpacity(0.14),
+                  indicatorColor: activeColor.withOpacity(isDark ? 0.16 : 0.14),
                   labelTextStyle: MaterialStateProperty.resolveWith<TextStyle?>(
                     (states) {
                       final selected = states.contains(MaterialState.selected);

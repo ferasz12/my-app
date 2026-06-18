@@ -43,7 +43,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
         margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
         constraints: const BoxConstraints(maxWidth: 280),
         decoration: BoxDecoration(
-          color: isUser ? Colors.teal[200] : Colors.grey[300],
+          color: isUser ? (Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.surfaceVariant : Colors.teal[200]) : Colors.grey[300],
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(text, style: const TextStyle(fontSize: 14)),
@@ -94,7 +94,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.send, color: Colors.teal),
+                  icon: Icon(Icons.send, color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.onSurfaceVariant : Colors.teal),
                   onPressed: isLoading ? null : sendMessage,
                 )
               ],

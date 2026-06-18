@@ -15,6 +15,9 @@ import '../services/goal_service.dart';
 import '../models/weight_goal.dart';
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
+import '../core/data/wazen_identity_store.dart';
+import '../shared/wazen_profile_prefs.dart';
+import '../shared/macro_targets_controller.dart';
 
 class SetGoalPage extends StatefulWidget {
   const SetGoalPage({
@@ -140,8 +143,9 @@ class _SetGoalPageState extends State<SetGoalPage> {
 
   Future<void> _appendFreeNoteHistory(String note) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? 'unknown_user';
-    final list = _loadGoalHistory(prefs, email);
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: FirebaseAuth.instance.currentUser);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+    final list = _loadGoalHistory(prefs, profileKey);
     final entry = {
       'createdAt': DateTime.now().toIso8601String(),
       'type': 'note',
@@ -149,22 +153,50 @@ class _SetGoalPageState extends State<SetGoalPage> {
     };
     list.insert(0, entry);
     while (list.length > 10) list.removeLast();
-    await prefs.setString('goal_history_$email', json.encode(list));
+    await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_history_$alias', json.encode(list));
     setState(() => _goalHistory = list);
   }
 
   Future<void> _loadInitial() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? 'unknown_user';
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: true);
+    }
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: user, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
 
-    final weight = prefs.getDouble('weight_$email') ?? 70.0;
-    final age = prefs.getInt('age_$email') ?? 25;
-    final level = prefs.getString('activityLevel_$email') ?? 'moderate';
-    final height = prefs.getDouble('height_$email') ?? 170.0;
+    final weight = WazenProfilePrefs.readDouble(
+          prefs,
+          const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_', 'goal_current_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        70.0;
+    final age = WazenProfilePrefs.readInt(prefs, const ['age_'], aliases, preferred: profileKey) ?? 25;
+    final level = WazenProfilePrefs.readString(
+          prefs,
+          const ['activityLevel_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        'moderate';
+    final height = WazenProfilePrefs.readDouble(
+          prefs,
+          const ['height_', 'height_cm_', 'heightCm_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        170.0;
 
     // قراءة آخر تاريخ تم فيه تعديل الوزن (من صفحة بياناتي)
     DateTime? lastUpdate;
-    final lastStr = prefs.getString('weight_last_updated_$email');
+    final lastStr = WazenProfilePrefs.readString(
+      prefs,
+      const ['weight_last_updated_'],
+      aliases,
+      preferred: profileKey,
+    );
     if (lastStr != null) {
       try {
         lastUpdate = DateTime.parse(lastStr);
@@ -181,7 +213,7 @@ class _SetGoalPageState extends State<SetGoalPage> {
     final suggestedTarget = (weight - 5).clamp(30.0, 250.0);
 
     // تحميل سجل الأهداف
-    _goalHistory = _loadGoalHistory(prefs, email);
+    _goalHistory = _loadGoalHistory(prefs, profileKey);
 
     _currentCtrl.text = weight.toStringAsFixed(1);
     _targetCtrl.text = suggestedTarget.toStringAsFixed(1);
@@ -207,7 +239,8 @@ class _SetGoalPageState extends State<SetGoalPage> {
 
   Future<void> _appendGoalHistory(WeightGoal g) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? 'unknown_user';
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: FirebaseAuth.instance.currentUser);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
 
     final entry = {
       'createdAt': DateTime.now().toIso8601String(),
@@ -219,12 +252,12 @@ class _SetGoalPageState extends State<SetGoalPage> {
       'difficulty': g.difficulty.name, // نخزّن الإنجليزي ونحوّله عند العرض
     };
 
-    final list = _loadGoalHistory(prefs, email);
+    final list = _loadGoalHistory(prefs, profileKey);
     list.insert(0, entry);
     // احتفظ بآخر 10 فقط
     while (list.length > 10) list.removeLast();
 
-    await prefs.setString('goal_history_$email', json.encode(list));
+    await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_history_$alias', json.encode(list));
     setState(() => _goalHistory = list);
   }
 
@@ -344,14 +377,17 @@ class _SetGoalPageState extends State<SetGoalPage> {
     // -------- 2) احفظ دائمًا محليًا كـ fallback (حتى لو نجح السحابي) --------
     try {
       final prefs = await SharedPreferences.getInstance();
-      final email = prefs.getString('currentEmail') ?? 'unknown_user';
-      await prefs.setString('goal_difficulty_$email', built.difficulty.name);
-      await prefs.setDouble('goal_weekly_$email', built.weeklyChangeKg);
-      await prefs.setDouble('goal_dailyDelta_$email', built.dailyCalorieDelta);
-      await prefs.setString('goal_note_$email', built.analysisNote);
-      await prefs.setDouble('goal_current_$email', built.currentWeight);
-      await prefs.setDouble('goal_target_$email', built.targetWeight);
-      await prefs.setString('goal_targetDate_$email', built.targetDate.toIso8601String());
+      final aliases = await WazenProfilePrefs.aliases(prefs, user: user);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_difficulty_$alias', built.difficulty.name);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_weekly_$alias', built.weeklyChangeKg);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_dailyDelta_$alias', built.dailyCalorieDelta);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_note_$alias', built.analysisNote);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_current_$alias', built.currentWeight);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_target_$alias', built.targetWeight);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'targetWeight_$alias', built.targetWeight);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'targetWeightKg_$alias', built.targetWeight);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'target_weight_$alias', built.targetWeight);
+      await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'goal_targetDate_$alias', built.targetDate.toIso8601String());
     } catch (e) {
       debugPrint('[SetGoalPage] local fallback save failed: $e');
     }
@@ -385,19 +421,41 @@ class _SetGoalPageState extends State<SetGoalPage> {
   /// يحسب السعرات حسب النشاط ثم يعتمد نفس محرك الماكروز المستخدم في بقية الصفحات.
   Future<void> _computeAndStoreMacros() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? 'unknown_user';
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: true);
+    }
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: user, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+    final email = profileKey;
 
-    final String gender = prefs.getString('gender_$email') ?? 'ذكر';
-    final double weight =
-        prefs.getDouble('weight_$email') ?? (double.tryParse(_currentCtrl.text) ?? 70.0);
-    final double height = prefs.getDouble('height_$email') ?? _height;
-    final int age = prefs.getInt('age_$email') ?? _age;
-    final String goal = prefs.getString('goal_$email') ?? 'نمط حياة صحي';
-    final bool goalFatShred =
-        prefs.getBool('goal_fat_shred_$email') ?? (goal.trim() == 'تنشيف الدهون');
+    final String gender = WazenProfilePrefs.readString(prefs, const ['gender_'], aliases, preferred: profileKey) ?? 'ذكر';
+    final double weight = WazenProfilePrefs.readDouble(
+          prefs,
+          const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_', 'goal_current_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        (double.tryParse(_currentCtrl.text) ?? 70.0);
+    final double height = WazenProfilePrefs.readDouble(
+          prefs,
+          const ['height_', 'height_cm_', 'heightCm_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        _height;
+    final int age = WazenProfilePrefs.readInt(prefs, const ['age_'], aliases, preferred: profileKey) ?? _age;
+    final String goal = WazenProfilePrefs.readString(prefs, const ['goal_', 'user_goal_'], aliases, preferred: profileKey) ?? 'نمط حياة صحي';
+    final bool goalFatShred = WazenProfilePrefs.readBool(
+          prefs,
+          const ['goal_fat_shred_', 'goalFatShred_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        (goal.trim() == 'تنشيف الدهون');
 
-    final int lifestyleScore = prefs.getInt('lifestyleScore_$email') ?? -1;
-    final double activityFactor = prefs.getDouble('activityFactor_$email') ??
+    final int lifestyleScore = WazenProfilePrefs.readInt(prefs, const ['lifestyleScore_'], aliases, preferred: profileKey) ?? -1;
+    final double activityFactor = WazenProfilePrefs.readDouble(prefs, const ['activityFactor_'], aliases, preferred: profileKey) ??
         ((lifestyleScore >= 0) ? _activityFromScore(lifestyleScore) : _factorFromActivityKey(_activity));
 
     final double maintenanceCalories = calculateCalories(
@@ -453,6 +511,22 @@ class _SetGoalPageState extends State<SetGoalPage> {
     await prefs.setString('macroCalculationNote_$email', macroCalculationNote);
     await prefs.setInt('macrosUpdatedAt_$email', nowMs);
     await prefs.setString('lastUpdated_$email', today);
+    await WazenProfilePrefs.writeMacroTargets(
+      prefs: prefs,
+      aliases: aliases,
+      calories: targetCalories,
+      maintenanceCalories: maintenanceCalories,
+      protein: protein,
+      carbs: carbs,
+      fat: fat,
+      activityFactor: activityFactor,
+      macroMode: MacroPlanEngine.modeAuto,
+      macroPlanId: macroPlanId,
+      macroCalculationNote: macroCalculationNote,
+      lastUpdatedYmd: today,
+      stamp: nowMs,
+    );
+    MacroTargetsController.bump();
 
     try {
       final user = FirebaseAuth.instance.currentUser;

@@ -136,7 +136,8 @@ class WazenIdentityStore {
     final simplePrefixes = <String>[
       'displayName_', 'name_', 'fullName_', 'username_', 'currentUsername_', 'bio_',
       'photoUrl_', 'avatarUrl_', 'profileImageUrl_', 'profile_image_path_',
-      'gender_', 'age_', 'height_', 'weight_', 'current_weight_', 'goal_current_',
+      'gender_', 'age_', 'height_', 'height_cm_', 'heightCm_',
+      'weight_', 'current_weight_', 'currentWeight_', 'weightKg_', 'user_weight_', 'goal_current_',
       'goal_', 'goalFatShred_', 'lifestyleScore_', 'activityFactor_',
       'caloriesNeeded_', 'maintenanceCalories_', 'protein_', 'carbs_', 'fat_',
       'macroMode_', 'macroPlanId_', 'waterMlTarget_', 'stepsTarget_', 'sleepHoursTarget_',

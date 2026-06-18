@@ -17,6 +17,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../services/openai_food_service.dart';
 import '../shared/friendly_errors.dart';
+import '../shared/wazen_profile_prefs.dart';
 
 // اسم الوجبة بالعربية (إن توفر) أو تحويل أسماء شائعة
 String _displayNameArabic(Map<String, dynamic>? f) {
@@ -1030,13 +1031,13 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final user = FirebaseAuth.instance.currentUser;
-      final email =
-          prefs.getString('currentEmail') ?? user?.email ?? 'unknown_user';
-      // 1) الأهداف
-      final tgtK = prefs.getDouble('caloriesNeeded_$email');
-      final tgtP = prefs.getDouble('protein_$email');
-      final tgtC = prefs.getDouble('carbs_$email');
-      final tgtF = prefs.getDouble('fat_$email');
+      final aliases = await WazenProfilePrefs.aliases(prefs, user: user);
+      final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+      // 1) الأهداف — قراءة من UID/email/legacy حتى لا تختلف عن بياناتي.
+      final tgtK = WazenProfilePrefs.readDouble(prefs, const ['caloriesNeeded_'], aliases, preferred: profileKey);
+      final tgtP = WazenProfilePrefs.readDouble(prefs, const ['protein_'], aliases, preferred: profileKey);
+      final tgtC = WazenProfilePrefs.readDouble(prefs, const ['carbs_', 'carb_'], aliases, preferred: profileKey);
+      final tgtF = WazenProfilePrefs.readDouble(prefs, const ['fat_'], aliases, preferred: profileKey);
       if (tgtK != null && tgtP != null && tgtC != null && tgtF != null) {
         _tK = tgtK;
         _tP = tgtP;
@@ -1047,14 +1048,22 @@ class _FoodAiScreenState extends State<FoodAiScreen> {
       }
 
       // 2) نوع الهدف
-      _goalType = prefs.getString('goalType_$email') ??
+      _goalType = WazenProfilePrefs.readString(
+            prefs,
+            const ['goalType_', 'goal_', 'user_goal_'],
+            aliases,
+            preferred: profileKey,
+          ) ??
           (await _tryFetchGoalTypeFromFirestore()) ??
           'maintain';
 
       // 3) مجاميع اليوم
       final ymd = DateTime.now().toIso8601String().split('T').first;
-      final totalsKey = 'kcal_daytotals_${email}_$ymd';
-      final rawTotals = prefs.getString(totalsKey);
+      String? rawTotals;
+      for (final alias in WazenProfilePrefs.orderedAliases(aliases, preferred: profileKey)) {
+        rawTotals = prefs.getString('kcal_daytotals_${alias}_$ymd');
+        if (rawTotals != null && rawTotals.trim().isNotEmpty) break;
+      }
       if (rawTotals != null && rawTotals.trim().isNotEmpty) {
         try {
           final Map<String, dynamic> m = jsonDecode(rawTotals);
@@ -4487,7 +4496,7 @@ class FoodDetailsSection extends StatelessWidget {
             title: 'الماكروز',
             child: Column(
               children: [
-                _MacroRow(label: 'بروتين', grams: p, color: Colors.teal),
+                _MacroRow(label: 'بروتين', grams: p, color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.onSurfaceVariant : Colors.teal),
                 const Divider(height: 12),
                 _MacroRow(label: 'كربوهيدرات', grams: c, color: Colors.indigo),
                 const Divider(height: 12),

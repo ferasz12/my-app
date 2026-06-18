@@ -410,6 +410,9 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
   Widget build(BuildContext context) {
     final repo = context.read<RecipeRepository>();
     final uid = FirebaseAuth.instance.currentUser?.uid;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     final banner = (!_guard.allowed && _guard.message != null)
         ? Container(
@@ -434,12 +437,12 @@ class _RecipesExplorePageState extends State<RecipesExplorePage>
       child: Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF6FAF8),
+        backgroundColor: isDark ? cs.background : const Color(0xFFF6FAF8),
         appBar: AppBar(
           centerTitle: true,
           elevation: 0,
           scrolledUnderElevation: 0,
-          backgroundColor: const Color(0xFFF6FAF8),
+          backgroundColor: isDark ? cs.background : const Color(0xFFF6FAF8),
           title: const Text(
             'استكشاف الوصفات',
             style: TextStyle(fontWeight: FontWeight.w900),
@@ -675,6 +678,8 @@ class _ExploreHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final primary = t.colorScheme.primary;
+    final isDark = t.brightness == Brightness.dark;
+    final cs = t.colorScheme;
 
     return Container(
       width: double.infinity,
@@ -684,13 +689,12 @@ class _ExploreHero extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [
-            primary.withOpacity(0.16),
-            const Color(0xFFFFFFFF),
-          ],
+          colors: isDark
+              ? [cs.surfaceVariant, cs.surface]
+              : [cs.surfaceVariant, cs.surface],
         ),
-        border: Border.all(color: primary.withOpacity(0.12)),
-        boxShadow: [
+        border: Border.all(color: isDark ? cs.outlineVariant.withOpacity(0.70) : primary.withOpacity(0.12)),
+        boxShadow: isDark ? null : [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
             blurRadius: 18,
@@ -917,6 +921,8 @@ class _SortPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final primary = t.colorScheme.primary;
+    final isDark = t.brightness == Brightness.dark;
+    final cs = t.colorScheme;
 
     return Material(
       color: Colors.transparent,
@@ -930,10 +936,10 @@ class _SortPill extends StatelessWidget {
           alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: selected ? primary.withOpacity(0.12) : const Color(0xFFF7FAF8),
+            color: selected ? primary.withOpacity(isDark ? 0.18 : 0.12) : (isDark ? cs.surfaceVariant : const Color(0xFFF7FAF8)),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: selected ? primary.withOpacity(0.40) : Colors.black.withOpacity(0.07),
+              color: selected ? primary.withOpacity(isDark ? 0.34 : 0.40) : (isDark ? cs.outlineVariant.withOpacity(0.62) : Colors.black.withOpacity(0.07)),
             ),
           ),
           child: Text(
@@ -944,7 +950,7 @@ class _SortPill extends StatelessWidget {
             style: TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w900,
-              color: selected ? primary : t.textTheme.bodyMedium?.color?.withOpacity(0.76),
+              color: selected ? primary : t.textTheme.bodyMedium?.color?.withOpacity(isDark ? 0.88 : 0.76),
             ),
           ),
         ),

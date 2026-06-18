@@ -98,9 +98,13 @@ class ThemeProvider extends ChangeNotifier {
 
   // وضع الثيم (MaterialApp.themeMode)
   ThemeMode get themeMode {
+    // يدعم زر الوضع الداكن القديم مع مظهر وازن الأصلي،
+    // وفي نفس الوقت يحافظ على الثيمات التي تفرض الفاتح/الداكن.
     switch (_current) {
       case AppThemeId.systemDefault:
         return ThemeMode.system;
+      case AppThemeId.classicGreen:
+        return isDarkMode ? ThemeMode.dark : ThemeMode.light;
       case AppThemeId.highContrastDark:
       case AppThemeId.pureBlack:
         return ThemeMode.dark;
@@ -158,35 +162,55 @@ class ThemeProvider extends ChangeNotifier {
   }
 
   
-// الافتراضي — #28B4AC (متناغم فاتح/داكن)
+
+// الافتراضي — مظهر وازن بنسخة داكنة نظيفة وموحدة
   ThemeData _classicGreen({required bool light}) {
-    // ثيم وازن الأصلي: أخضر وازن الهادئ بدون ألوان فاقعة أو تدرجات مبالغ فيها.
-    const brand = Color(0xFF00695C);
-    const brandSoft = Color(0xFFE6F3F1);
-    const deep = Color(0xFF064D45);
+    const brand = Color(0xFF22B8AE);
+    const brandDeep = Color(0xFF0F766E);
+    const brandSoft = Color(0xFFE6F7F5);
+    const ink = Color(0xFF102326);
     const lightBg = Color(0xFFF7FAF9);
-    const darkBg = Color(0xFF0B1114);
-    const darkSurface = Color(0xFF121A1D);
+
+    // لوحة داكنة مثل تطبيقات التتبع العالمية: رمادي داكن ناعم، كروت ثابتة، بدون سواد حاد.
+    const darkBg = Color(0xFF121212);
+    const darkSurface = Color(0xFF1B1B1D);
+    const darkCard = Color(0xFF222224);
+    const darkSoft = Color(0xFF2A2A2D);
+    const darkOutline = Color(0xFF3A3A3D);
+    const darkText = Color(0xFFF5F5F7);
+    const darkMuted = Color(0xFFB0B0B4);
+    // لون الأكشن في الداكن صار Sage هادئ بدل التركوازي الفاقع.
+    const darkAccent = Color(0xFF8FA5A1);
+    const darkAction = Color(0xFF2B3433);
 
     final scheme = ColorScheme.fromSeed(
       seedColor: brand,
       brightness: light ? Brightness.light : Brightness.dark,
     ).copyWith(
-      primary: brand,
-      onPrimary: Colors.white,
-      secondary: brand,
-      onSecondary: Colors.white,
-      tertiary: deep,
-      surface: light ? Colors.white : darkSurface,
+      primary: light ? brandDeep : darkAccent,
+      onPrimary: light ? Colors.white : darkText,
+      secondary: light ? brand : darkAccent,
+      onSecondary: light ? Colors.white : darkText,
+      tertiary: light ? const Color(0xFF0A3D62) : const Color(0xFF8FD7FF),
       background: light ? lightBg : darkBg,
-      onSurface: light ? const Color(0xFF102326) : const Color(0xFFEAF7F5),
-      outlineVariant: light ? const Color(0xFFDCE8E5) : const Color(0xFF26383B),
-      primaryContainer: light ? brandSoft : const Color(0xFF103B37),
-      onPrimaryContainer: light ? deep : const Color(0xFFEAF7F5),
+      onBackground: light ? ink : darkText,
+      surface: light ? Colors.white : darkSurface,
+      onSurface: light ? ink : darkText,
+      surfaceVariant: light ? const Color(0xFFEAF3F1) : darkCard,
+      onSurfaceVariant: light ? const Color(0xFF536461) : darkMuted,
+      outline: light ? const Color(0xFFDCE8E5) : const Color(0xFF47474A),
+      outlineVariant: light ? const Color(0xFFDCE8E5) : darkOutline,
+      primaryContainer: light ? brandSoft : const Color(0xFF26312F),
+      onPrimaryContainer: light ? const Color(0xFF064D45) : darkText,
+      secondaryContainer: light ? const Color(0xFFE7F7F5) : const Color(0xFF252C2B),
+      onSecondaryContainer: light ? const Color(0xFF064D45) : darkText,
+      error: const Color(0xFFE74C3C),
+      errorContainer: light ? const Color(0xFFFFE5E3) : const Color(0xFF3A2424),
     );
 
-    final cardColor = light ? Colors.white : darkSurface;
-    final shadow = Colors.black.withOpacity(light ? 0.045 : 0.22);
+    final cardColor = light ? Colors.white : darkCard;
+    final navColor = light ? Colors.white.withOpacity(.92) : const Color(0xF21E1E20);
+    final shadow = Colors.black.withOpacity(light ? 0.045 : 0.28);
 
     return ThemeData(
       useMaterial3: true,
@@ -194,19 +218,20 @@ class ThemeProvider extends ChangeNotifier {
       colorScheme: scheme,
       fontFamily: 'Tajawal',
       scaffoldBackgroundColor: scheme.background,
-      splashColor: brand.withOpacity(.07),
-      highlightColor: brand.withOpacity(.05),
-      dividerColor: scheme.outlineVariant.withOpacity(.7),
+      canvasColor: scheme.background,
+      splashColor: scheme.primary.withOpacity(.08),
+      highlightColor: scheme.primary.withOpacity(.05),
+      dividerColor: scheme.outlineVariant.withOpacity(light ? .70 : .55),
 
       appBarTheme: AppBarTheme(
-        backgroundColor: light ? lightBg : darkBg,
-        foregroundColor: light ? deep : Colors.white,
+        backgroundColor: scheme.background,
+        foregroundColor: scheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
-          color: light ? deep : Colors.white,
+          color: scheme.onSurface,
           fontFamily: 'Tajawal',
           fontSize: 20,
           fontWeight: FontWeight.w800,
@@ -215,7 +240,7 @@ class ThemeProvider extends ChangeNotifier {
 
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.transparent,
-        indicatorColor: brand.withOpacity(light ? .14 : .22),
+        indicatorColor: scheme.primary.withOpacity(light ? .14 : .20),
         elevation: 0,
         labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
         labelTextStyle: MaterialStateProperty.resolveWith((states) {
@@ -224,35 +249,44 @@ class ThemeProvider extends ChangeNotifier {
             fontFamily: 'Tajawal',
             fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
             fontSize: 12,
-            color: selected ? brand : scheme.onSurfaceVariant,
+            color: selected ? scheme.primary : scheme.onSurfaceVariant,
           );
         }),
         iconTheme: MaterialStateProperty.resolveWith((states) {
           final selected = states.contains(MaterialState.selected);
           return IconThemeData(
-            color: selected ? brand : scheme.onSurfaceVariant,
+            color: selected ? scheme.primary : scheme.onSurfaceVariant,
             size: selected ? 25 : 23,
           );
         }),
       ),
 
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: light ? Colors.white : darkSurface,
-        selectedItemColor: brand,
-        unselectedItemColor: light ? const Color(0xFF536461) : const Color(0xFF9AA9AD),
+        backgroundColor: navColor,
+        selectedItemColor: scheme.primary,
+        unselectedItemColor: scheme.onSurfaceVariant,
         type: BottomNavigationBarType.fixed,
         showUnselectedLabels: true,
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800),
         unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
       ),
 
+      bottomAppBarTheme: BottomAppBarThemeData(
+        color: navColor,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+      ),
+
       cardTheme: CardThemeData(
         color: cardColor,
         surfaceTintColor: Colors.transparent,
-        elevation: light ? 0.8 : 0.4,
+        elevation: light ? 0.8 : 0.0,
         shadowColor: shadow,
         margin: const EdgeInsets.all(12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: scheme.outlineVariant.withOpacity(light ? .45 : .36)),
+        ),
         clipBehavior: Clip.antiAlias,
       ),
 
@@ -260,8 +294,8 @@ class ThemeProvider extends ChangeNotifier {
 
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: brand,
-          foregroundColor: Colors.white,
+          backgroundColor: light ? scheme.primary : darkAction,
+          foregroundColor: light ? Colors.white : darkText,
           elevation: 0,
           shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -272,10 +306,10 @@ class ThemeProvider extends ChangeNotifier {
 
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: brand,
-          foregroundColor: Colors.white,
-          elevation: 0.6,
-          shadowColor: brand.withOpacity(.16),
+          backgroundColor: light ? scheme.primary : darkAction,
+          foregroundColor: light ? Colors.white : darkText,
+          elevation: light ? 0.6 : 0,
+          shadowColor: scheme.primary.withOpacity(.16),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           textStyle: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'Tajawal'),
@@ -284,8 +318,8 @@ class ThemeProvider extends ChangeNotifier {
 
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: brand,
-          side: BorderSide(color: brand.withOpacity(.32)),
+          foregroundColor: scheme.primary,
+          side: BorderSide(color: scheme.primary.withOpacity(light ? .32 : .42)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           textStyle: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'Tajawal'),
@@ -294,16 +328,16 @@ class ThemeProvider extends ChangeNotifier {
 
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: brand,
+          foregroundColor: scheme.primary,
           textStyle: const TextStyle(fontWeight: FontWeight.w800, fontFamily: 'Tajawal'),
         ),
       ),
 
       chipTheme: ChipThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        side: BorderSide(color: scheme.outlineVariant.withOpacity(.7)),
-        backgroundColor: light ? brandSoft.withOpacity(.75) : const Color(0xFF172528),
-        selectedColor: brand.withOpacity(light ? .16 : .24),
+        side: BorderSide(color: scheme.outlineVariant.withOpacity(light ? .70 : .45)),
+        backgroundColor: light ? brandSoft.withOpacity(.75) : darkSoft,
+        selectedColor: scheme.primary.withOpacity(light ? .16 : .24),
         labelStyle: TextStyle(
           color: scheme.onSurface,
           fontSize: 13,
@@ -313,9 +347,9 @@ class ThemeProvider extends ChangeNotifier {
       ),
 
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: light ? deep : const Color(0xFFEAF7F5),
+        backgroundColor: light ? const Color(0xFF064D45) : const Color(0xFF232326),
         contentTextStyle: TextStyle(
-          color: light ? Colors.white : deep,
+          color: light ? Colors.white : const Color(0xFFEAF7F5),
           fontFamily: 'Tajawal',
           fontWeight: FontWeight.w700,
         ),
@@ -324,10 +358,10 @@ class ThemeProvider extends ChangeNotifier {
       ),
 
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: brand,
-        foregroundColor: Colors.white,
-        elevation: 0.8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: light ? scheme.primary : darkAction,
+        foregroundColor: light ? Colors.white : darkText,
+        elevation: light ? 0.8 : 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
 
       popupMenuTheme: PopupMenuThemeData(
@@ -342,10 +376,43 @@ class ThemeProvider extends ChangeNotifier {
         ),
       ),
 
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: cardColor,
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
+
+      dialogTheme: DialogThemeData(
+        backgroundColor: cardColor,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titleTextStyle: TextStyle(
+          fontFamily: 'Tajawal',
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w900,
+          fontSize: 18,
+        ),
+        contentTextStyle: TextStyle(
+          fontFamily: 'Tajawal',
+          color: scheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+
+      dividerTheme: DividerThemeData(
+        color: scheme.outlineVariant.withOpacity(light ? .65 : .50),
+        thickness: 1,
+        space: 24,
+      ),
+
       tabBarTheme: TabBarThemeData(
         dividerColor: Colors.transparent,
-        labelColor: brand,
+        labelColor: scheme.primary,
         unselectedLabelColor: scheme.onSurfaceVariant,
+        indicatorColor: scheme.primary,
         labelStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w800),
         unselectedLabelStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w700),
       ),
@@ -353,22 +420,37 @@ class ThemeProvider extends ChangeNotifier {
   }
 
   ThemeData _pureBlack() {
-    // Midnight: فاخر داكن مع لمسة نعناع (مناسب لتطبيق صحي)
-    const bg = Color(0xFF070A0D);
-    const surface = Color(0xFF0E141A);
-    const card = Color(0xFF111A21);
-    const primary = Color(0xFF28B4AC);
-    const secondary = Color(0xFF9FE7E1);
+    // Midnight Pro: داكن نظيف قريب من تطبيقات التتبع العالمية، بدون سواد حاد أو كروت فاقعة.
+    const bg = Color(0xFF141414);
+    const surface = Color(0xFF1C1C1E);
+    const card = Color(0xFF222224);
+    const cardSoft = Color(0xFF2A2A2D);
+    const primary = Color(0xFF8FA5A1);
+    const secondary = Color(0xFFC3D0CD);
+    const on = Color(0xFFF5F5F7);
+    const muted = Color(0xFFB0B0B4);
+    const outline = Color(0xFF3A3A3D);
 
     final scheme = const ColorScheme.dark().copyWith(
       primary: primary,
       onPrimary: Colors.white,
       secondary: secondary,
       onSecondary: Color(0xFF00110F),
+      tertiary: Color(0xFF8FD7FF),
       background: bg,
+      onBackground: on,
       surface: surface,
-      onSurface: Colors.white,
-      onBackground: Colors.white,
+      onSurface: on,
+      surfaceVariant: card,
+      onSurfaceVariant: muted,
+      outline: const Color(0xFF47474A),
+      outlineVariant: outline,
+      primaryContainer: const Color(0xFF253B39),
+      onPrimaryContainer: on,
+      secondaryContainer: const Color(0xFF2A3334),
+      onSecondaryContainer: on,
+      error: const Color(0xFFFF6B61),
+      errorContainer: const Color(0xFF3A2424),
     );
 
     return ThemeData(
@@ -377,60 +459,185 @@ class ThemeProvider extends ChangeNotifier {
       colorScheme: scheme,
       fontFamily: 'Tajawal',
       scaffoldBackgroundColor: bg,
+      canvasColor: bg,
+      dividerColor: outline.withOpacity(.65),
+      splashColor: primary.withOpacity(.08),
+      highlightColor: primary.withOpacity(.05),
+
       appBarTheme: const AppBarTheme(
         backgroundColor: bg,
-        foregroundColor: Colors.white,
+        foregroundColor: on,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
+        surfaceTintColor: Colors.transparent,
+        titleTextStyle: TextStyle(
+          fontFamily: 'Tajawal',
+          color: on,
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+        ),
       ),
-      cardTheme: const CardThemeData(
+
+      cardTheme: CardThemeData(
         color: card,
-        elevation: 0.6,
-        margin: EdgeInsets.all(12),
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        margin: const EdgeInsets.all(12),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(22)),
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: outline.withOpacity(.70)),
         ),
         clipBehavior: Clip.antiAlias,
       ),
+
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: Colors.transparent,
+        indicatorColor: primary.withOpacity(.18),
+        elevation: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+        labelTextStyle: MaterialStateProperty.resolveWith((states) {
+          final selected = states.contains(MaterialState.selected);
+          return TextStyle(
+            fontFamily: 'Tajawal',
+            fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+            fontSize: 12,
+            color: selected ? primary : muted,
+          );
+        }),
+        iconTheme: MaterialStateProperty.resolveWith((states) {
+          final selected = states.contains(MaterialState.selected);
+          return IconThemeData(
+            color: selected ? primary : muted,
+            size: selected ? 25 : 23,
+          );
+        }),
+      ),
+
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: surface,
+        backgroundColor: Color(0xF21E1E20),
         selectedItemColor: primary,
-        unselectedItemColor: Color(0xFF94A3B8),
+        unselectedItemColor: muted,
         type: BottomNavigationBarType.fixed,
         showUnselectedLabels: true,
-        selectedLabelStyle: TextStyle(fontWeight: FontWeight.w700),
-        unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w600),
+        selectedLabelStyle: TextStyle(fontWeight: FontWeight.w900),
+        unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w700),
       ),
+
+      bottomAppBarTheme: const BottomAppBarThemeData(
+        color: Color(0xF21E1E20),
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+      ),
+
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: primary,
-        foregroundColor: Colors.white,
-        elevation: 0.8,
+        backgroundColor: const Color(0xFF2B3433),
+        foregroundColor: const Color(0xFFF5F5F7),
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(18)),
         ),
       ),
+
       chipTheme: ChipThemeData(
-        backgroundColor: primary.withOpacity(0.18),
-        selectedColor: primary.withOpacity(0.28),
+        backgroundColor: cardSoft,
+        selectedColor: primary.withOpacity(0.22),
+        side: BorderSide(color: outline.withOpacity(.70)),
         labelStyle: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w600,
+          color: on,
+          fontWeight: FontWeight.w700,
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
+
       inputDecorationTheme: _inputTheme(isDark: true, scheme: scheme),
+
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: primary,
-          foregroundColor: Colors.white,
+          backgroundColor: const Color(0xFF2B3433),
+          foregroundColor: const Color(0xFFF5F5F7),
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          textStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w900),
         ),
       ),
-      dividerColor: Colors.white10,
+
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF2B3433),
+          foregroundColor: const Color(0xFFF5F5F7),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          textStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w900),
+        ),
+      ),
+
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: primary,
+          side: BorderSide(color: primary.withOpacity(.42)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          textStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w800),
+        ),
+      ),
+
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: primary,
+          textStyle: const TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w800),
+        ),
+      ),
+
+      snackBarTheme: const SnackBarThemeData(
+        backgroundColor: Color(0xFF232326),
+        contentTextStyle: TextStyle(color: Color(0xFFEAF7F5), fontFamily: 'Tajawal', fontWeight: FontWeight.w800),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(14))),
+      ),
+
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: card,
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
+
+      dialogTheme: DialogThemeData(
+        backgroundColor: card,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        titleTextStyle: const TextStyle(fontFamily: 'Tajawal', color: on, fontWeight: FontWeight.w900, fontSize: 18),
+        contentTextStyle: const TextStyle(fontFamily: 'Tajawal', color: muted, fontWeight: FontWeight.w600),
+      ),
+
+      dividerTheme: DividerThemeData(
+        color: outline.withOpacity(.70),
+        thickness: 1,
+        space: 24,
+      ),
+
+      tabBarTheme: const TabBarThemeData(
+        dividerColor: Colors.transparent,
+        labelColor: primary,
+        unselectedLabelColor: muted,
+        indicatorColor: primary,
+        labelStyle: TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w900),
+        unselectedLabelStyle: TextStyle(fontFamily: 'Tajawal', fontWeight: FontWeight.w700),
+      ),
+
+      popupMenuTheme: PopupMenuThemeData(
+        color: card,
+        surfaceTintColor: Colors.transparent,
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(fontFamily: 'Tajawal', color: on, fontWeight: FontWeight.w700),
+      ),
     );
   }
 
@@ -574,7 +781,7 @@ class ThemeProvider extends ChangeNotifier {
     final borderColor =
         isDark ? Colors.white.withOpacity(0.16) : scheme.outlineVariant;
     final focusColor = scheme.primary;
-    final fillColor = isDark ? const Color(0xFF1A1F23) : Colors.white;
+    final fillColor = isDark ? const Color(0xFF222224) : Colors.white;
 
     OutlineInputBorder border(Color c, {double width = 1}) => OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
@@ -584,17 +791,17 @@ class ThemeProvider extends ChangeNotifier {
     return InputDecorationTheme(
       filled: true,
       fillColor: fillColor,
-      hintStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black45),
+      hintStyle: TextStyle(color: isDark ? const Color(0xFF9AAEB6) : Colors.black45),
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       enabledBorder: border(borderColor),
       focusedBorder: border(focusColor, width: 1.6),
       errorBorder: border(const Color(0xFFE74C3C).withOpacity(.95)),
       focusedErrorBorder: border(const Color(0xFFE74C3C), width: 1.6),
-      prefixIconColor: isDark ? Colors.white70 : Colors.black54,
-      suffixIconColor: isDark ? Colors.white70 : Colors.black54,
+      prefixIconColor: isDark ? const Color(0xFF9AAEB6) : Colors.black54,
+      suffixIconColor: isDark ? const Color(0xFF9AAEB6) : Colors.black54,
       labelStyle:
-          TextStyle(color: isDark ? Colors.white70 : Colors.black87),
+          TextStyle(color: isDark ? const Color(0xFF9AAEB6) : Colors.black87),
     );
   }
 

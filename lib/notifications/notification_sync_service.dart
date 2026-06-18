@@ -76,9 +76,13 @@ class NotificationSyncService {
     } catch (_) {}
 
     if (!appliedPrefs) {
-      await _applyRemotePrefs(const <String, dynamic>{
-        'push': true,
-        'marketing': true,
+      final sp = await SharedPreferences.getInstance();
+      await _applyRemotePrefs(<String, dynamic>{
+        'push': sp.getBool(AppNotifications.kAll) ?? true,
+        'marketing': sp.getBool(FirestoreBroadcastScheduler.kMarketingEnabledLocal) ?? true,
+        'health': {
+          'alertsEnabled': sp.getBool(AppNotifications.kHealthAlertsEnabled) ?? true,
+        },
       });
     }
 
@@ -142,12 +146,14 @@ class NotificationSyncService {
   }
 
   Future<void> _applyRemotePrefs(Map<String, dynamic> prefs) async {
+    final sp = await SharedPreferences.getInstance();
     // قراءات آمنة + توافق خلفي
     final water = _asMap(prefs['water']);
     final workout = _asMap(prefs['workout']);
     final tips = _asMap(prefs['tips']);
     final weight = _asMap(prefs['weight']);
     final calories = _asMap(prefs['calories']);
+    final health = _asMap(prefs['health']);
 
     final allEnabled = _toBool(prefs['push'], def: true);
     final marketingEnabled = _toBool(prefs['marketing'], def: true);
@@ -183,8 +189,10 @@ class NotificationSyncService {
     final cH = _toInt(calories?['h'], def: 21, min: 0, max: 23);
     final cM = _toInt(calories?['m'], def: 0, min: 0, max: 59);
 
+    final healthAlertsEnabled =
+        _toBool(health?['alertsEnabled'], def: sp.getBool(AppNotifications.kHealthAlertsEnabled) ?? true);
+
     // 1) حفظ محلي حتى يبقى بعد إعادة التشغيل
-    final sp = await SharedPreferences.getInstance();
     await sp.setBool(AppNotifications.kAll, allEnabled);
 
     await sp.setBool(AppNotifications.kWaterEnabled, waterEnabled);
@@ -212,6 +220,7 @@ class NotificationSyncService {
     await sp.setInt(AppNotifications.kCaloriesM, cM);
 
     await sp.setBool(FirestoreBroadcastScheduler.kMarketingEnabledLocal, marketingEnabled);
+    await sp.setBool(AppNotifications.kHealthAlertsEnabled, healthAlertsEnabled);
 
     // 2) تطبيق الجدولة
     await AppNotifications.instance.applySettings(

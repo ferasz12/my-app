@@ -96,10 +96,12 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: cs.primary,
+      backgroundColor: isDark ? const Color(0xFF121212) : cs.primary,
       body: SafeArea(
         child: Center(
           // نخلي اتجاه الصفحة LTR عشان ما تنعكس عناصر الـ UI

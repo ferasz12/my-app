@@ -12,6 +12,8 @@ import '../data/legacy_user_repository.dart';
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
 import '../shared/macro_targets_controller.dart';
+import '../shared/wazen_profile_prefs.dart';
+import '../core/data/wazen_identity_store.dart';
 
 class SummaryPage extends StatefulWidget {
   const SummaryPage({super.key});
@@ -107,14 +109,16 @@ class _SummaryPageState extends State<SummaryPage> {
     return g;
   }
 
-    Future<void> _loadAll() async {
+  Future<void> _loadAll() async {
     setState(() => _loading = true);
 
     final prefs = await SharedPreferences.getInstance();
     final user = FirebaseAuth.instance.currentUser;
-
-    // == للتوافق مع النسخ القديمة التي كانت تعتمد على currentEmail ==
-    final email = prefs.getString('currentEmail') ?? 'unknown_user';
+    if (user != null) {
+      await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: true);
+    }
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: user, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
 
     // 1) نحاول نقرأ من Firestore (Legacy root users/{uid}) أولاً
     if (user != null) {
@@ -215,20 +219,37 @@ class _SummaryPageState extends State<SummaryPage> {
       }
     }
 
-    // 2) fallback: SharedPreferences (للتوافق/لو ما توفر Firestore)
-    gender = prefs.getString('gender_$email') ?? gender;
-    age = prefs.getInt('age_$email') ?? age;
+    // 2) fallback: SharedPreferences من كل مفاتيح المستخدم (UID + email + legacy)
+    gender = WazenProfilePrefs.readString(prefs, const ['gender_'], aliases, preferred: profileKey) ?? gender;
+    age = WazenProfilePrefs.readInt(prefs, const ['age_'], aliases, preferred: profileKey) ?? age;
 
-    // بعض الأجهزة تخزن أحياناً كـ int؛ نضمن التحويل إلى double
-    final w = prefs.getDouble('weight_$email');
-    final h = prefs.getDouble('height_$email');
-    if (weight <= 0) weight = w ?? (prefs.getInt('weight_$email')?.toDouble() ?? weight);
-    if (height <= 0) height = h ?? (prefs.getInt('height_$email')?.toDouble() ?? height);
+    final w = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_', 'goal_current_'],
+      aliases,
+      preferred: profileKey,
+    );
+    final h = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['height_', 'height_cm_', 'heightCm_'],
+      aliases,
+      preferred: profileKey,
+    );
+    if (weight <= 0) weight = w ?? weight;
+    if (height <= 0) height = h ?? height;
 
-    if (goal == 'غير محدد') goal = prefs.getString('goal_$email') ?? goal;
+    if (goal == 'غير محدد') {
+      goal = WazenProfilePrefs.readString(
+            prefs,
+            const ['goal_', 'user_goal_'],
+            aliases,
+            preferred: profileKey,
+          ) ??
+          goal;
+    }
 
-    activityLevel = prefs.getString('activityLevel_$email') ?? activityLevel;
-    lifestyleScore ??= prefs.getInt('lifestyleScore_$email');
+    activityLevel = WazenProfilePrefs.readString(prefs, const ['activityLevel_'], aliases, preferred: profileKey) ?? activityLevel;
+    lifestyleScore ??= WazenProfilePrefs.readInt(prefs, const ['lifestyleScore_'], aliases, preferred: profileKey);
 
     // إذا ما جتنا من Firestore نحسبها من نفس منطقك القديم
     if (activityFactor <= 0) {
@@ -237,21 +258,21 @@ class _SummaryPageState extends State<SummaryPage> {
           : _factorFromLevel(activityLevel);
     }
 
-    lastSavedCalories ??= prefs.getDouble('caloriesNeeded_$email');
-    lastUpdatedDate ??= prefs.getString('lastUpdated_$email');
+    lastSavedCalories ??= WazenProfilePrefs.readDouble(prefs, const ['caloriesNeeded_'], aliases, preferred: profileKey);
+    lastUpdatedDate ??= WazenProfilePrefs.readString(prefs, const ['lastUpdated_'], aliases, preferred: profileKey);
 
     // Macro plan (prefs overrides cloud)
-    macroMode = prefs.getString('macroMode_$email') ?? macroMode;
-    macroPlanId = prefs.getString('macroPlanId_$email') ?? macroPlanId;
+    macroMode = WazenProfilePrefs.readString(prefs, const ['macroMode_'], aliases, preferred: profileKey) ?? macroMode;
+    macroPlanId = WazenProfilePrefs.readString(prefs, const ['macroPlanId_'], aliases, preferred: profileKey) ?? macroPlanId;
 
     // Cached local targets (can be newer than Firestore while onboarding screens are open)
     final String _todayKey = DateTime.now().toIso8601String().split('T').first;
-    final double? _prefsK = prefs.getDouble('caloriesNeeded_$email');
-    final double? _prefsP = prefs.getDouble('protein_$email');
-    final double? _prefsC = prefs.getDouble('carbs_$email');
-    final double? _prefsF = prefs.getDouble('fat_$email');
-    final String? _prefsUpdated = prefs.getString('lastUpdated_$email');
-    final String? _prefsMacroNote = prefs.getString('macroCalculationNote_$email');
+    final double? _prefsK = WazenProfilePrefs.readDouble(prefs, const ['caloriesNeeded_'], aliases, preferred: profileKey);
+    final double? _prefsP = WazenProfilePrefs.readDouble(prefs, const ['protein_'], aliases, preferred: profileKey);
+    final double? _prefsC = WazenProfilePrefs.readDouble(prefs, const ['carbs_', 'carb_'], aliases, preferred: profileKey);
+    final double? _prefsF = WazenProfilePrefs.readDouble(prefs, const ['fat_'], aliases, preferred: profileKey);
+    final String? _prefsUpdated = WazenProfilePrefs.readString(prefs, const ['lastUpdated_'], aliases, preferred: profileKey);
+    final String? _prefsMacroNote = WazenProfilePrefs.readString(prefs, const ['macroCalculationNote_'], aliases, preferred: profileKey);
 
     // --- BMR (Mifflin–St Jeor) بنفس صيغتك ---
     if (gender == 'ذكر') {
@@ -307,10 +328,10 @@ class _SummaryPageState extends State<SummaryPage> {
 
     // --- إن كان فيه قيم محلية محدثة اليوم، نعتمدها (تضمن تطابق الهوم/الملخص) ---
     // (هذه القيم تُكتب عند اختيار خطة/تخصيص من صفحات الإعداد.)
-    final pPref = prefs.getDouble('protein_$email');
-    final fPref = prefs.getDouble('fat_$email');
-    final cPref = prefs.getDouble('carbs_$email');
-    final kPref = prefs.getDouble('caloriesNeeded_$email');
+    final pPref = WazenProfilePrefs.readDouble(prefs, const ['protein_'], aliases, preferred: profileKey);
+    final fPref = WazenProfilePrefs.readDouble(prefs, const ['fat_'], aliases, preferred: profileKey);
+    final cPref = WazenProfilePrefs.readDouble(prefs, const ['carbs_', 'carb_'], aliases, preferred: profileKey);
+    final kPref = WazenProfilePrefs.readDouble(prefs, const ['caloriesNeeded_'], aliases, preferred: profileKey);
 
     // If local targets were updated today (e.g., after SetGoalPage recalculation),
     // prefer them so Summary and Home stay identical even if Firestore is still catching up.
@@ -352,42 +373,30 @@ class _SummaryPageState extends State<SummaryPage> {
     });
 
     final prefs = await SharedPreferences.getInstance();
-    final legacyKey = prefs.getString('currentEmail') ?? 'unknown_user';
     final user = FirebaseAuth.instance.currentUser;
-    final raw = legacyKey == 'unknown_user' ? (user?.email ?? 'unknown_user') : legacyKey;
-    final uid = user?.uid;
-    final storageKey = (raw == 'unknown_user' || raw.trim().isEmpty) ? (uid ?? raw) : raw;
+    if (user != null) {
+      await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: true);
+    }
+    final keys = await WazenProfilePrefs.aliases(prefs, user: user, migrate: false);
 
     final today = DateTime.now().toIso8601String().split('T').first;
 
-    // ✅ احفظ الأهداف بنفس القيم على أكثر من مفتاح (UID + Email + legacy)
-    // حتى تعتمد في "الرئيسية" و"بياناتي" وكل الصفحات بدون اختلاف.
-    final emailKey = (user?.email ?? '').trim();
-    final uidKey = (user?.uid ?? '').trim();
-
-    // ثبّت currentUid لو متوفر (بدون لمس currentEmail لتفادي خلط المفاتيح)
-    if (uidKey.isNotEmpty) {
-      await prefs.setString('currentUid', uidKey);
-    }
-
-    final keys = <String>{
-      storageKey,
-      legacyKey,
-      if (emailKey.isNotEmpty) emailKey,
-      if (uidKey.isNotEmpty) uidKey,
-    }..removeWhere((k) => k.trim().isEmpty || k == 'unknown_user');
-
-    for (final k in keys) {
-      await prefs.setDouble('caloriesNeeded_$k', adjustedCalories);
-      await prefs.setDouble('protein_$k', protein);
-      await prefs.setDouble('carbs_$k', carbs);
-      await prefs.setDouble('fat_$k', fat);
-      await prefs.setString('macroMode_$k', macroMode);
-      await prefs.setString('macroPlanId_$k', macroPlanId);
-      await prefs.setString('macroCalculationNote_$k', macroCalculationNote);
-      await prefs.setString('lastUpdated_$k', today);
-      await prefs.setInt('macrosUpdatedAt_$k', DateTime.now().millisecondsSinceEpoch);
-    }
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    await WazenProfilePrefs.writeMacroTargets(
+      prefs: prefs,
+      aliases: keys,
+      calories: adjustedCalories,
+      maintenanceCalories: maintenanceCalories,
+      protein: protein,
+      carbs: carbs,
+      fat: fat,
+      activityFactor: activityFactor,
+      macroMode: macroMode,
+      macroPlanId: macroPlanId,
+      macroCalculationNote: macroCalculationNote,
+      lastUpdatedYmd: today,
+      stamp: stamp,
+    );
 
     // ✅ حدث باقي الصفحات فورًا
     MacroTargetsController.bump();

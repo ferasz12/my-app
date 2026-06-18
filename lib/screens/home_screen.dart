@@ -2741,49 +2741,51 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
 
   // ====== هيدر فخم مدمج (Gradient) مع عدّاد متحرّك — يعرض نقاط اليوم ======
   Widget _fancyHeader(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.centerRight,
           end: Alignment.centerLeft,
-          colors: [
-            cs.primary.withOpacity(0.85),
-            cs.secondary.withOpacity(0.85),
-          ],
+          colors: isDark
+              ? [const Color(0xFF222224), const Color(0xFF1B1B1D)]
+              : [cs.primary.withOpacity(0.85), cs.secondary.withOpacity(0.85)],
         ),
         borderRadius: BorderRadius.circular(20),
+        border: isDark ? Border.all(color: cs.outlineVariant.withOpacity(0.65)) : null,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Directionality(
         textDirection: TextDirection.ltr,
         child: Row(
           children: [
-            const Icon(Icons.dashboard_customize, color: Colors.white, size: 22),
+            Icon(Icons.dashboard_customize, color: isDark ? cs.primary : Colors.white, size: 22),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('لوحة اليوم',
+                  Text('لوحة اليوم',
                       style: TextStyle(
-                          color: Colors.white,
+                          color: isDark ? cs.onSurface : Colors.white,
                           fontWeight: FontWeight.w800,
                           fontSize: 14)),
                   Row(
                     children: [
-                      const Text('سعراتك: ',
-                          style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text('سعراتك: ',
+                          style: TextStyle(color: isDark ? cs.onSurfaceVariant : Colors.white70, fontSize: 12)),
                       _Countup(
                         value: totalCalories,
                         decimals: 0,
-                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                        style: TextStyle(color: isDark ? cs.onSurface : Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
                       ),
-                      const Text(' / ',
-                          style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text(' / ',
+                          style: TextStyle(color: isDark ? cs.onSurfaceVariant : Colors.white70, fontSize: 12)),
                       Text(
                         caloriesNeeded.toStringAsFixed(0),
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        style: TextStyle(color: isDark ? cs.onSurfaceVariant : Colors.white70, fontSize: 12),
                       ),
                     ],
                   ),
@@ -2794,9 +2796,9 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.15),
+                color: isDark ? cs.surfaceVariant : Colors.white.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white24),
+                border: Border.all(color: isDark ? cs.outlineVariant.withOpacity(0.65) : Colors.white24),
               ),
               child: Row(
                 children: [
@@ -2806,8 +2808,8 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                     value: todayPoints.toDouble(),
                     decimals: 0,
                     prefix: 'نقاط اليوم: ',
-                    style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: isDark ? cs.onSurface : Colors.white, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -3843,6 +3845,13 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                 children: [
                   Expanded(
                     child: FilledButton.tonal(
+                      style: Theme.of(context).brightness == Brightness.dark
+                          ? FilledButton.styleFrom(
+                              backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                              foregroundColor: Theme.of(context).colorScheme.onSurface,
+                              side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.70)),
+                            )
+                          : null,
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -3856,6 +3865,13 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
                   const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton.tonal(
+                      style: Theme.of(context).brightness == Brightness.dark
+                          ? FilledButton.styleFrom(
+                              backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                              foregroundColor: Theme.of(context).colorScheme.onSurface,
+                              side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.70)),
+                            )
+                          : null,
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -4341,23 +4357,27 @@ class _MiniStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final bg = isDark ? Color.alphaBlend(color.withOpacity(0.10), cs.surfaceVariant) : color.withOpacity(0.08);
+    final fg = isDark ? cs.onSurface : color;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: bg,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cs.outlineVariant),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 18),
+          Icon(icon, color: isDark ? color.withOpacity(0.90) : color, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(title,
                 style: TextStyle(
-                    color: color, fontWeight: FontWeight.w700, fontSize: 13)),
+                    color: fg, fontWeight: FontWeight.w700, fontSize: 13)),
           ),
           _Countup(
             value: value.toDouble(),
@@ -4383,20 +4403,23 @@ class _WaterCompact extends StatelessWidget {
     const kGoal = 3.0; // لتر
     final percent = (kGoal > 0) ? (liters / kGoal).clamp(0.0, 1.0) : 0.0;
     final enough = liters >= kGoal;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.teal.withOpacity(0.06),
+        color: isDark ? cs.surfaceVariant : Colors.teal.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.teal.withOpacity(0.25)),
+        border: Border.all(color: isDark ? cs.outlineVariant.withOpacity(0.70) : Colors.teal.withOpacity(0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              const Icon(Icons.water_drop, color: Colors.teal, size: 18),
+              Icon(Icons.water_drop, color: isDark ? cs.primary : Colors.teal, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Row(
@@ -4425,8 +4448,8 @@ class _WaterCompact extends StatelessWidget {
           _AnimatedBar(
             percent: percent,
             height: 10,
-            background: Colors.teal.withOpacity(0.15),
-            color: Colors.teal,
+            background: isDark ? cs.outlineVariant.withOpacity(0.45) : Colors.teal.withOpacity(0.15),
+            color: isDark ? cs.onSurfaceVariant : Colors.teal,
             curve: Curves.easeOutCubic,
             duration: const Duration(milliseconds: 900),
           ),
@@ -4462,8 +4485,10 @@ class _MacroTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final onSurface = Theme.of(context).textTheme.bodyMedium?.color ?? cs.onSurface;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final onSurface = theme.textTheme.bodyMedium?.color ?? cs.onSurface;
 
     final percent = total > 0 ? (consumed / total).clamp(0.0, 1.0) : 0.0;
     final remaining = (total - consumed).clamp(0.0, double.infinity);
@@ -4482,7 +4507,7 @@ class _MacroTile extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(icon, color: color, size: 18),
+                  Icon(icon, color: isDark ? color.withOpacity(0.90) : color, size: 18),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -5850,7 +5875,7 @@ class _HomeMacrosCard extends StatelessWidget {
                 // أزرق هادئ للبروتين
                 color: const Color(0xFF2563EB),
                 barColor: const Color(0xFF2563EB),
-                bg: const Color(0xFFE0ECFF),
+                bg: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.surfaceVariant : const Color(0xFFE0ECFF),
               ),
             ),
           ],
@@ -5869,7 +5894,7 @@ class _HomeMacrosCard extends StatelessWidget {
                 // برتقالي لطيف للكارب
                 color: const Color(0xFFF97316),
                 barColor: const Color(0xFFF97316),
-                bg: const Color(0xFFFFF7ED),
+                bg: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.surfaceVariant : const Color(0xFFFFF7ED),
               ),
             ),
             const SizedBox(width: spacing),
@@ -5883,7 +5908,7 @@ class _HomeMacrosCard extends StatelessWidget {
                 // أخضر ناعم للدهون الصحية
                 color: const Color(0xFF22C55E),
                 barColor: const Color(0xFF22C55E),
-                bg: const Color(0xFFEAFBF1),
+                bg: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.surfaceVariant : const Color(0xFFEAFBF1),
               ),
             ),
           ],
@@ -5923,13 +5948,33 @@ class MacroCard extends StatelessWidget {
     final pct = goal <= 0 ? 0.0 : (value / goal).clamp(0.0, 1.0);
     final remaining = (goal - value).clamp(0, double.infinity);
     final isOver = value > goal;
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark
+        ? cs.surfaceVariant
+        : bg;
+    final textColor = cs.onSurface;
+    final subTextColor = cs.onSurfaceVariant;
+    final dangerColor = cs.error;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.25), width: 1),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? cs.outlineVariant.withOpacity(0.70) : color.withOpacity(0.25),
+          width: 1,
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.035),
+                  blurRadius: 12,
+                  offset: const Offset(0, 6),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -5942,9 +5987,10 @@ class MacroCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 13.5,
+                    color: textColor,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -5966,15 +6012,15 @@ class MacroCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12.5,
                     color: (emphasizeOver && isOver)
-                        ? Colors.red
-                        : Colors.black54,
+                        ? dangerColor
+                        : subTextColor,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               Text(
                 '${value.toStringAsFixed(0)} / ${goal.toStringAsFixed(0)} $unit',
-                style: const TextStyle(fontSize: 12.5),
+                style: TextStyle(fontSize: 12.5, color: subTextColor, fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -5993,8 +6039,9 @@ class _EmojiPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: tint.withOpacity(0.15),
+        color: tint.withOpacity(Theme.of(context).brightness == Brightness.dark ? 0.20 : 0.15),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: tint.withOpacity(Theme.of(context).brightness == Brightness.dark ? 0.22 : 0.0)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       child: Text(
@@ -6019,7 +6066,9 @@ class _ProgressBar extends StatelessWidget {
         return Container(
           height: 9,
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.08),
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.white.withOpacity(0.10)
+                : Colors.black.withOpacity(0.08),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Stack(
@@ -6052,21 +6101,23 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color bg;
-    Color fg;
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color accent;
     switch (tone) {
       case ChipTone.success:
-        bg = const Color(0xFFE9F7EF);
-        fg = const Color(0xFF1E7E34);
+        accent = const Color(0xFF22C55E);
         break;
       case ChipTone.warning:
-        bg = const Color(0xFFFFF4E5);
-        fg = const Color(0xFF8A5A12);
+        accent = const Color(0xFFF59E0B);
         break;
       default:
-        bg = const Color(0xFFEFF3F8);
-        fg = const Color(0xFF2F3A4A);
+        accent = cs.primary;
     }
+    final bg = isDark
+        ? Color.alphaBlend(accent.withOpacity(0.14), cs.surfaceVariant)
+        : accent.withOpacity(0.10);
+    final fg = isDark ? cs.onSurface : accent;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/user_repository.dart';
 import '../notifications/app_notifications.dart';
 import '../notifications/firestore_broadcast_scheduler.dart';
+import '../notifications/fcm_marketing_push.dart';
 import '../shared/friendly_errors.dart';
 
 class NotificationsPage extends StatefulWidget {
@@ -48,6 +49,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
   // نصيحة يومية
   bool tipsEnabled = false;
   int tipsH = 9, tipsM = 0;
+
+  // صحتي
+  bool healthAlertsEnabled = true;
 
   @override
   void initState() {
@@ -136,6 +140,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         caloriesM = p.getInt(AppNotifications.kCaloriesM) ?? 0;
 
         marketingEnabled = p.getBool(FirestoreBroadcastScheduler.kMarketingEnabledLocal) ?? true;
+        healthAlertsEnabled = p.getBool(AppNotifications.kHealthAlertsEnabled) ?? true;
 
         _loadedLocal = true;
       });
@@ -154,6 +159,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       final tips = _asMap(prefs['tips']);
       final weight = _asMap(prefs['weight']);
       final calories = _asMap(prefs['calories']);
+      final health = _asMap(prefs['health']);
 
       setState(() {
         allEnabled = _toBool(prefs['push'], def: allEnabled);
@@ -197,6 +203,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
           caloriesM = _toInt(calories['m'], def: caloriesM, min: 0, max: 59);
         }
 
+        if (health != null) {
+          healthAlertsEnabled = _toBool(health['alertsEnabled'], def: healthAlertsEnabled);
+        }
+
         _loadedRemote = true;
       });
     } catch (_) {
@@ -211,14 +221,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Future<void> _saveAndApply() async {
     setState(() => _busy = true);
     try {
-      // 1) إذن النظام
+      // 1) إذن النظام عند التفعيل فقط، بدون إزعاج المستخدم برسائل فشل أثناء الحفظ.
       if (allEnabled) {
-        final ok = await AppNotifications.instance.requestPermission();
-        if (!ok && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('لم يتم منح إذن الإشعارات من النظام')),
-          );
-        }
+        await AppNotifications.instance.requestPermission();
       }
 
       // 2) حفظ محلي
@@ -250,6 +255,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       await p.setInt(AppNotifications.kCaloriesM, caloriesM);
 
       await p.setBool(FirestoreBroadcastScheduler.kMarketingEnabledLocal, marketingEnabled);
+      await p.setBool(AppNotifications.kHealthAlertsEnabled, healthAlertsEnabled);
 
       // 3) تطبيق الجدولة
       await AppNotifications.instance.applySettings(
@@ -274,10 +280,17 @@ class _NotificationsPageState extends State<NotificationsPage> {
         caloriesHour: caloriesH,
         caloriesMinute: caloriesM,
       );
+      if (!allEnabled || !healthAlertsEnabled) {
+        await AppNotifications.instance.cancelHealthAlerts();
+      }
 
       // 4) مزامنة عروض/تسويق من Firestore (تشتغل بعد فتح التطبيق)
       await FirestoreBroadcastScheduler.instance.syncAndSchedule(
         enabled: allEnabled && marketingEnabled,
+      );
+      await FcmMarketingPush.instance.applyPrefs(
+        allEnabled: allEnabled,
+        marketingEnabled: marketingEnabled,
       );
 
       // 5) حفظ على Firestore (كمصدر إعدادات على السحابة)
@@ -318,11 +331,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
           'h': caloriesH,
           'm': caloriesM,
         },
+        'health': {
+          'alertsEnabled': healthAlertsEnabled,
+        },
       });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ الإعدادات وتفعيل الجدولة')),
+        const SnackBar(content: Text('تم حفظ إعدادات الإشعارات')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -390,7 +406,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                 allEnabled = v;
                               }),
                       title: const Text('تفعيل الإشعارات'),
-                      subtitle: const Text('يعطّل/يمكّن جميع تذكيرات التطبيق'),
+                      subtitle: const Text('يتحكم بكل تنبيهات وازن من مكان واحد'),
                     ),
                     SwitchListTile(
                       value: marketingEnabled,
@@ -591,6 +607,23 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           tipsM = m;
                         },
                       ),
+                    ),
+                  ],
+                ),
+
+
+                const SizedBox(height: 12),
+
+                _Section(
+                  title: 'صحتي',
+                  children: [
+                    SwitchListTile(
+                      value: healthAlertsEnabled,
+                      onChanged: (!allEnabled || _busy)
+                          ? null
+                          : (v) => setState(() => healthAlertsEnabled = v),
+                      title: const Text('تنبيهات الخطوات والنبض'),
+                      subtitle: const Text('تنبيهات هدف الخطوات والمؤشرات الحيوية'),
                     ),
                   ],
                 ),

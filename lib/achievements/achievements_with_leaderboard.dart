@@ -402,7 +402,7 @@ class _AchievementsPageState extends State<AchievementsPage>
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        backgroundColor: cs.surface,
+        backgroundColor: cs.background,
         appBar: AppBar(
           elevation: 0,
           centerTitle: true,
@@ -572,6 +572,7 @@ class _AchievementHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final remaining = (target - points).clamp(0, 999999);
     final percent = (progress * 100).clamp(0, 100).round();
 
@@ -581,12 +582,11 @@ class _AchievementHeroCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [
-            cs.primary,
-            Color.alphaBlend(cs.secondary.withOpacity(0.35), cs.primary),
-          ],
+          colors: isDark
+              ? [cs.surfaceVariant, cs.surface]
+              : [cs.primary, Color.alphaBlend(cs.secondary.withOpacity(0.35), cs.primary)],
         ),
-        boxShadow: [
+        boxShadow: isDark ? null : [
           BoxShadow(
             color: cs.primary.withOpacity(0.25),
             blurRadius: 24,
@@ -832,7 +832,7 @@ class _AchievementCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: cs.surface,
+        color: cs.surfaceVariant,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
           color: unlocked ? cs.primary.withOpacity(0.20) : cs.outlineVariant.withOpacity(0.45),
@@ -1226,6 +1226,7 @@ class _LeaderboardHeaderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       decoration: BoxDecoration(
@@ -1235,7 +1236,7 @@ class _LeaderboardHeaderCard extends StatelessWidget {
           end: Alignment.bottomLeft,
           colors: [
             cs.surfaceContainerHighest,
-            Color.alphaBlend(cs.primary.withOpacity(0.06), cs.surface),
+            Color.alphaBlend(cs.primary.withOpacity(isDark ? 0.03 : 0.06), cs.surface),
           ],
         ),
         border: Border.all(color: cs.outlineVariant.withOpacity(0.55)),

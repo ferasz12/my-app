@@ -21,6 +21,10 @@ import '../data/app_repository.dart';
 
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
+import '../core/data/wazen_identity_store.dart';
+import '../shared/wazen_profile_prefs.dart';
+import '../shared/weight_sync_service.dart';
+import '../shared/macro_targets_controller.dart';
 
 // ✅ مهم: الـ enum يجب أن يكون Top-level (خارج الكلاس)
 enum _Social { instagram, snapchat, tiktok }
@@ -93,17 +97,53 @@ class _UserInputPageState extends State<UserInputPage> {
 
   Future<void> _prefillFromStorage() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? 'unknown_user';
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: true);
+    }
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: user, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
 
     // Profile
-    bioController.text = prefs.getString('bio_$email') ?? '';
+    bioController.text = WazenProfilePrefs.readString(
+          prefs,
+          const ['bio_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        '';
 
-    // Health
-    final savedWeight = prefs.getDouble('weight_$email');
-    final savedHeight = prefs.getDouble('height_$email');
-    final savedGender = prefs.getString('gender_$email');
-    final savedAge = prefs.getInt('age_$email');
-    final savedGoal = prefs.getString('goal_$email');
+    // Health — نقرأ من كل مفاتيح المستخدم بدل currentEmail فقط.
+    final savedWeight = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_', 'goal_current_'],
+      aliases,
+      preferred: profileKey,
+    );
+    final savedHeight = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['height_', 'height_cm_', 'heightCm_'],
+      aliases,
+      preferred: profileKey,
+    );
+    final savedGender = WazenProfilePrefs.readString(
+      prefs,
+      const ['gender_'],
+      aliases,
+      preferred: profileKey,
+    );
+    final savedAge = WazenProfilePrefs.readInt(
+      prefs,
+      const ['age_'],
+      aliases,
+      preferred: profileKey,
+    );
+    final savedGoal = WazenProfilePrefs.readString(
+      prefs,
+      const ['goal_', 'user_goal_'],
+      aliases,
+      preferred: profileKey,
+    );
 
     if (savedWeight != null) weightController.text = savedWeight.toString();
     if (savedHeight != null) heightController.text = savedHeight.toString();
@@ -116,9 +156,9 @@ class _UserInputPageState extends State<UserInputPage> {
     }
 
     // Social (إن وُجدت قيم، نفعّل الخيار تلقائيًا)
-    final ig = prefs.getString('social_instagram_$email');
-    final sc = prefs.getString('social_snapchat_$email');
-    final tk = prefs.getString('social_tiktok_$email');
+    final ig = WazenProfilePrefs.readString(prefs, const ['social_instagram_'], aliases, preferred: profileKey);
+    final sc = WazenProfilePrefs.readString(prefs, const ['social_snapchat_'], aliases, preferred: profileKey);
+    final tk = WazenProfilePrefs.readString(prefs, const ['social_tiktok_'], aliases, preferred: profileKey);
     if (ig != null && ig.isNotEmpty) {
       _selectedSocials.add(_Social.instagram);
       _socialCtrls[_Social.instagram]!.text = ig;
@@ -137,10 +177,22 @@ class _UserInputPageState extends State<UserInputPage> {
 
   Future<void> _loadSuggestedGoalIfAccepted() async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? 'unknown_user';
-    final accepted = prefs.getBool('acceptedSmartGoal_$email') ?? false;
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: FirebaseAuth.instance.currentUser);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+    final accepted = WazenProfilePrefs.readBool(
+          prefs,
+          const ['acceptedSmartGoal_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        false;
     if (accepted) {
-      final goal = prefs.getString('smartGoal_$email');
+      final goal = WazenProfilePrefs.readString(
+        prefs,
+        const ['smartGoal_'],
+        aliases,
+        preferred: profileKey,
+      );
       if (goal != null && _goalOptions.contains(goal)) {
         if (mounted) setState(() => selectedGoal = goal);
       }
@@ -191,10 +243,18 @@ class _UserInputPageState extends State<UserInputPage> {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? (user.email ?? 'unknown_user');
+    final identity = await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: true);
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: user, migrate: false);
+    final email = identity.emailKey;
+    final stamp = DateTime.now().millisecondsSinceEpoch;
 
-    // حفظ البايو والصورة (محليًا)
-    await prefs.setString('bio_$email', bioController.text.trim());
+    // حفظ البايو والصورة (محليًا) على كل مفاتيح المستخدم.
+    await WazenProfilePrefs.writeAll(
+      prefs,
+      aliases,
+      (alias) => 'bio_$alias',
+      bioController.text.trim(),
+    );
 
     // حفظ القياسات محليًا — parsing آمن
     final w = double.tryParse(weightController.text);
@@ -269,6 +329,20 @@ class _UserInputPageState extends State<UserInputPage> {
 
     final today = DateTime.now().toIso8601String().split('T').first;
 
+    await WazenProfilePrefs.writeCoreProfile(
+      prefs: prefs,
+      aliases: aliases,
+      gender: storeGender,
+      age: age,
+      heightCm: height,
+      weightKg: weight,
+      goal: goalToStore,
+      lifestyleScore: widget.lifestyleScore,
+      activityFactor: activityFactor,
+      goalFatShred: _isFatShred(goalToStore),
+      stamp: stamp,
+    );
+
     // حفظ القيم النهائية محليًا
     await prefs.setDouble('caloriesNeeded_$email', calculatedCalories);
     await prefs.setDouble('maintenanceCalories_$email', maintenanceCalories);
@@ -281,6 +355,24 @@ class _UserInputPageState extends State<UserInputPage> {
     await prefs.setInt('macrosUpdatedAt_$email', DateTime.now().millisecondsSinceEpoch);
     await prefs.setString('lastUpdated_$email', today);
     await prefs.setBool('goal_fat_shred_$email', _isFatShred(goalToStore));
+    await prefs.setBool('goalFatShred_$email', _isFatShred(goalToStore));
+    await WazenProfilePrefs.writeMacroTargets(
+      prefs: prefs,
+      aliases: aliases,
+      calories: calculatedCalories,
+      maintenanceCalories: maintenanceCalories,
+      protein: protein,
+      carbs: carbs,
+      fat: fat,
+      activityFactor: activityFactor,
+      macroMode: MacroPlanEngine.modeAuto,
+      macroPlanId: macroPlanId,
+      macroCalculationNote: macroCalculationNote,
+      lastUpdatedYmd: today,
+      stamp: stamp,
+    );
+    await WeightSyncService.saveCurrentWeight(kg: weight);
+    MacroTargetsController.bump();
 
     // سجل الوزن اليومي محليًا + سحابيًا حتى لا يضيع بعد حذف التطبيق
     final historyKey = 'weightHistory_$email';
@@ -295,6 +387,12 @@ class _UserInputPageState extends State<UserInputPage> {
     });
     history.add(json.encode(newEntry));
     await prefs.setStringList(historyKey, history);
+    await WazenProfilePrefs.writeAll(
+      prefs,
+      aliases,
+      (alias) => 'weightHistory_$alias',
+      history,
+    );
 
     final weightLogKey = 'weight_log_$email';
     final weightLogRaw = prefs.getString(weightLogKey);
@@ -311,6 +409,12 @@ class _UserInputPageState extends State<UserInputPage> {
     weightLog.add({'date': today, 'kg': weight});
     weightLog.sort((a, b) => (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString()));
     await prefs.setString(weightLogKey, json.encode(weightLog));
+    await WazenProfilePrefs.writeAll(
+      prefs,
+      aliases,
+      (alias) => 'weight_log_$alias',
+      json.encode(weightLog),
+    );
 
     unawaited(AppRepository.writeWeightKg(ymd: today, kg: weight).catchError((_) {}));
 
@@ -325,9 +429,9 @@ class _UserInputPageState extends State<UserInputPage> {
         ? _socialCtrls[_Social.tiktok]!.text.trim()
         : '';
 
-    await prefs.setString('social_instagram_$email', ig);
-    await prefs.setString('social_snapchat_$email', sc);
-    await prefs.setString('social_tiktok_$email', tk);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'social_instagram_$alias', ig);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'social_snapchat_$alias', sc);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'social_tiktok_$alias', tk);
 
     // ====== كتابة على Firestore (Legacy root: users/{uid}) ======
     try {
@@ -396,8 +500,8 @@ class _UserInputPageState extends State<UserInputPage> {
     }
 
     await prefs.setBool('lifestyleDone', true);
-    await prefs.setBool('userDataEntered_$email', true);
-    await prefs.setBool('lifestyleAssessmentCompleted_$email', true);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'userDataEntered_$alias', true);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (alias) => 'lifestyleAssessmentCompleted_$alias', true);
 
     if (!mounted) return;
     // ✅ مهم: نستخدم push بدل pushReplacement حتى تقدر ترجع وتعدّل بياناتك بسهولة.

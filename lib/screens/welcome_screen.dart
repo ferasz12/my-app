@@ -209,13 +209,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     final primary = scheme.primary;
-    final base = isDark ? scheme.surface : Colors.white;
+    final base = isDark ? scheme.background : Colors.white;
 
-    // خلفية صحية ناعمة تتكيّف مع الثيم وتعطي الصفحة طابع وازن الأصلي
-    final bgTop = _mix(base, primary, isDark ? 0.16 : 0.08);
-    final bgBottom = _mix(base, primary, isDark ? 0.34 : 0.34);
-    final cardBg = _mix(base, primary, isDark ? 0.12 : 0.045);
-    final cardBorder = _mix(base, primary, isDark ? 0.28 : 0.16);
+    // في الوضع الداكن نستخدم طبقات رمادية هادئة بدل التوهج التركوازي.
+    final bgTop = isDark ? scheme.background : _mix(base, primary, 0.08);
+    final bgBottom = isDark ? scheme.surface : _mix(base, primary, 0.34);
+    final cardBg = isDark ? scheme.surfaceVariant : _mix(base, primary, 0.045);
+    final cardBorder = isDark ? scheme.outlineVariant : _mix(base, primary, 0.16);
 
     final titleColor = isDark ? scheme.onSurface : Colors.black.withOpacity(0.88);
     final mutedColor = isDark ? scheme.onSurface.withOpacity(0.70) : Colors.black.withOpacity(0.55);
@@ -238,12 +238,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               PositionedDirectional(
                 top: -90,
                 end: -80,
-                child: _SoftGlowCircle(color: primary.withOpacity(isDark ? 0.18 : 0.16), size: 210),
+                child: _SoftGlowCircle(color: (isDark ? scheme.surfaceVariant : primary).withOpacity(isDark ? 0.10 : 0.16), size: 210),
               ),
               PositionedDirectional(
                 top: 190,
                 start: -95,
-                child: _SoftGlowCircle(color: scheme.secondary.withOpacity(isDark ? 0.14 : 0.12), size: 230),
+                child: _SoftGlowCircle(color: (isDark ? scheme.surfaceVariant : scheme.secondary).withOpacity(isDark ? 0.08 : 0.12), size: 230),
               ),
               SafeArea(
                 child: LayoutBuilder(

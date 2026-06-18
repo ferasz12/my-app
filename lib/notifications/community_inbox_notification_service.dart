@@ -4,6 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'app_notifications.dart';
 
 /// يتابع صندوق إشعارات مجتمع وازن المحفوظ في:
 /// notifications/{uid}/inbox/{notificationId}
@@ -125,11 +128,15 @@ class CommunityInboxNotificationService {
     final body = (data['body'] ?? 'لديك تحديث جديد في مجتمع وازن.').toString().trim();
 
     if (_showLocalNotifications && _ready && !kIsWeb) {
-      await _showNow(
-        id: _stableNotificationId(doc.reference.path),
-        title: title.isEmpty ? 'مجتمع وازن' : title,
-        body: body.isEmpty ? 'لديك تحديث جديد في مجتمع وازن.' : body,
-      );
+      final prefs = await SharedPreferences.getInstance();
+      final allEnabled = prefs.getBool(AppNotifications.kAll) ?? true;
+      if (allEnabled) {
+        await _showNow(
+          id: _stableNotificationId(doc.reference.path),
+          title: title.isEmpty ? 'مجتمع وازن' : title,
+          body: body.isEmpty ? 'لديك تحديث جديد في مجتمع وازن.' : body,
+        );
+      }
     }
 
     await _markDelivered(doc.reference);

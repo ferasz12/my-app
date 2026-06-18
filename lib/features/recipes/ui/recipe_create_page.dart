@@ -335,6 +335,9 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
   }
 
   Widget _imagePickerCard() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -348,7 +351,7 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
-                  color: Colors.black.withOpacity(0.04),
+                  color: isDark ? cs.surfaceVariant : Colors.black.withOpacity(0.04),
                   child: _imageFile == null
                       ? Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -404,6 +407,9 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     if (_loadingGuard) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
@@ -431,6 +437,7 @@ class _RecipeCreatePageState extends State<RecipeCreatePage> {
       child: Directionality(
         textDirection: TextDirection.ltr,
         child: Scaffold(
+          backgroundColor: isDark ? cs.background : null,
           appBar: AppBar(title: const Text('إنشاء وصفة')),
           body: SafeArea(
             child: Padding(

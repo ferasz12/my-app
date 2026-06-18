@@ -5,9 +5,11 @@
 // =============================================================
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../notifications/tz_config.dart';
+import '../notifications/app_notifications.dart';
 
 class FastingNotifications {
   FastingNotifications._();
@@ -54,6 +56,11 @@ class FastingNotifications {
     _ready = true;
   }
 
+  Future<bool> _notificationsAllowed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(AppNotifications.kAll) ?? true;
+  }
+
   NotificationDetails _details({
     String androidChannelId = 'fasting_channel',
     String androidChannelName = 'Fasting',
@@ -93,6 +100,8 @@ class FastingNotifications {
     required String title,
     required String body,
   }) async {
+    final allowed = await _notificationsAllowed();
+    if (!allowed) return;
     if (!_ready) await init();
     if (!_isMobilePlatform) return;
 
@@ -114,6 +123,8 @@ class FastingNotifications {
     String androidChannelName = 'Fasting',
     String androidChannelDescription = 'تنبيهات الصيام',
   }) async {
+    final allowed = await _notificationsAllowed();
+    if (!allowed) return;
     if (!_ready) await init();
     if (!_isMobilePlatform) return;
 
@@ -148,6 +159,8 @@ class FastingNotifications {
     String androidChannelName = 'Fasting',
     String androidChannelDescription = 'تنبيهات الصيام',
   }) async {
+    final allowed = await _notificationsAllowed();
+    if (!allowed) return;
     if (!_ready) await init();
     if (!_isMobilePlatform) return;
 

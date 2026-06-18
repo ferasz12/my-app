@@ -24,6 +24,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import 'tz_config.dart';
+import 'app_notifications.dart';
 
 class FirestoreBroadcastScheduler {
   // صوت إشعارات وازن (مخصص)
@@ -262,7 +263,16 @@ class FirestoreBroadcastScheduler {
     return NotificationDetails(android: android, iOS: ios);
   }
 
+  Future<bool> _deliveryAllowed() async {
+    final sp = await SharedPreferences.getInstance();
+    final allEnabled = sp.getBool(AppNotifications.kAll) ?? true;
+    final marketingEnabled = sp.getBool(kMarketingEnabledLocal) ?? true;
+    return allEnabled && marketingEnabled;
+  }
+
   Future<void> _showNow({required int id, required String title, required String body}) async {
+    final allowed = await _deliveryAllowed();
+    if (!allowed) return;
     await _plugin.show(id, title, body, _details());
   }
 
@@ -272,6 +282,8 @@ class FirestoreBroadcastScheduler {
     required String body,
     required DateTime at,
   }) async {
+    final allowed = await _deliveryAllowed();
+    if (!allowed) return;
     final tzAt = tz.TZDateTime.from(at, tz.local);
     final now = tz.TZDateTime.now(tz.local);
     if (tzAt.isBefore(now)) return;

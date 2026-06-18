@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../shared/session_manager.dart';
 import '../shared/user_profile_source.dart' show getCurrentUserView;
+import '../shared/wazen_profile_prefs.dart';
+import '../core/data/wazen_identity_store.dart';
 
 class AskWazenReportBuilder {
   static String _ymd(DateTime d) =>
@@ -146,11 +148,13 @@ class AskWazenReportBuilder {
     SharedPreferences prefs, {
     required String email,
     required String storageKey,
+    required List<String> aliases,
     required String ymd,
   }) {
+    final userKeys = <String>{email, storageKey, ...aliases}
+      ..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
     final keys = <String>{
-      'kcal_daytotals_${email}_$ymd',
-      'kcal_daytotals_${storageKey}_$ymd',
+      for (final alias in userKeys) 'kcal_daytotals_${alias}_$ymd',
     }..removeWhere((e) => e.contains('unknown_user'));
 
     for (final key in keys) {
@@ -161,10 +165,8 @@ class AskWazenReportBuilder {
     }
 
     for (final key in <String>{
-      'intake_entries_${email}_$ymd',
-      'intake_entries_${storageKey}_$ymd',
-      'kcal_entries_${email}_$ymd',
-      'kcal_entries_${storageKey}_$ymd',
+      for (final alias in userKeys) 'intake_entries_${alias}_$ymd',
+      for (final alias in userKeys) 'kcal_entries_${alias}_$ymd',
     }) {
       final raw = prefs.getString(key);
       final list = _jsonList(raw);
@@ -186,16 +188,21 @@ class AskWazenReportBuilder {
     SharedPreferences prefs, {
     required String email,
     required String storageKey,
+    required List<String> aliases,
     required String ymd,
     required bool isToday,
   }) {
-    final raw = prefs.getString('meals_${storageKey}_$ymd') ??
-        prefs.getString('meals_${email}_$ymd') ??
-        prefs.getString('intake_entries_${storageKey}_$ymd') ??
-        prefs.getString('intake_entries_${email}_$ymd') ??
-        (isToday ? prefs.getString('meals_$storageKey') : null) ??
-        (isToday ? prefs.getString('meals_$email') : null);
-    return _jsonList(raw);
+    final userKeys = <String>{email, storageKey, ...aliases}
+      ..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+    for (final alias in userKeys) {
+      final raw = prefs.getString('meals_${alias}_$ymd') ??
+          prefs.getString('intake_entries_${alias}_$ymd') ??
+          prefs.getString('kcal_entries_${alias}_$ymd') ??
+          (isToday ? prefs.getString('meals_$alias') : null);
+      final list = _jsonList(raw);
+      if (list.isNotEmpty) return list;
+    }
+    return const [];
   }
 
   /// يبني تقرير لآخر [days] يوم (افتراضي 7)
@@ -204,7 +211,12 @@ class AskWazenReportBuilder {
     final prefs = await SharedPreferences.getInstance();
     final fbUser = FirebaseAuth.instance.currentUser;
 
-    final email = prefs.getString('currentEmail') ?? fbUser?.email ?? 'unknown_user';
+    if (fbUser != null) {
+      await WazenIdentityStore.syncFromFirebaseUser(fbUser, prefs: prefs, migrate: true);
+    }
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: fbUser, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+    final email = (fbUser?.email ?? prefs.getString(WazenIdentityStore.kCurrentEmailAddress) ?? prefs.getString('currentEmail') ?? 'unknown_user').trim();
     final storageKey = await SessionManager.currentStorageKey();
     final today = DateTime.now();
     final todayYmd = _ymd(today);
@@ -219,49 +231,63 @@ class AskWazenReportBuilder {
     } catch (_) {}
     displayName = displayName.isNotEmpty
         ? displayName
-        : (prefs.getString('displayName_$email') ??
-            prefs.getString('name_$email') ??
-            prefs.getString('fullName_$email') ??
+        : (WazenProfilePrefs.readString(
+              prefs,
+              const ['displayName_', 'name_', 'fullName_'],
+              aliases,
+              preferred: profileKey,
+            ) ??
             (fbUser?.displayName ?? ''))
             .toString()
             .trim();
 
-    // بيانات أساسية (من مفاتيح الأهداف/البيانات)
-    final gender = (prefs.getString('gender_$email') ?? '').toString();
-    final age = prefs.getInt('age_$email') ?? 0;
-    final heightCm = _toD(prefs.getDouble('height_$email') ?? 0);
-    final currentWeightKg = _toD(prefs.getDouble('current_weight_$email') ??
-        prefs.getDouble('weight_$email') ??
-        prefs.getDouble('goal_current_$email') ??
+    // بيانات أساسية (من مفاتيح الأهداف/البيانات) — قراءة موحدة من كل aliases.
+    final gender = (WazenProfilePrefs.readString(prefs, const ['gender_'], aliases, preferred: profileKey) ?? '').toString();
+    final age = WazenProfilePrefs.readInt(prefs, const ['age_'], aliases, preferred: profileKey) ?? 0;
+    final heightCm = _toD(WazenProfilePrefs.readDouble(prefs, const ['height_', 'height_cm_', 'heightCm_'], aliases, preferred: profileKey) ?? 0);
+    final currentWeightKg = _toD(WazenProfilePrefs.readDouble(
+          prefs,
+          const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_', 'goal_current_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
         0);
 
-    final goal = (prefs.getString('goal_$email') ?? '').toString();
-    final goalDifficulty = (prefs.getString('goal_difficulty_$email') ?? '').toString();
-    final goalTargetWeight = _toD(
-      prefs.getDouble('goal_target_$email') ??
-          prefs.getDouble('targetWeight_$email') ??
-          prefs.getDouble('target_weight_$email') ??
-          prefs.getDouble('goalWeight_$email') ??
-          prefs.getDouble('targetWeightKg_$email') ??
-          0,
-    );
-    final goalWeeklyChange = _toD(prefs.getDouble('goal_weekly_$email') ?? 0);
-    final goalNote = (prefs.getString('goal_note_$email') ?? '').toString();
+    final goal = (WazenProfilePrefs.readString(prefs, const ['goal_', 'user_goal_'], aliases, preferred: profileKey) ?? '').toString();
+    final goalDifficulty = (WazenProfilePrefs.readString(prefs, const ['goal_difficulty_'], aliases, preferred: profileKey) ?? '').toString();
+    final goalTargetWeight = _toD(WazenProfilePrefs.readDouble(
+          prefs,
+          const ['goal_target_', 'targetWeight_', 'target_weight_', 'goalWeight_', 'targetWeightKg_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        0);
+    final goalWeeklyChange = _toD(WazenProfilePrefs.readDouble(prefs, const ['goal_weekly_'], aliases, preferred: profileKey) ?? 0);
+    final goalNote = (WazenProfilePrefs.readString(prefs, const ['goal_note_'], aliases, preferred: profileKey) ?? '').toString();
 
-    final targetCalories = _toD(prefs.getDouble('caloriesNeeded_$email') ?? 0);
-    final targetProtein = _toD(prefs.getDouble('protein_$email') ?? 0);
-    final targetCarbs = _toD(prefs.getDouble('carbs_$email') ?? 0);
-    final targetFat = _toD(prefs.getDouble('fat_$email') ?? 0);
-    final stepsTarget = prefs.getInt('stepsTarget_$email') ?? 0;
+    final targetCalories = _toD(WazenProfilePrefs.readDouble(prefs, const ['caloriesNeeded_'], aliases, preferred: profileKey) ?? 0);
+    final targetProtein = _toD(WazenProfilePrefs.readDouble(prefs, const ['protein_'], aliases, preferred: profileKey) ?? 0);
+    final targetCarbs = _toD(WazenProfilePrefs.readDouble(prefs, const ['carbs_', 'carb_'], aliases, preferred: profileKey) ?? 0);
+    final targetFat = _toD(WazenProfilePrefs.readDouble(prefs, const ['fat_'], aliases, preferred: profileKey) ?? 0);
+    final stepsTarget = WazenProfilePrefs.readInt(prefs, const ['stepsTarget_'], aliases, preferred: profileKey) ?? 0;
 
     // لقطة الأهداف اليومية (تُكتب من HomeScreen)
-    final dailyTargets = _jsonMap(prefs.getString('dailyNutritionHistory_$email'));
+    final dailyTargets = _jsonMap(WazenProfilePrefs.readString(
+      prefs,
+      const ['dailyNutritionHistory_'],
+      aliases,
+      preferred: profileKey,
+    ));
 
-    // وزن (سجل محلي: weight_log_$email = List<Map>{date, kg})
-    final weightLog = _jsonList(prefs.getString('weight_log_$email'))
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    // وزن (سجل محلي: weight_log_$alias = List<Map>{date, kg})
+    final weightLog = <Map<String, dynamic>>[];
+    for (final alias in WazenProfilePrefs.orderedAliases(aliases, preferred: profileKey)) {
+      weightLog.addAll(
+        _jsonList(prefs.getString('weight_log_$alias'))
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e)),
+      );
+    }
     double weightAt(String ymd) {
       for (final m in weightLog) {
         final d = (m['date'] ?? m['ymd'] ?? '').toString();
@@ -309,6 +335,7 @@ class AskWazenReportBuilder {
         prefs,
         email: email,
         storageKey: storageKey,
+        aliases: aliases,
         ymd: ymd,
       );
 
@@ -317,6 +344,7 @@ class AskWazenReportBuilder {
         prefs,
         email: email,
         storageKey: storageKey,
+        aliases: aliases,
         ymd: ymd,
         isToday: i == 0,
       );
@@ -326,11 +354,22 @@ class AskWazenReportBuilder {
       }
 
       // ماء اليوم (Liters)
-      final waterStr = prefs.getString('water_total_${email}_$ymd');
-      final waterLiters = waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
+      double waterLiters = 0.0;
+      for (final alias in WazenProfilePrefs.orderedAliases(aliases, preferred: profileKey)) {
+        final waterStr = prefs.getString('water_total_${alias}_$ymd');
+        final parsed = waterStr != null ? double.tryParse(waterStr) ?? 0.0 : 0.0;
+        if (parsed > 0) {
+          waterLiters = parsed;
+          break;
+        }
+      }
 
       // نشاط اليوم (steps/burned)
-      final activity = _jsonMap(prefs.getString('activity_${ymd}_$email'));
+      var activity = <String, dynamic>{};
+      for (final alias in WazenProfilePrefs.orderedAliases(aliases, preferred: profileKey)) {
+        activity = _jsonMap(prefs.getString('activity_${ymd}_$alias'));
+        if (_toI(activity['steps']) > 0 || _toI(activity['burned']) > 0) break;
+      }
 
       final w = weightAt(ymd);
       final fasting = fastingFor(ymd);

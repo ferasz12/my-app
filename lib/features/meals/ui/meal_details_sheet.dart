@@ -6,11 +6,11 @@ import 'dart:math' as math;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
-const Color _wazenSheetBg = Color(0xFFF7FAF9);
-const Color _wazenCardBg = Colors.white;
-const Color _wazenBorder = Color(0xFFE5ECEA);
-const Color _wazenText = Color(0xFF111827);
-const Color _wazenMuted = Color(0xFF6B7280);
+const Color _wazenSheetBg = Color(0xFF121212);
+const Color _wazenCardBg = Color(0xFF222224);
+const Color _wazenBorder = Color(0xFF3A3A3D);
+const Color _wazenText = Color(0xFFF5F5F7);
+const Color _wazenMuted = Color(0xFFB0B0B4);
 
 // نفس هوية ألوان تتبع PDF في وازن:
 // بروتين = أزرق/إنديجو، كارب = برتقالي، دهون = رمادي، السعرات = أخضر/تيل.
@@ -18,7 +18,7 @@ const Color _pdfProteinColor = Color(0xFF3F51B5);
 const Color _pdfCarbColor = Color(0xFFFF5722);
 const Color _pdfFatColor = Color(0xFF616161);
 const Color _pdfCaloriesColor = Color(0xFF00897B);
-const Color _pdfEmptyColor = Color(0xFFE5E7EB);
+const Color _pdfEmptyColor = Color(0xFF3A3A3D);
 
 double _toD(dynamic v) {
   if (v == null) return 0.0;
@@ -73,7 +73,7 @@ Future<void> showMealDetailsSheet(
     enableDrag: false,
     showDragHandle: false,
     backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withOpacity(.28),
+    barrierColor: Colors.black.withOpacity(.55),
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),

@@ -16,7 +16,7 @@ class AppNotifications {
   AppNotifications._();
   static final AppNotifications instance = AppNotifications._();
 
-  static const bool disableAppleLocalNotificationsForCrashTest = true;
+  static const bool disableAppleLocalNotificationsForCrashTest = false;
 
   bool get _appleNotificationsDisabled =>
       disableAppleLocalNotificationsForCrashTest && (Platform.isIOS || Platform.isMacOS);
@@ -41,6 +41,7 @@ class AppNotifications {
   static const String _chWeight = 'wazen_weight_v2';
   static const String _chCalories = 'wazen_calories_v2';
   static const String _chStreak = 'wazen_streak_v1';
+  static const String _chHealthVitals = 'wazen_health_vitals_v1';
   static const String _chTest = 'wazen_test_v2';
 
 
@@ -55,6 +56,7 @@ class AppNotifications {
   static const int _weightId = 22100;
   static const int _caloriesId = 22101;
   static const int _streakWarningId = 22200;
+  static const int _healthAlertBaseId = 22300;
 
   // تنظيف أي IDs قديمة من نسخة سابقة
   static const int _legacyWorkoutBaseId = 20100;
@@ -88,6 +90,8 @@ class AppNotifications {
   static const String kCaloriesH = 'notif_calories_h';
   static const String kCaloriesM = 'notif_calories_m';
 
+  static const String kHealthAlertsEnabled = 'notif_health_alerts_enabled';
+
   // ----------------------------
   // Init + Permissions
   // ----------------------------
@@ -106,36 +110,13 @@ class AppNotifications {
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
     );
 
     const settings = InitializationSettings(android: androidInit, iOS: iosInit);
     await _plugin.initialize(settings);
-
-    // Android 13+: طلب إذن الإشعارات
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
-
-    // Android 12+: بعض الأجهزة تحتاج إذن Exact Alarms حتى تعمل exactAllowWhileIdle
-    try {
-      await _plugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestExactAlarmsPermission();
-    } catch (_) {
-      // ignore: قد لا تكون الدالة موجودة حسب إصدار المكتبة
-    }
-
-    // iOS/macOS: طلب الأذونات (التوافق عبر إصدارات flutter_local_notifications)
-    await _plugin
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
-
-    await _plugin
-        .resolvePlatformSpecificImplementation<MacOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
 
     if (Platform.isAndroid) {
       await _createAndroidChannels();
@@ -155,6 +136,9 @@ class AppNotifications {
       if (r != null) ok = ok && r;
       final enabled = await a?.areNotificationsEnabled();
       if (enabled != null) ok = ok && enabled;
+      try {
+        await a?.requestExactAlarmsPermission();
+      } catch (_) {}
     } else if (Platform.isIOS) {
       final i = _plugin.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
       final r = await i?.requestPermissions(alert: true, badge: true, sound: true);
@@ -266,6 +250,7 @@ class AppNotifications {
       await cancelWeighInReminder();
       await cancelCaloriesReminder();
       await cancelStreakWarning();
+      await cancelHealthAlerts();
       return;
     }
 
@@ -390,6 +375,7 @@ class AppNotifications {
     required int minute,
     required List<int> weekdays, // 1..7 (Mon..Sun)
   }) async {
+    if (_appleNotificationsDisabled) return;
     if (!_ready) await init();
 
     await cancelWorkoutReminders();
@@ -574,6 +560,56 @@ class AppNotifications {
 
 
   // ----------------------------
+  // تنبيهات صحتي الفورية
+  // ----------------------------
+
+  Future<bool> _categoryAllowed(String enabledKey, {bool defaultValue = true}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final allEnabled = prefs.getBool(kAll) ?? true;
+    if (!allEnabled) return false;
+    return prefs.getBool(enabledKey) ?? defaultValue;
+  }
+
+  Future<void> showHealthAlert({
+    required int idOffset,
+    required String title,
+    required String body,
+  }) async {
+    if (_appleNotificationsDisabled) return;
+    final allowed = await _categoryAllowed(kHealthAlertsEnabled);
+    if (!allowed) return;
+    if (!_ready) await init();
+
+    final safeOffset = idOffset.abs() % 200;
+    final androidDetails = AndroidNotificationDetails(
+      _chHealthVitals,
+      'تنبيهات صحتي',
+      channelDescription: 'تنبيهات الخطوات والمؤشرات الحيوية من وازن',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      sound: const RawResourceAndroidNotificationSound(_androidSound),
+    );
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentSound: true,
+      presentBadge: true,
+      sound: _iosSound,
+    );
+    final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+    await _plugin.show(_healthAlertBaseId + safeOffset, title, body, details);
+  }
+
+  Future<void> cancelHealthAlerts() async {
+    if (_appleNotificationsDisabled) return;
+    if (!_ready) await init();
+    for (var i = 0; i < 200; i++) {
+      await _plugin.cancel(_healthAlertBaseId + i);
+    }
+  }
+
+  // ----------------------------
   // تذكير الستريك قبل أن ينقطع
   // ----------------------------
 
@@ -750,6 +786,14 @@ Future<int> debugPendingCount() async {
         _chStreak,
         'تذكير الستريك',
         description: 'تذكير قبل انقطاع الستريك اليومي',
+        importance: Importance.high,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound(_androidSound),
+      ),
+      AndroidNotificationChannel(
+        _chHealthVitals,
+        'تنبيهات صحتي',
+        description: 'تنبيهات الخطوات والمؤشرات الحيوية من وازن',
         importance: Importance.high,
         playSound: true,
         sound: const RawResourceAndroidNotificationSound(_androidSound),

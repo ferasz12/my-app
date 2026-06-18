@@ -186,8 +186,8 @@ class FcmMarketingPush {
       );
     } catch (e) {
       debugPrint('⚠️ FCM local prefs fallback skipped: $e');
-      await _safeSub(topicAll);
-      await _safeSub(topicMarketing);
+      await _safeUnsub(topicAll);
+      await _safeUnsub(topicMarketing);
     }
   }
 

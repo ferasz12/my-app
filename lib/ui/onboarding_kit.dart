@@ -31,10 +31,10 @@ class OnboardingKit {
         final isDark = theme.brightness == Brightness.dark;
 
         final top = isDark
-            ? Color.alphaBlend(cs.primary.withOpacity(0.10), cs.surface)
+            ? cs.background
             : Color.alphaBlend(cs.primary.withOpacity(0.08), cs.surface);
         final bottom = isDark
-            ? Color.alphaBlend(cs.primary.withOpacity(0.20), cs.surfaceContainerHighest)
+            ? cs.surface
             : Color.alphaBlend(cs.primary.withOpacity(0.18), cs.surfaceContainerHighest);
 
         return Container(
@@ -61,10 +61,10 @@ class OnboardingKit {
                 bottom: -140,
                 right: -140,
                 child: _BlurBlob(
-                  color: cs.primary,
+                  color: isDark ? cs.surfaceVariant : cs.primary,
                   size: 320,
                   sigma: 32,
-                  opacity: isDark ? 0.16 : 0.12,
+                  opacity: isDark ? 0.10 : 0.12,
                 ),
               ),
               child,

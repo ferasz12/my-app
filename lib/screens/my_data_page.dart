@@ -169,6 +169,8 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setString('${_Prefs.gender}_$storageKey', gender);
     await prefs.setInt('${_Prefs.age}_$storageKey', age);
     await prefs.setDouble('${_Prefs.height}_$storageKey', height);
+    await prefs.setDouble('height_cm_$storageKey', height);
+    await prefs.setDouble('heightCm_$storageKey', height);
     await prefs.setDouble('${_Prefs.weight}_$storageKey', weight);
     await prefs.setDouble('current_weight_$storageKey', weight);
     await prefs.setDouble('currentWeight_$storageKey', weight);
@@ -264,10 +266,16 @@ class _MyDataPageState extends State<MyDataPage> {
       if (cloudHeight != null && cloudHeight > 0) {
         height = cloudHeight;
         await prefs.setDouble('${_Prefs.height}_$storageKey', cloudHeight);
+        await prefs.setDouble('height_cm_$storageKey', cloudHeight);
+        await prefs.setDouble('heightCm_$storageKey', cloudHeight);
       }
       if (cloudWeight != null && cloudWeight > 0) {
         weight = cloudWeight;
         await prefs.setDouble('${_Prefs.weight}_$storageKey', cloudWeight);
+        await prefs.setDouble('current_weight_$storageKey', cloudWeight);
+        await prefs.setDouble('currentWeight_$storageKey', cloudWeight);
+        await prefs.setDouble('weightKg_$storageKey', cloudWeight);
+        await prefs.setDouble('user_weight_$storageKey', cloudWeight);
       }
       if (cloudGoal.isNotEmpty) {
         goal = cloudGoal;
@@ -636,6 +644,8 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setString('${_Prefs.gender}_$currentEmail', gender);
     await prefs.setInt('${_Prefs.age}_$currentEmail', age);
     await prefs.setDouble('${_Prefs.height}_$currentEmail', height);
+    await prefs.setDouble('height_cm_$currentEmail', height);
+    await prefs.setDouble('heightCm_$currentEmail', height);
     await prefs.setDouble('${_Prefs.weight}_$currentEmail', weight);
     await prefs.setDouble('current_weight_$currentEmail', weight);
     await prefs.setDouble('currentWeight_$currentEmail', weight);
@@ -659,12 +669,11 @@ class _MyDataPageState extends State<MyDataPage> {
     await prefs.setInt('${_Prefs.stepsTarget}_$currentEmail', stepsTarget);
     await prefs.setDouble('${_Prefs.sleepHoursTarget}_$currentEmail', sleepHoursTarget);
 
-    // مرايا للمفاتيح المهمة: بعض الصفحات تقرأ بالإيميل وبعضها بالـ UID.
-    if (authEmail.isNotEmpty && authEmail != currentEmail) {
-      await _mirrorCorePrefs(prefs, authEmail, stamp: stamp);
-    }
-    if (uid.isNotEmpty && uid != currentEmail) {
-      await _mirrorCorePrefs(prefs, uid, stamp: stamp);
+    // مرايا للمفاتيح المهمة: كل alias للـ UID/الإيميل/المفتاح القديم يأخذ نفس القيم فورًا.
+    // نكتب فوق القيم القديمة هنا عمدًا حتى لا تعرض صفحة التتبع أو PDF أرقامًا قديمة.
+    for (final alias in identity.aliases.toSet()) {
+      if (alias.trim().isEmpty || alias == 'unknown_user') continue;
+      await _mirrorCorePrefs(prefs, alias, stamp: stamp);
     }
     await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
 
@@ -2092,18 +2101,21 @@ class _CaloriesCardSimple extends StatelessWidget {
 Color _macroBg(BuildContext context, String title){
   final theme = Theme.of(context);
   final cs = theme.colorScheme;
+  final isDark = theme.brightness == Brightness.dark;
+  if (isDark) {
+    return cs.surfaceVariant;
+  }
   if (title.contains('السعرات')) {
-    // primaryContainer مع شفافية خفيفة مثل الهوم
     return cs.primaryContainer.withOpacity(0.15);
   }
   if (title.contains('البروتين') || title.contains('بروتين')) {
-    return const Color(0xFFE0ECFF); // أزرق فاتح
+    return const Color(0xFFE0ECFF);
   }
   if (title.contains('الكرب') || title.contains('الكربوهيدرات') || title.contains('كارب')) {
-    return const Color(0xFFFFF7ED); // برتقالي فاتح
+    return const Color(0xFFFFF7ED);
   }
   if (title.contains('الدهون') || title.contains('دهون')) {
-    return const Color(0xFFEAFBF1); // أخضر فاتح
+    return const Color(0xFFEAFBF1);
   }
   return cs.surfaceContainer;
 }
@@ -2226,7 +2238,7 @@ class _KcalChip extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: cs.onSecondaryContainer,
+                color: Theme.of(context).brightness == Brightness.dark ? cs.onSurface : cs.onSecondaryContainer,
                 fontWeight: FontWeight.w700,
               ),
         ),
@@ -2537,8 +2549,8 @@ class _HealthCardSheet extends StatelessWidget {
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
             colors: [
-              Colors.white.withOpacity(0.96),
-              Colors.white.withOpacity(0.45),
+              Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.18) : Colors.white.withOpacity(0.96),
+              Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.45),
             ],
           ),
           boxShadow: [
@@ -2616,11 +2628,17 @@ class _HealthCardSheet extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
-                  colors: [
-                    Color.lerp(cs.primary, Colors.black, 0.18)!,
-                    Color.lerp(cs.primary, Colors.black, 0.38)!,
-                    Color.lerp(cs.primary, Colors.black, 0.55)!,
-                  ],
+                  colors: Theme.of(context).brightness == Brightness.dark
+                      ? [
+                          const Color(0xFF242426),
+                          const Color(0xFF1E1E20),
+                          const Color(0xFF18181A),
+                        ]
+                      : [
+                          Color.lerp(cs.primary, Colors.black, 0.18)!,
+                          Color.lerp(cs.primary, Colors.black, 0.38)!,
+                          Color.lerp(cs.primary, Colors.black, 0.55)!,
+                        ],
                 ),
               ),
               child: ClipRRect(
@@ -2763,7 +2781,7 @@ class _HealthCardSheet extends StatelessWidget {
                           child: CircularProgressIndicator(
                             value: 0.72,
                             strokeWidth: 7,
-                            backgroundColor: cs.surface.withOpacity(0.70),
+                            backgroundColor: Theme.of(context).brightness == Brightness.dark ? cs.surfaceVariant.withOpacity(0.92) : cs.surface.withOpacity(0.70),
                             color: cs.primary,
                           ),
                         ),

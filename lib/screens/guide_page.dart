@@ -60,7 +60,7 @@ class _GuideSilentShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Scaffold(backgroundColor: cs.surface, body: const SizedBox.expand());
+    return Scaffold(backgroundColor: cs.background, body: const SizedBox.expand());
   }
 }
 
@@ -562,9 +562,9 @@ class _GuideBackground extends StatelessWidget {
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
             colors: [
-              cs.primary.withOpacity(.18),
-              cs.surface,
-              cs.secondary.withOpacity(.12),
+              Theme.of(context).brightness == Brightness.dark ? cs.background : cs.primary.withOpacity(.18),
+              Theme.of(context).brightness == Brightness.dark ? cs.background : cs.surface,
+              Theme.of(context).brightness == Brightness.dark ? cs.background : cs.secondary.withOpacity(.12),
             ],
           ),
         ),
@@ -574,12 +574,12 @@ class _GuideBackground extends StatelessWidget {
             Positioned(
               top: -80,
               right: -60,
-              child: _GlowBlob(color: cs.primary.withOpacity(.22), size: 220),
+              child: _GlowBlob(color: cs.primary.withOpacity(Theme.of(context).brightness == Brightness.dark ? .08 : .22), size: 220),
             ),
             Positioned(
               bottom: -90,
               left: -70,
-              child: _GlowBlob(color: cs.secondary.withOpacity(.18), size: 240),
+              child: _GlowBlob(color: cs.secondary.withOpacity(Theme.of(context).brightness == Brightness.dark ? .06 : .18), size: 240),
             ),
           ],
         ),
@@ -625,12 +625,12 @@ class _GlassPanel extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: cs.surface.withOpacity(.70),
+            color: Theme.of(context).brightness == Brightness.dark ? cs.surfaceVariant.withOpacity(.92) : cs.surface.withOpacity(.70),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: cs.onSurface.withOpacity(.08)),
             boxShadow: [
               BoxShadow(
-                color: cs.shadow.withOpacity(.10),
+                color: cs.shadow.withOpacity(Theme.of(context).brightness == Brightness.dark ? .18 : .10),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               ),

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/app_repository.dart';
 import '../core/data/wazen_identity_store.dart';
 import '../shared/weight_sync_service.dart';
+import '../shared/wazen_profile_prefs.dart';
 
 import '../utils/calorie_calculator.dart';
 import '../utils/macro_plan_engine.dart';
@@ -40,19 +41,34 @@ class UserDataProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final e = await _canonicalKey(prefs, email);
 
-    weight = prefs.getDouble('weight_$e') ?? 60.0;
-    height = prefs.getDouble('height_$e') ?? 170.0;
-    age = prefs.getInt('age_$e') ?? 25;
-    gender = prefs.getString('gender_$e') ?? 'ذكر';
-    goal = prefs.getString('goal_$e') ?? 'نمط حياة صحي';
-    lifestyleScore = prefs.getInt('lifestyleScore_$e') ?? prefs.getInt('lifestyleScore') ?? 18;
-    activityFactor = prefs.getDouble('activityFactor_$e') ?? _activityFromScore(lifestyleScore);
+    final aliases = await WazenProfilePrefs.aliases(prefs, user: null, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
 
-    final kCal = 'caloriesNeeded_$e';
-    final kMaint = 'maintenanceCalories_$e';
-    final kP = 'protein_$e';
-    final kF = 'fat_$e';
-    final kC = 'carbs_$e';
+    weight = WazenProfilePrefs.readDouble(
+          prefs,
+          const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_', 'goal_current_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        60.0;
+    height = WazenProfilePrefs.readDouble(
+          prefs,
+          const ['height_', 'height_cm_', 'heightCm_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        170.0;
+    age = WazenProfilePrefs.readInt(prefs, const ['age_'], aliases, preferred: profileKey) ?? 25;
+    gender = WazenProfilePrefs.readString(prefs, const ['gender_'], aliases, preferred: profileKey) ?? 'ذكر';
+    goal = WazenProfilePrefs.readString(prefs, const ['goal_', 'user_goal_'], aliases, preferred: profileKey) ?? 'نمط حياة صحي';
+    lifestyleScore = WazenProfilePrefs.readInt(prefs, const ['lifestyleScore_'], aliases, preferred: profileKey) ?? prefs.getInt('lifestyleScore') ?? 18;
+    activityFactor = WazenProfilePrefs.readDouble(prefs, const ['activityFactor_'], aliases, preferred: profileKey) ?? _activityFromScore(lifestyleScore);
+
+    final kCal = 'caloriesNeeded_$profileKey';
+    final kMaint = 'maintenanceCalories_$profileKey';
+    final kP = 'protein_$profileKey';
+    final kF = 'fat_$profileKey';
+    final kC = 'carbs_$profileKey';
 
     // Migration: الماكروز كانت قديمًا بدون suffix
     final legacyCal = prefs.getDouble('caloriesNeeded');
@@ -73,12 +89,12 @@ class UserDataProvider extends ChangeNotifier {
       await prefs.setDouble(kC, legacyC);
     }
 
-    calories = prefs.getDouble(kCal) ?? 0;
-    maintenanceCalories = prefs.getDouble(kMaint) ?? 0;
-    protein = prefs.getDouble(kP) ?? 0;
-    fat = prefs.getDouble(kF) ?? 0;
-    carbs = prefs.getDouble(kC) ?? 0;
-    macroCalculationNote = prefs.getString('macroCalculationNote_$e') ?? '';
+    calories = WazenProfilePrefs.readDouble(prefs, const ['caloriesNeeded_'], aliases, preferred: profileKey) ?? prefs.getDouble(kCal) ?? 0;
+    maintenanceCalories = WazenProfilePrefs.readDouble(prefs, const ['maintenanceCalories_'], aliases, preferred: profileKey) ?? prefs.getDouble(kMaint) ?? 0;
+    protein = WazenProfilePrefs.readDouble(prefs, const ['protein_'], aliases, preferred: profileKey) ?? prefs.getDouble(kP) ?? 0;
+    fat = WazenProfilePrefs.readDouble(prefs, const ['fat_'], aliases, preferred: profileKey) ?? prefs.getDouble(kF) ?? 0;
+    carbs = WazenProfilePrefs.readDouble(prefs, const ['carbs_', 'carb_'], aliases, preferred: profileKey) ?? prefs.getDouble(kC) ?? 0;
+    macroCalculationNote = WazenProfilePrefs.readString(prefs, const ['macroCalculationNote_'], aliases, preferred: profileKey) ?? '';
 
     if (calories <= 0 || protein <= 0 || fat < 0 || carbs < 0) {
       await _calculateMacros(e);
@@ -94,19 +110,16 @@ class UserDataProvider extends ChangeNotifier {
     final today = DateTime.now().toIso8601String().split('T').first;
 
     weight = newWeight;
+    final aliases = await WazenProfilePrefs.aliases(prefs, migrate: false);
     final identity = await WazenIdentityStore.currentIdentity(migrate: false);
-    await WazenIdentityStore.writeToAllAliases(
-      prefs,
-      identity.aliases,
-      (a) => 'weight_$a',
-      newWeight,
-    );
-    await WazenIdentityStore.writeToAllAliases(
-      prefs,
-      identity.aliases,
-      (a) => 'current_weight_$a',
-      newWeight,
-    );
+    final allAliases = <String>{...aliases, ...identity.aliases}..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+    await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'weight_$a', newWeight);
+    await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'current_weight_$a', newWeight);
+    await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'currentWeight_$a', newWeight);
+    await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'weightKg_$a', newWeight);
+    await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'user_weight_$a', newWeight);
+    await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'goal_current_$a', newWeight);
+    await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'lastWeightChangeAt_$a', DateTime.now().millisecondsSinceEpoch);
     await WeightSyncService.saveCurrentWeight(kg: newWeight);
 
     // حفظ قراءة الوزن في سجل محلي + سحابي حتى تظهر في صفحة التتبع بعد إعادة تثبيت التطبيق.
@@ -122,7 +135,7 @@ class UserDataProvider extends ChangeNotifier {
       list.removeWhere((x) => (x['date'] ?? '').toString() == today);
       list.add({'date': today, 'kg': newWeight});
       list.sort((a, b) => (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString()));
-      await prefs.setString('weight_log_$e', jsonEncode(list));
+      await WazenProfilePrefs.writeAll(prefs, allAliases, (a) => 'weight_log_$a', jsonEncode(list));
     } catch (_) {}
     unawaited(AppRepository.writeWeightKg(ymd: today, kg: newWeight).catchError((_) {}));
 
@@ -134,18 +147,24 @@ class UserDataProvider extends ChangeNotifier {
     final e = await _canonicalKey(prefs, email);
 
     height = newHeight;
-    await WazenIdentityStore.writeToAllAliases(prefs, (await WazenIdentityStore.currentIdentity(migrate: false)).aliases, (a) => 'height_$a', newHeight);
+    final aliases = await WazenProfilePrefs.aliases(prefs, migrate: false);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (a) => 'height_$a', newHeight);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (a) => 'height_cm_$a', newHeight);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (a) => 'heightCm_$a', newHeight);
+    await WazenProfilePrefs.writeAll(prefs, aliases, (a) => 'profileUpdatedAt_$a', DateTime.now().millisecondsSinceEpoch);
     await _calculateMacros(e);
   }
 
   Future<void> _calculateMacros(String e) async {
     final prefs = await SharedPreferences.getInstance();
 
-    age = prefs.getInt('age_$e') ?? age;
-    gender = prefs.getString('gender_$e') ?? gender;
-    goal = prefs.getString('goal_$e') ?? goal;
-    lifestyleScore = prefs.getInt('lifestyleScore_$e') ?? prefs.getInt('lifestyleScore') ?? lifestyleScore;
-    activityFactor = prefs.getDouble('activityFactor_$e') ?? _activityFromScore(lifestyleScore);
+    final aliases = await WazenProfilePrefs.aliases(prefs, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+    age = WazenProfilePrefs.readInt(prefs, const ['age_'], aliases, preferred: profileKey) ?? prefs.getInt('age_$e') ?? age;
+    gender = WazenProfilePrefs.readString(prefs, const ['gender_'], aliases, preferred: profileKey) ?? prefs.getString('gender_$e') ?? gender;
+    goal = WazenProfilePrefs.readString(prefs, const ['goal_', 'user_goal_'], aliases, preferred: profileKey) ?? prefs.getString('goal_$e') ?? goal;
+    lifestyleScore = WazenProfilePrefs.readInt(prefs, const ['lifestyleScore_'], aliases, preferred: profileKey) ?? prefs.getInt('lifestyleScore_$e') ?? prefs.getInt('lifestyleScore') ?? lifestyleScore;
+    activityFactor = WazenProfilePrefs.readDouble(prefs, const ['activityFactor_'], aliases, preferred: profileKey) ?? prefs.getDouble('activityFactor_$e') ?? _activityFromScore(lifestyleScore);
 
     maintenanceCalories = calculateCalories(
       age: age,
@@ -187,33 +206,22 @@ class UserDataProvider extends ChangeNotifier {
     fat = selected.fatG;
     macroCalculationNote = selected.calculationNote;
 
-    await prefs.setDouble('caloriesNeeded_$e', calories);
-    await prefs.setDouble('maintenanceCalories_$e', maintenanceCalories);
-    await prefs.setDouble('protein_$e', protein);
-    await prefs.setDouble('fat_$e', fat);
-    await prefs.setDouble('carbs_$e', carbs);
-    await prefs.setDouble('activityFactor_$e', activityFactor);
-    await prefs.setString('macroMode_$e', MacroPlanEngine.modeAuto);
-    await prefs.setString('macroPlanId_$e', selected.id);
-    await prefs.setString('macroCalculationNote_$e', macroCalculationNote);
-    await prefs.setInt('macrosUpdatedAt_$e', DateTime.now().millisecondsSinceEpoch);
-
-    final id = await WazenIdentityStore.currentIdentity(migrate: false);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'caloriesNeeded_$a', calories);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'maintenanceCalories_$a', maintenanceCalories);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'protein_$a', protein);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'fat_$a', fat);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'carbs_$a', carbs);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'activityFactor_$a', activityFactor);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macroMode_$a', MacroPlanEngine.modeAuto);
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macroPlanId_$a', selected.id);
-    await WazenIdentityStore.writeToAllAliases(
-      prefs,
-      id.aliases,
-      (a) => 'macroCalculationNote_$a',
-      macroCalculationNote,
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    await WazenProfilePrefs.writeMacroTargets(
+      prefs: prefs,
+      aliases: aliases,
+      calories: calories,
+      maintenanceCalories: maintenanceCalories,
+      protein: protein,
+      carbs: carbs,
+      fat: fat,
+      activityFactor: activityFactor,
+      macroMode: MacroPlanEngine.modeAuto,
+      macroPlanId: selected.id,
+      macroCalculationNote: macroCalculationNote,
+      lastUpdatedYmd: DateTime.now().toIso8601String().split('T').first,
+      stamp: nowMs,
     );
-    await WazenIdentityStore.writeToAllAliases(prefs, id.aliases, (a) => 'macrosUpdatedAt_$a', DateTime.now().millisecondsSinceEpoch);
 
     notifyListeners();
   }

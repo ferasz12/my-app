@@ -304,10 +304,10 @@ class AppTheme {
       seedColor: _seed,
       brightness: Brightness.dark,
     ).copyWith(
-      primary: _seed,
-      onPrimary: Colors.white,
-      secondary: const Color(0xFF149C97),
-      onSecondary: Colors.white,
+      primary: const Color(0xFF8FA5A1),
+      onPrimary: const Color(0xFFF5F5F7),
+      secondary: const Color(0xFFC3D0CD),
+      onSecondary: const Color(0xFF121212),
       tertiary: const Color(0xFFB6D7FF),
       surface: const Color(0xFF12161A),
       onSurface: Colors.white,
@@ -361,9 +361,9 @@ class AppTheme {
         ),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: scheme.primary,
-        foregroundColor: scheme.onPrimary,
-        elevation: 1,
+        backgroundColor: const Color(0xFF2B3433),
+        foregroundColor: const Color(0xFFF5F5F7),
+        elevation: 0,
         shape: _shapeMd,
       ),
 
@@ -438,7 +438,7 @@ class AppTheme {
       ),
 
       dialogTheme: DialogThemeData(
-        backgroundColor: const Color(0xFF161B20),
+        backgroundColor: const Color(0xFF1E1E20),
         shape: _shapeLg,
         titleTextStyle: TextStyle(
           fontFamily: 'Tajawal',
@@ -455,8 +455,8 @@ class AppTheme {
           const DrawerThemeData(backgroundColor: Color(0xFF161B20)),
 
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: const Color(0xFF161B20),
-        indicatorColor: scheme.primary.withOpacity(.22),
+        backgroundColor: const Color(0xFF1E1E20),
+        indicatorColor: const Color(0xFF8FA5A1).withOpacity(.16),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return IconThemeData(
@@ -476,8 +476,8 @@ class AppTheme {
       ),
 
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: const Color(0xFF161B20),
-        selectedItemColor: scheme.primary,
+        backgroundColor: const Color(0xFF1E1E20),
+        selectedItemColor: const Color(0xFF8FA5A1),
         unselectedItemColor: Colors.white70,
         selectedLabelStyle: TextStyle(
           fontFamily: 'Tajawal',

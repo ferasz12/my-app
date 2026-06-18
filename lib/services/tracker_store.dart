@@ -10,6 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/data/wazen_identity_store.dart';
+import '../core/data/wazen_daily_store.dart';
 import '../shared/session_manager.dart';
 import 'end_of_day_cloud_backup_service.dart';
 
@@ -26,6 +27,23 @@ class TrackerStore {
   static String _ymd(DateTime d) => _keyForDate(d).replaceFirst('diet_', '');
 
   static const String _deletedDaysKey = 'wazen_deleted_calorie_days';
+
+  static List<String> _safeStringList(SharedPreferences prefs, String key) {
+    final value = prefs.get(key);
+    if (value == null) return <String>[];
+    if (value is List<String>) return value;
+    if (value is List) return value.map((e) => e.toString()).toList();
+    if (value is String) {
+      final raw = value.trim();
+      if (raw.isEmpty) return <String>[];
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) return decoded.map((e) => e.toString()).toList();
+      } catch (_) {}
+      return <String>[raw];
+    }
+    return <String>[];
+  }
 
   static Future<String> _email() async {
     final prefs = await SharedPreferences.getInstance();
@@ -60,7 +78,7 @@ class TrackerStore {
   }
 
   static Set<String> _deletedDays(SharedPreferences prefs) {
-    return (prefs.getStringList(_deletedDaysKey) ?? const <String>[])
+    return _safeStringList(prefs, _deletedDaysKey)
         .map(normalizeYmd)
         .where(_looksLikeYmd)
         .toSet();
@@ -148,14 +166,40 @@ class TrackerStore {
       'fat': fat,
     };
 
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+
+    final totalsRaw = jsonEncode({'k': cal, 'p': protein, 'c': carb, 'f': fat});
+    final entriesRaw = entries == null ? null : jsonEncode(entries);
+
+    // المفتاح العام بدون هوية المستخدم يبقى موجودًا للتوافق مع الصفحات القديمة.
     await prefs.setString('diet_$ymd', jsonEncode(map));
-    await prefs.setString(
-      'kcal_daytotals_${email}_$ymd',
-      jsonEncode({'k': cal, 'p': protein, 'c': carb, 'f': fat}),
-    );
-    if (entries != null) {
-      await prefs.setString('intake_entries_${email}_$ymd', jsonEncode(entries));
+    await prefs.setDouble('dietCalories_$ymd', cal);
+    await prefs.setDouble('dietProtein_$ymd', protein);
+    await prefs.setDouble('dietCarb_$ymd', carb);
+    await prefs.setDouble('dietFat_$ymd', fat);
+
+    // المصدر الرسمي لسجل السعرات: اكتب نفس اليوم لكل مفاتيح هوية المستخدم
+    // حتى لا تظهر صفحة التتبع أو PDF بأرقام مختلفة عن صفحة سجل السعرات.
+    for (final alias in aliases) {
+      await prefs.setString('kcal_daytotals_${alias}_$ymd', totalsRaw);
+      if (entriesRaw != null) {
+        await prefs.setString('intake_entries_${alias}_$ymd', entriesRaw);
+      }
     }
+
+    // طبقة وازن اليومية الموحدة، تستخدمها صفحات أخرى أيضًا.
+    await WazenDailyStore.writeTotals(
+      ymd,
+      WazenDailyTotals(
+        calories: cal,
+        protein: protein,
+        carbs: carb,
+        fat: fat,
+      ),
+    );
 
     unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
@@ -243,36 +287,103 @@ class TrackerStore {
     final email = await _email();
     final key = _keyForDate(d);
     final ymd = key.replaceFirst('diet_', '');
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
 
-    final totals = _decodeMap(prefs.getString('kcal_daytotals_${email}_$ymd'));
-    if (totals != null) {
+    final deleted = _deletedDays(prefs);
+    if (deleted.contains(ymd)) {
       return {
-        ..._dayMapFromTotals(ymd: ymd, totals: totals),
-        'locked': prefs.getBool('kcal_day_locked_${email}_$ymd') ?? false,
+        'date': ymd,
+        'calories': 0.0,
+        'protein': 0.0,
+        'carb': 0.0,
+        'fat': 0.0,
+        'locked': false,
       };
     }
 
+    // 1) المصدر الرسمي الجديد: kcal_daytotals لكل aliases المستخدم.
+    for (final alias in aliases) {
+      final totals = _decodeMap(prefs.getString('kcal_daytotals_${alias}_$ymd'));
+      if (totals != null) {
+        final day = _dayMapFromTotals(ymd: ymd, totals: totals);
+        if (_toD(day['calories']) > 0 ||
+            _toD(day['protein']) > 0 ||
+            _toD(day['carb']) > 0 ||
+            _toD(day['fat']) > 0) {
+          return {
+            ...day,
+            'locked': prefs.getBool('kcal_day_locked_${alias}_$ymd') ?? false,
+          };
+        }
+      }
+    }
+
+    // 2) إذا كانت التفاصيل موجودة بدون مجاميع، نجمعها ونثبتها بالمصدر الرسمي.
+    for (final alias in aliases) {
+      final entries = _decodeListOfMaps(prefs.getString('intake_entries_${alias}_$ymd'));
+      if (entries.isEmpty) continue;
+      double k = 0, p = 0, c = 0, f = 0;
+      for (final e in entries) {
+        k += _toD(e['k'] ?? e['cal'] ?? e['calories']);
+        p += _toD(e['p'] ?? e['protein']);
+        c += _toD(e['c'] ?? e['carb'] ?? e['carbs']);
+        f += _toD(e['f'] ?? e['fat']);
+      }
+      if (k > 0 || p > 0 || c > 0 || f > 0) {
+        await _cacheDay(
+          prefs: prefs,
+          email: email,
+          ymd: ymd,
+          cal: k,
+          protein: p,
+          carb: c,
+          fat: f,
+          entries: entries,
+        );
+        return {
+          'date': ymd,
+          'calories': k,
+          'protein': p,
+          'carb': c,
+          'fat': f,
+          'locked': prefs.getBool('kcal_day_locked_${alias}_$ymd') ?? false,
+        };
+      }
+    }
+
+    // 3) fallback القديم بدون هوية المستخدم.
     final raw = prefs.getString(key);
     if (raw != null) {
       final m = _decodeMap(raw) ?? <String, dynamic>{};
-      return {
+      final day = {
         'date': (m['date'] ?? ymd).toString(),
         'calories': _toD(m['calories']),
         'protein': _toD(m['protein']),
-        'carb': _toD(m['carb']),
+        'carb': _toD(m['carb'] ?? m['carbs']),
         'fat': _toD(m['fat']),
-        'locked': prefs.getBool('kcal_day_locked_${email}_$ymd') ?? false,
+        'locked': aliases.any((a) => prefs.getBool('kcal_day_locked_${a}_$ymd') ?? false),
       };
+      if (_toD(day['calories']) > 0 ||
+          _toD(day['protein']) > 0 ||
+          _toD(day['carb']) > 0 ||
+          _toD(day['fat']) > 0) {
+        return day;
+      }
     }
 
-    return {
+    // 4) fallback المفاتيح القديمة المنفصلة.
+    final legacy = {
       'date': ymd,
-      'calories': 0.0,
-      'protein': 0.0,
-      'carb': 0.0,
-      'fat': 0.0,
-      'locked': prefs.getBool('kcal_day_locked_${email}_$ymd') ?? false,
+      'calories': prefs.getDouble('dietCalories_$ymd') ?? 0.0,
+      'protein': prefs.getDouble('dietProtein_$ymd') ?? 0.0,
+      'carb': prefs.getDouble('dietCarb_$ymd') ?? 0.0,
+      'fat': prefs.getDouble('dietFat_$ymd') ?? 0.0,
+      'locked': aliases.any((a) => prefs.getBool('kcal_day_locked_${a}_$ymd') ?? false),
     };
+    return legacy;
   }
 
   static List<Map<String, dynamic>> _decodeListOfMaps(String? raw) {
@@ -301,21 +412,51 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final date = normalizeYmd(ymd);
-    return _decodeListOfMaps(prefs.getString('intake_entries_${email}_$date'));
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+
+    for (final alias in aliases) {
+      final entries = _decodeListOfMaps(prefs.getString('intake_entries_${alias}_$date'));
+      if (entries.isNotEmpty) return entries;
+    }
+
+    // fallback: بعض صفحات الهوم القديمة تخزن الوجبات بهذا المفتاح.
+    for (final alias in aliases) {
+      final meals = _decodeListOfMaps(prefs.getString('meals_${alias}_$date'));
+      if (meals.isNotEmpty) return meals;
+      if (date == _ymd(DateTime.now())) {
+        final currentMeals = _decodeListOfMaps(prefs.getString('meals_$alias'));
+        if (currentMeals.isNotEmpty) return currentMeals;
+      }
+    }
+
+    return <Map<String, dynamic>>[];
   }
 
   static Future<bool> isDayLocked(String ymd) async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final date = normalizeYmd(ymd);
-    return prefs.getBool('kcal_day_locked_${email}_$date') ?? false;
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+    return aliases.any((a) => prefs.getBool('kcal_day_locked_${a}_$date') ?? false);
   }
 
   static Future<void> setDayLocked(String ymd, bool locked) async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final date = normalizeYmd(ymd);
-    await prefs.setBool('kcal_day_locked_${email}_$date', locked);
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+    for (final alias in aliases) {
+      await prefs.setBool('kcal_day_locked_${alias}_$date', locked);
+    }
   }
 
   static Future<Map<String, dynamic>> addEntryToDay({
@@ -330,18 +471,33 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final date = normalizeYmd(ymd);
-    final entriesKey = 'intake_entries_${email}_$date';
-    final entries = _decodeListOfMaps(prefs.getString(entriesKey));
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+
+    var entries = <Map<String, dynamic>>[];
+    for (final alias in aliases) {
+      final current = _decodeListOfMaps(prefs.getString('intake_entries_${alias}_$date'));
+      if (current.isNotEmpty) {
+        entries = current;
+        break;
+      }
+    }
 
     // إذا كان اليوم محفوظًا بالمجاميع فقط بدون تفاصيل وجبات، نحافظ على المجاميع القديمة
     // كعنصر سابق حتى لا تضيع عند إضافة وجبة جديدة ليوم قديم.
     if (entries.isEmpty) {
-      final existingTotals = _decodeMap(prefs.getString('kcal_daytotals_${email}_$date'));
+      Map<String, dynamic>? existingTotals;
+      for (final alias in aliases) {
+        existingTotals = _decodeMap(prefs.getString('kcal_daytotals_${alias}_$date'));
+        if (existingTotals != null) break;
+      }
       final existingDiet = _decodeMap(prefs.getString('diet_$date'));
-      final oldK = _toD(existingTotals?['k'] ?? existingDiet?['calories']);
-      final oldP = _toD(existingTotals?['p'] ?? existingDiet?['protein']);
-      final oldC = _toD(existingTotals?['c'] ?? existingDiet?['carb'] ?? existingDiet?['carbs']);
-      final oldF = _toD(existingTotals?['f'] ?? existingDiet?['fat']);
+      final oldK = _toD(existingTotals?['k'] ?? existingTotals?['calories'] ?? existingDiet?['calories']);
+      final oldP = _toD(existingTotals?['p'] ?? existingTotals?['protein'] ?? existingDiet?['protein']);
+      final oldC = _toD(existingTotals?['c'] ?? existingTotals?['carb'] ?? existingTotals?['carbs'] ?? existingDiet?['carb'] ?? existingDiet?['carbs']);
+      final oldF = _toD(existingTotals?['f'] ?? existingTotals?['fat'] ?? existingDiet?['fat']);
       if (oldK > 0 || oldP > 0 || oldC > 0 || oldF > 0) {
         entries.add({
           'name': 'الوجبات السابقة',
@@ -389,7 +545,9 @@ class TrackerStore {
       fat: f,
       entries: entries,
     );
-    await prefs.setBool('eod_cloud_backup_done_${email}_$date', false);
+    for (final alias in aliases) {
+      await prefs.setBool('eod_cloud_backup_done_${alias}_$date', false);
+    }
 
     return {
       'date': date,
@@ -398,7 +556,7 @@ class TrackerStore {
       'carb': c,
       'fat': f,
       'entries': entries,
-      'locked': prefs.getBool('kcal_day_locked_${email}_$date') ?? false,
+      'locked': await isDayLocked(date),
     };
   }
 
@@ -406,7 +564,20 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final date = normalizeYmd(ymd);
-    final entries = _decodeListOfMaps(prefs.getString('intake_entries_${email}_$date'));
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+
+    var entries = <Map<String, dynamic>>[];
+    for (final alias in aliases) {
+      final current = _decodeListOfMaps(prefs.getString('intake_entries_${alias}_$date'));
+      if (current.isNotEmpty) {
+        entries = current;
+        break;
+      }
+    }
+
     double k = 0, p = 0, c = 0, f = 0;
     for (final e in entries) {
       k += _toD(e['k'] ?? e['cal'] ?? e['calories']);
@@ -431,7 +602,7 @@ class TrackerStore {
       'carb': c,
       'fat': f,
       'entries': entries,
-      'locked': prefs.getBool('kcal_day_locked_${email}_$date') ?? false,
+      'locked': await isDayLocked(date),
     };
   }
 
@@ -439,17 +610,29 @@ class TrackerStore {
   static Future<List<Map<String, dynamic>>> getAllDays() async {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
 
     final deleted = _deletedDays(prefs);
     final byDate = <String, Map<String, dynamic>>{};
 
-    final totalsPrefix = 'kcal_daytotals_${email}_';
-    for (final k in prefs.getKeys().where((x) => x.startsWith(totalsPrefix))) {
-      final ymd = k.substring(totalsPrefix.length);
-      if (deleted.contains(ymd)) continue;
-      final totals = _decodeMap(prefs.getString(k));
-      if (totals == null) continue;
-      byDate[ymd] = _dayMapFromTotals(ymd: ymd, totals: totals);
+    for (final alias in aliases) {
+      final totalsPrefix = 'kcal_daytotals_${alias}_';
+      for (final k in prefs.getKeys().where((x) => x.startsWith(totalsPrefix))) {
+        final ymd = k.substring(totalsPrefix.length);
+        if (deleted.contains(ymd)) continue;
+        final totals = _decodeMap(prefs.getString(k));
+        if (totals == null) continue;
+        final day = _dayMapFromTotals(ymd: ymd, totals: totals);
+        if (_toD(day['calories']) > 0 ||
+            _toD(day['protein']) > 0 ||
+            _toD(day['carb']) > 0 ||
+            _toD(day['fat']) > 0) {
+          byDate[ymd] = day;
+        }
+      }
     }
 
     final keys = prefs.getKeys().where((k) => k.startsWith('diet_')).toList();
@@ -464,8 +647,20 @@ class TrackerStore {
             'date': ymd,
             'calories': _toD(m['calories']),
             'protein': _toD(m['protein']),
-            'carb': _toD(m['carb']),
+            'carb': _toD(m['carb'] ?? m['carbs']),
             'fat': _toD(m['fat']),
+          });
+    }
+
+    for (final key in prefs.getKeys().where((k) => k.startsWith('dietCalories_'))) {
+      final ymd = key.replaceFirst('dietCalories_', '');
+      if (deleted.contains(ymd)) continue;
+      byDate.putIfAbsent(ymd, () => {
+            'date': ymd,
+            'calories': prefs.getDouble('dietCalories_$ymd') ?? 0.0,
+            'protein': prefs.getDouble('dietProtein_$ymd') ?? 0.0,
+            'carb': prefs.getDouble('dietCarb_$ymd') ?? 0.0,
+            'fat': prefs.getDouble('dietFat_$ymd') ?? 0.0,
           });
     }
 
@@ -520,10 +715,21 @@ class TrackerStore {
     final prefs = await SharedPreferences.getInstance();
     final email = await _email();
     final ymd = _ymd(DateTime.now());
+    final aliases = <String>{
+      email,
+      ...await _knownAliases(prefs),
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+
     await prefs.remove(_todayKey());
-    await prefs.remove('kcal_daytotals_${email}_$ymd');
-    await prefs.remove('intake_entries_${email}_$ymd');
-    await prefs.setBool('eod_cloud_backup_done_${email}_$ymd', false);
+    await prefs.remove('dietCalories_$ymd');
+    await prefs.remove('dietProtein_$ymd');
+    await prefs.remove('dietCarb_$ymd');
+    await prefs.remove('dietFat_$ymd');
+    for (final alias in aliases) {
+      await prefs.remove('kcal_daytotals_${alias}_$ymd');
+      await prefs.remove('intake_entries_${alias}_$ymd');
+      await prefs.setBool('eod_cloud_backup_done_${alias}_$ymd', false);
+    }
     unawaited(DailyCloudBackupService.instance.markDirty().catchError((_) {}));
   }
 }

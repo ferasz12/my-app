@@ -158,13 +158,16 @@ class _RecipeCardState extends State<RecipeCard> {
     String kind,
     BuildContext context,
   ) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+    final isDark = theme.brightness == Brightness.dark;
+    final softBg = theme.colorScheme.surfaceVariant;
 
     switch (kind) {
       case 'protein':
         return (
           color: const Color(0xFF2563EB),
-          bg: const Color(0xFFEAF1FF),
+          bg: isDark ? softBg : const Color(0xFFEAF1FF),
           emoji: '🥩',
           label: 'البروتين',
           unit: 'غ',
@@ -172,7 +175,7 @@ class _RecipeCardState extends State<RecipeCard> {
       case 'carbs':
         return (
           color: const Color(0xFFF97316),
-          bg: const Color(0xFFFFF3E8),
+          bg: isDark ? softBg : const Color(0xFFFFF3E8),
           emoji: '🍞',
           label: 'الكارب',
           unit: 'غ',
@@ -180,7 +183,7 @@ class _RecipeCardState extends State<RecipeCard> {
       case 'fat':
         return (
           color: const Color(0xFF22C55E),
-          bg: const Color(0xFFEAFBF1),
+          bg: isDark ? softBg : const Color(0xFFEAFBF1),
           emoji: '🥑',
           label: 'الدهون',
           unit: 'غ',
@@ -188,7 +191,7 @@ class _RecipeCardState extends State<RecipeCard> {
       default:
         return (
           color: primary,
-          bg: primary.withOpacity(0.10),
+          bg: isDark ? softBg : primary.withOpacity(0.10),
           emoji: '🔥',
           label: 'السعرات',
           unit: 'kcal',
@@ -320,6 +323,8 @@ class _RecipeCardState extends State<RecipeCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final r = widget.recipe;
 
     final title = _safeTitle(r);
@@ -336,10 +341,10 @@ class _RecipeCardState extends State<RecipeCard> {
     return Container(
       margin: EdgeInsets.zero,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? cs.surfaceVariant : Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.08)),
-        boxShadow: [
+        border: Border.all(color: isDark ? cs.outlineVariant.withOpacity(0.70) : theme.colorScheme.primary.withOpacity(0.08)),
+        boxShadow: isDark ? null : [
           BoxShadow(
             color: Colors.black.withOpacity(0.045),
             blurRadius: 18,

@@ -182,7 +182,7 @@ if (context.mounted) {
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: cs.background,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -468,6 +468,7 @@ Future<void> _deleteUserFirestore(String uid) async {
       child: Scaffold(
         appBar: AppBar(title: const Text('إعداداتي')),
         body: ListView(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 22),
           children: [
             // -------- الملف الشخصي --------
             _sectionCard(

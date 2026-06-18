@@ -88,6 +88,23 @@ class SmartCloudSyncService {
   static const int maxDayLimit = 180;
   static const String _deletedDaysKey = 'wazen_deleted_calorie_days';
 
+  List<String> _safeStringList(SharedPreferences prefs, String key) {
+    final value = prefs.get(key);
+    if (value == null) return <String>[];
+    if (value is List<String>) return value;
+    if (value is List) return value.map((e) => e.toString()).toList();
+    if (value is String) {
+      final raw = value.trim();
+      if (raw.isEmpty) return <String>[];
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) return decoded.map((e) => e.toString()).toList();
+      } catch (_) {}
+      return <String>[raw];
+    }
+    return <String>[];
+  }
+
   bool _running = false;
 
   bool get isRunning => _running;
@@ -179,7 +196,7 @@ class SmartCloudSyncService {
 
 
   Set<String> _readDeletedDays(SharedPreferences prefs) {
-    return (prefs.getStringList(_deletedDaysKey) ?? const <String>[])
+    return _safeStringList(prefs, _deletedDaysKey)
         .map((e) => e.trim())
         .where(_looksLikeYmd)
         .toSet();

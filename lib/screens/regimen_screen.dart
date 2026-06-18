@@ -17,6 +17,10 @@ import 'regimen_lowcarb_screen.dart';
 import '../services/tracker_store.dart';
 import '../regimens/lowfat_guard.dart';
 import '../regimens/lowcarb_guard.dart';
+import '../regimens/high_protein_guard.dart';
+import '../regimens/mediterranean_guard.dart';
+import 'regimen_high_protein_screen.dart';
+import 'regimen_mediterranean_screen.dart';
 
 // للصيام المتقطع
 import 'package:provider/provider.dart';
@@ -80,11 +84,27 @@ class RegimenModel {
 final List<RegimenModel> kAllRegimens = [
   RegimenModel(
     id: 'if-16-8',
-    title: 'الصيام المتقطع 16/8',
-    goal: 'إدارة الوقت الغذائي',
-    benefits: ['سهولة التطبيق', 'تقليل الأكل العشوائي', 'تحسين تنظيم الوجبات'],
-    risks: ['صداع/جوع بالبداية', 'غير مناسب للحامل/حالات طبية'],
-    popularFoods: ['وجبتان متوازنتان', 'قهوة/شاي بدون سكر'],
+    title: 'الصيام المتقطع',
+    goal: 'تنظيم أوقات الأكل',
+    benefits: ['مؤقت واضح', 'سجل أسبوعي', 'تنبيهات بداية ونهاية الصيام'],
+    risks: ['ابدأ تدريجيًا', 'أوقف الصيام عند الدوخة أو التعب الشديد'],
+    popularFoods: ['وجبة افتتاح متوازنة', 'ماء وقهوة/شاي بدون سكر'],
+  ),
+  RegimenModel(
+    id: 'high-protein',
+    title: 'رجيم عالي البروتين',
+    goal: 'بناء العضلات والشبع',
+    benefits: ['متابعة هدف البروتين', 'تنبيهات توزيع البروتين', 'تنبيه للوجبات قليلة البروتين'],
+    risks: ['لا تبالغ إذا لديك مشكلة كلى أو توجيه طبي خاص'],
+    popularFoods: ['دجاج/تونة/بيض', 'لبن يوناني', 'بقوليات ومصادر بروتين'],
+  ),
+  RegimenModel(
+    id: 'mediterranean',
+    title: 'رجيم البحر المتوسط',
+    goal: 'نظام صحي مرن',
+    benefits: ['تذكيرات طبق متوازن', 'تركيز على الخضار والبروتين', 'تنبيه للدهون العالية'],
+    risks: ['الدهون الصحية ما زالت تحتاج كمية محسوبة'],
+    popularFoods: ['زيت زيتون', 'سمك/دجاج', 'خضار وفواكه وحبوب كاملة'],
   ),
   RegimenModel(
     id: 'keto',
@@ -126,6 +146,8 @@ class DietBus {
       if (id != 'keto') await KetoGuard.endRegimen();
       if (id != 'low-carb') await LowCarbGuard.setActive(false);
       if (id != 'low-fat') await LowFatGuard.setActive(false);
+      if (id != 'high-protein') await HighProteinGuard.setActive(false);
+      if (id != 'mediterranean') await MediterraneanGuard.setActive(false);
 
       if (id != 'if-16-8') {
         final fs = await FastingService.load();
@@ -138,9 +160,13 @@ class DietBus {
         await LowCarbGuard.setActive(true);
       } else if (id == 'low-fat') {
         await LowFatGuard.setActive(true);
+      } else if (id == 'high-protein') {
+        await HighProteinGuard.setActive(true);
+      } else if (id == 'mediterranean') {
+        await MediterraneanGuard.setActive(true);
       }
 
-      if (id == 'if-16-8' || id == 'keto' || id == 'low-carb' || id == 'low-fat') {
+      if (id == 'if-16-8' || id == 'keto' || id == 'low-carb' || id == 'low-fat' || id == 'high-protein' || id == 'mediterranean') {
         await setActiveById(id);
       } else {
         await setActive(null);
@@ -160,6 +186,8 @@ class DietBus {
       if (id != 'keto') await KetoGuard.endRegimen();
       if (id != 'low-carb') await LowCarbGuard.setActive(false);
       if (id != 'low-fat') await LowFatGuard.setActive(false);
+      if (id != 'high-protein') await HighProteinGuard.setActive(false);
+      if (id != 'mediterranean') await MediterraneanGuard.setActive(false);
       if (id != 'if-16-8') {
         final fs = await FastingService.load();
         await fs.stopFasting();
@@ -192,6 +220,12 @@ class DietBus {
     try {
       if (await LowFatGuard.isActive()) return _findById('low-fat');
     } catch (_) {}
+    try {
+      if (await HighProteinGuard.isActive()) return _findById('high-protein');
+    } catch (_) {}
+    try {
+      if (await MediterraneanGuard.isActive()) return _findById('mediterranean');
+    } catch (_) {}
     return null;
   }
 
@@ -208,6 +242,10 @@ class DietBus {
       if (await LowCarbGuard.isActive()) return _cached;
     } else if (id == 'low-fat') {
       if (await LowFatGuard.isActive()) return _cached;
+    } else if (id == 'high-protein') {
+      if (await HighProteinGuard.isActive()) return _cached;
+    } else if (id == 'mediterranean') {
+      if (await MediterraneanGuard.isActive()) return _cached;
     } else if (id == 'if-16-8') {
       final fs = await FastingService.load();
       if (fs.isActive) return _cached;
@@ -299,6 +337,26 @@ class DietBus {
       return null;
     }
     await _ensureExclusive('low-fat');
+    _cached = parsed;
+    return parsed;
+  } else if (parsed.id == 'high-protein') {
+    final on = await HighProteinGuard.isActive();
+    if (!on) {
+      await setActive(null);
+      _cached = null;
+      return null;
+    }
+    await _ensureExclusive('high-protein');
+    _cached = parsed;
+    return parsed;
+  } else if (parsed.id == 'mediterranean') {
+    final on = await MediterraneanGuard.isActive();
+    if (!on) {
+      await setActive(null);
+      _cached = null;
+      return null;
+    }
+    await _ensureExclusive('mediterranean');
     _cached = parsed;
     return parsed;
   }
@@ -412,7 +470,37 @@ class DietBus {
         }
       }
     } catch (_) {}
-return true;
+    // 2.8) عالي البروتين — تنبيه ناعم إذا الوجبة لا تساعد الهدف
+    try {
+      final hpOn = await HighProteinGuard.isActive();
+      if (hpOn) {
+        final mealMin = await HighProteinGuard.mealMinProtein();
+        final target = await HighProteinGuard.targetProtein();
+        final today = await TrackerStore.getDay(at);
+        final todayProtein = (today['protein'] as num?)?.toDouble() ?? 0.0;
+        if (calories >= 120 && proteinGrams < mealMin) {
+          await _showLowProteinNudge(context, proteinGrams.toInt(), mealMin.toInt());
+        }
+        if (todayProtein + proteinGrams < target * 0.45 && DateTime.now().hour >= 17) {
+          await _showProteinBehindNudge(context, (target - todayProtein - proteinGrams).clamp(0, 999).toInt());
+        }
+      }
+    } catch (_) {}
+
+    // 2.9) البحر المتوسط — تنبيه جودة الطبق إذا الدهون عالية أو الوجبة غير متوازنة
+    try {
+      final medOn = await MediterraneanGuard.isActive();
+      if (medOn) {
+        final fatLimit = await MediterraneanGuard.fatNudgeLimit();
+        if (fatGrams >= fatLimit) {
+          await _showMediterraneanFatNudge(context, fatGrams.toInt(), fatLimit.toInt());
+        } else if (calories >= 450 && proteinGrams < 15 && carbsGrams > 60) {
+          await _showMediterraneanPlateNudge(context);
+        }
+      }
+    } catch (_) {}
+
+    return true;
   }
 
   // ====== واجهات أنيقة للرسائل ======
@@ -624,6 +712,18 @@ class _RegimenScreenState extends State<RegimenScreen> {
       context,
       MaterialPageRoute(builder: (_) => const RegimenLowFatScreen()),
     );
+  } else if (m.id == 'high-protein') {
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RegimenHighProteinScreen()),
+    );
+  } else if (m.id == 'mediterranean') {
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RegimenMediterraneanScreen()),
+    );
   }
 
   // بعد العودة، حدّث حالة "النشط"
@@ -790,48 +890,86 @@ class _RegimenCard extends StatelessWidget {
     required this.onTap,
   });
 
+  Color _accentFor(ColorScheme cs) {
+    switch (model.id) {
+      case 'if-16-8':
+        return cs.primary;
+      case 'high-protein':
+        return const Color(0xFF3B82F6);
+      case 'mediterranean':
+        return const Color(0xFF22C55E);
+      case 'keto':
+        return const Color(0xFF8B5CF6);
+      case 'low-carb':
+        return const Color(0xFFF97316);
+      case 'low-fat':
+        return const Color(0xFF06B6D4);
+      default:
+        return cs.primary;
+    }
+  }
+
+  IconData _iconFor() {
+    switch (model.id) {
+      case 'if-16-8':
+        return Icons.schedule_rounded;
+      case 'high-protein':
+        return Icons.fitness_center_rounded;
+      case 'mediterranean':
+        return Icons.spa_rounded;
+      case 'keto':
+        return Icons.local_fire_department_rounded;
+      case 'low-carb':
+        return Icons.grain_rounded;
+      case 'low-fat':
+        return Icons.favorite_rounded;
+      default:
+        return Icons.health_and_safety_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final txt = Theme.of(context).textTheme;
-
-    // لون أساسي لكل نظام
-    final Color baseColor = cs.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final rawAccent = _accentFor(cs);
+    final accent = isDark ? const Color(0xFFB8C2BA) : rawAccent;
+    final cardBg = isDark ? const Color(0xFF242526) : Colors.white;
 
     return Stack(
       children: [
-        // البطاقة
         Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(22),
             child: Ink(
-              height: 180,
+              height: 176,
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    baseColor.withOpacity(0.90),
-                    baseColor.withOpacity(0.70),
-                  ],
+                color: cardBg,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: isActive
+                      ? accent.withOpacity(isDark ? 0.32 : 0.44)
+                      : cs.outlineVariant.withOpacity(isDark ? 0.34 : 0.65),
+                  width: isActive ? 1.3 : 1,
                 ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: baseColor.withOpacity(0.25),
-                    blurRadius: 16,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+                boxShadow: isDark
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.045),
+                          blurRadius: 18,
+                          offset: const Offset(0, 9),
+                        ),
+                      ],
               ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // العنوان + حالة التفعيل + زر المساعدة
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -841,46 +979,56 @@ class _RegimenCard extends StatelessWidget {
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.16),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(color: Colors.white24),
-                                    ),
+                                  Expanded(
                                     child: Text(
                                       model.title,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
+                                      style: txt.titleMedium?.copyWith(
+                                        color: cs.onSurface,
+                                        fontWeight: FontWeight.w900,
                                       ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
                                   if (isActive)
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(8),
+                                        color: isDark ? const Color(0xFF303234) : rawAccent.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(999),
+                                        border: Border.all(
+                                          color: isDark ? Colors.white.withOpacity(0.08) : rawAccent.withOpacity(.25),
+                                        ),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
-                                        children: const [
-                                          Icon(Icons.check_circle, size: 16, color: Colors.green),
-                                          SizedBox(width: 4),
-                                          Text('مفعل', style: TextStyle(fontWeight: FontWeight.w600)),
+                                        children: [
+                                          Icon(
+                                            Icons.check_circle,
+                                            size: 15,
+                                            color: isDark ? const Color(0xFFD7DED7) : rawAccent,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'مفعل',
+                                            style: TextStyle(
+                                              color: isDark ? const Color(0xFFD7DED7) : rawAccent,
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 11,
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     ),
                                 ],
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 5),
                               Text(
                                 model.goal,
-                                style: txt.bodyMedium?.copyWith(color: Colors.white.withOpacity(0.95)),
+                                style: txt.bodyMedium?.copyWith(
+                                  color: cs.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -888,16 +1036,26 @@ class _RegimenCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        // زر الاستفهام
                         Material(
-                          color: Colors.white.withOpacity(0.18),
-                          shape: const CircleBorder(),
+                          color: isDark ? const Color(0xFF2D2F31) : rawAccent.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(12),
                           child: InkWell(
-                            customBorder: const CircleBorder(),
+                            borderRadius: BorderRadius.circular(12),
                             onTap: () => _showRegimenInfoSheet(context, model),
-                            child: const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child: Icon(Icons.help_outline, color: Colors.white, size: 22),
+                            child: Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isDark ? Colors.white.withOpacity(0.07) : rawAccent.withOpacity(0.14),
+                                ),
+                              ),
+                              child: Icon(
+                                Icons.info_outline_rounded,
+                                color: isDark ? const Color(0xFFD0D5D1) : rawAccent,
+                                size: 19,
+                              ),
                             ),
                           ),
                         ),
@@ -906,21 +1064,30 @@ class _RegimenCard extends StatelessWidget {
 
                     const Spacer(),
 
-                    // أهم الفوائد سريعة
                     Wrap(
                       spacing: 8,
-                      runSpacing: 6,
+                      runSpacing: 7,
                       children: model.benefits.take(3).map((b) {
                         return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.16),
+                            color: isDark
+                                ? const Color(0xFF2C2D2F)
+                                : rawAccent.withOpacity(0.08),
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: Colors.white24),
+                            border: Border.all(
+                              color: isDark
+                                  ? Colors.white.withOpacity(0.065)
+                                  : rawAccent.withOpacity(0.14),
+                            ),
                           ),
                           child: Text(
                             b,
-                            style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                            style: TextStyle(
+                              color: isDark ? cs.onSurfaceVariant : cs.onSurface,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 11.3,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -934,28 +1101,34 @@ class _RegimenCard extends StatelessWidget {
           ),
         ),
 
-        // طبقة تعتيم/تلميح لو كان محجوب بسبب نظام آخر مفعّل
         if (blocked)
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.45),
-                borderRadius: BorderRadius.circular(20),
+                color: Colors.black.withOpacity(isDark ? 0.54 : 0.38),
+                borderRadius: BorderRadius.circular(22),
               ),
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.50),
+                    color: isDark ? cs.surfaceVariant : Colors.white,
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white24),
+                    border: Border.all(color: cs.outlineVariant.withOpacity(.55)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.lock, color: Colors.white70, size: 16),
-                      SizedBox(width: 6),
-                      Text('هناك نظام آخر مُفعَّل', style: TextStyle(color: Colors.white70)),
+                    children: [
+                      Icon(Icons.lock_rounded, color: cs.onSurfaceVariant, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        'هناك نظام آخر مُفعَّل',
+                        style: TextStyle(
+                          color: cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -967,7 +1140,6 @@ class _RegimenCard extends StatelessWidget {
   }
 }
 
-// شاشة معلومات الرجيم (زر الاستفهام)
 Future<void> _showRegimenInfoSheet(BuildContext context, RegimenModel m) async {
   final cs = Theme.of(context).colorScheme;
   final txt = Theme.of(context).textTheme;
@@ -985,6 +1157,12 @@ Future<void> _showRegimenInfoSheet(BuildContext context, RegimenModel m) async {
       break;
     case 'low-fat':
       usage = 'قلّل الدهون المشبعة، واستخدم طرق طهي خفيفة (هوائي/شوي)، ووزّع الدهون الصحية ضمن الحد.';
+      break;
+    case 'high-protein':
+      usage = 'اضبط هدف البروتين اليومي والحد الأدنى لكل وجبة. وازن سينبهك إذا كانت وجبتك قليلة البروتين أو تأخرت عن هدف اليوم.';
+      break;
+    case 'mediterranean':
+      usage = 'ركّز على طبق متوازن: خضار + بروتين + كارب كامل + دهون صحية بكمية محسوبة. وازن يرسل تذكيرات وينبه للدهون العالية.';
       break;
     default:
       usage = 'اتبع الإرشادات العامة حسب هدفك الغذائي.';
@@ -1112,6 +1290,134 @@ class _InfoSection extends StatelessWidget {
 // =======================
 // Helpers (top-level) للتنبيه/التأكيد
 // =======================
+
+Future<void> _showLowProteinNudge(BuildContext context, int grams, int min) async {
+  final cs = Theme.of(context).colorScheme;
+  final txt = Theme.of(context).textTheme;
+  await showModalBottomSheet(
+    context: context,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 42, height: 5, decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(999))),
+            const SizedBox(height: 12),
+            Icon(Icons.fitness_center_rounded, color: cs.primary, size: 48),
+            const SizedBox(height: 8),
+            Text('وجبة قليلة البروتين', style: txt.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text('هذه الوجبة فيها تقريبًا ${grams}غ بروتين. هدفك في رجيم عالي البروتين أن تكون الوجبة حول ${min}غ أو أكثر.', textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('تمام')),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _showProteinBehindNudge(BuildContext context, int remaining) async {
+  final cs = Theme.of(context).colorScheme;
+  final txt = Theme.of(context).textTheme;
+  await showModalBottomSheet(
+    context: context,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 42, height: 5, decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(999))),
+            const SizedBox(height: 12),
+            Icon(Icons.track_changes_rounded, color: cs.primary, size: 48),
+            const SizedBox(height: 8),
+            Text('باقي لك بروتين كثير', style: txt.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text('بعد هذه الوجبة، باقي لك تقريبًا ${remaining}غ بروتين. حاول تختار وجبة أو سناك بروتين أعلى لاحقًا.', textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('تمام')),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _showMediterraneanFatNudge(BuildContext context, int grams, int limit) async {
+  final cs = Theme.of(context).colorScheme;
+  final txt = Theme.of(context).textTheme;
+  await showModalBottomSheet(
+    context: context,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 42, height: 5, decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(999))),
+            const SizedBox(height: 12),
+            Icon(Icons.eco_rounded, color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.onSurfaceVariant : Colors.teal, size: 48),
+            const SizedBox(height: 8),
+            Text('وجبة عالية الدهون', style: txt.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text('هذه الوجبة فيها تقريبًا ${grams}غ دهون. في البحر المتوسط الدهون الصحية ممتازة، لكن الكمية ما زالت مهمة. حد التنبيه عندك ${limit}غ.', textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('تمام')),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _showMediterraneanPlateNudge(BuildContext context) async {
+  final cs = Theme.of(context).colorScheme;
+  final txt = Theme.of(context).textTheme;
+  await showModalBottomSheet(
+    context: context,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 42, height: 5, decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(999))),
+            const SizedBox(height: 12),
+            Icon(Icons.restaurant_rounded, color: Theme.of(context).brightness == Brightness.dark ? Theme.of(context).colorScheme.onSurfaceVariant : Colors.teal, size: 48),
+            const SizedBox(height: 8),
+            Text('وازن الطبق أكثر', style: txt.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            const Text('الوجبة تبدو عالية بالكارب وقليلة البروتين. جرّب تضيف بروتين أو خضار أكثر عشان تناسب البحر المتوسط.', textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('تمام')),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
 Future<void> _showHighCarbNudge(BuildContext context, int grams, int limit, {bool isKeto = false}) async {
   final cs = Theme.of(context).colorScheme;

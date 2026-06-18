@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../shared/wazen_profile_prefs.dart';
+
 class DailyHealthTips {
   // يمنع تكرار إظهار النصيحة مرتين بنفس الجلسة بسبب استدعاءات متقاربة
   static final Set<String> _sessionLocks = <String>{};
@@ -139,8 +141,16 @@ class DailyHealthTips {
   /// يطلع نصيحة اليوم إذا ما انعرضت اليوم لهالمستخدم (وبنفس الهدف)
   static Future<void> showTodayIfNeeded(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('currentEmail') ?? 'guest';
-    final goal = prefs.getString('goal_$email') ?? 'نمط حياة صحي';
+    final aliases = await WazenProfilePrefs.aliases(prefs, migrate: false);
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+    final email = profileKey == 'unknown_user' ? (prefs.getString('currentEmail') ?? 'guest') : profileKey;
+    final goal = WazenProfilePrefs.readString(
+          prefs,
+          const ['goal_', 'user_goal_'],
+          aliases,
+          preferred: profileKey,
+        ) ??
+        'نمط حياة صحي';
 
     final now = DateTime.now();
     final todayKey =
