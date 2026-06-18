@@ -151,9 +151,13 @@ class AppRepository {
     });
     unawaited(() async {
       try {
+        final now = Timestamp.now();
         await _userDoc().set({
           'currentWeightKg': kg,
-          'updatedAt': Timestamp.now(),
+          'weightKg': kg,
+          'weight': kg,
+          'profileUpdatedAtMs': now.millisecondsSinceEpoch,
+          'updatedAt': now,
         }, SetOptions(merge: true)).timeout(const Duration(seconds: 4));
       } catch (_) {}
     }());

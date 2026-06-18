@@ -916,13 +916,13 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       carbs = c ?? carbs.takeIfPositiveOr(300.0);
     });
 
-    final hasLocal = k != null && p != null && c != null && f != null;
     final now = DateTime.now();
     final recentlyFetched = _lastTargetsRemoteFetchAt != null &&
         now.difference(_lastTargetsRemoteFetchAt!) < const Duration(minutes: 10);
 
-    // إذا القيم موجودة محليًا، لا ننتظر Firestore ولا نطلبه كل مرة.
-    if (hasLocal || recentlyFetched) return;
+    // نعرض المحلي فورًا، لكن لا نمنع التحديث السحابي بالكامل؛
+    // لأن جهازًا آخر قد يغير الوزن/الماكروز. التحديث يشتغل بالخلفية وبحد أقصى كل 10 دقائق.
+    if (recentlyFetched) return;
 
     _lastTargetsRemoteFetchAt = now;
     unawaited(_refreshTargetsFromRemoteInBackground(email));

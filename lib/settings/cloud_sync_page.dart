@@ -286,9 +286,11 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                                 padding: const EdgeInsets.all(12),
                                 child: Row(
                                   children: [
-                                    Expanded(child: _MetricItem(label: 'الأيام', value: '${_status?.localDaysCount ?? 0}')),
+                                    Expanded(child: _MetricItem(label: 'الجهاز', value: '${_status?.localDaysCount ?? 0}')),
                                     _divider(context),
-                                    Expanded(child: _MetricItem(label: 'آخر رفع', value: _fmt(_status?.lastUploadAt))),
+                                    Expanded(child: _MetricItem(label: 'السحابة', value: '${_status?.cloudDaysCount ?? 0}')),
+                                    _divider(context),
+                                    Expanded(child: _MetricItem(label: 'آخر رفع', value: _fmt(_status?.cloudLastUploadAt ?? _status?.lastUploadAt))),
                                     _divider(context),
                                     Expanded(child: _MetricItem(label: 'آخر استرجاع', value: _fmt(_status?.lastRestoreAt))),
                                   ],
@@ -399,8 +401,10 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
           const _Bullet(text: 'الماء، الوزن، النشاط، والخطوات'),
           const SizedBox(height: 10),
           Text(
-            'لا يتم تشغيل أي عملية مزامنة تلقائية عند فتح التطبيق.',
-            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            (_status?.hasCloudBackup ?? false)
+                ? 'يوجد نسخة سحابية مرتبطة بهذا الحساب. اضغط استرجاع لتنزيلها على هذا الجهاز.'
+                : 'لا توجد نسخة سحابية ظاهرة لهذا الحساب حتى الآن. ارفع البيانات من الجهاز الأساسي أولًا.',
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
           ),
         ],
       ),

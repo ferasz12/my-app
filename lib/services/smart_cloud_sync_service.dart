@@ -12,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../shared/session_manager.dart';
 import '../core/data/wazen_identity_store.dart';
+import '../shared/macro_targets_controller.dart';
+import '../shared/weight_live_bus.dart';
 
 class SmartCloudSyncProgress {
   const SmartCloudSyncProgress({
@@ -61,6 +63,9 @@ class SmartCloudSyncStatus {
     required this.lastUploadAt,
     required this.lastRestoreAt,
     required this.localDaysCount,
+    required this.cloudDaysCount,
+    required this.hasCloudBackup,
+    required this.cloudLastUploadAt,
   });
 
   final bool enabled;
@@ -68,6 +73,9 @@ class SmartCloudSyncStatus {
   final DateTime? lastUploadAt;
   final DateTime? lastRestoreAt;
   final int localDaysCount;
+  final int cloudDaysCount;
+  final bool hasCloudBackup;
+  final DateTime? cloudLastUploadAt;
 }
 
 class SmartCloudSyncException implements Exception {
@@ -227,7 +235,53 @@ class SmartCloudSyncService {
   }
 
   Future<WazenIdentity> _identity(SharedPreferences prefs, User user) async {
-    return WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs);
+    // لا نشغل mirrorKnownLocalKeys هنا حتى لا يمنع نسخ بيانات الاسترجاع بسبب مهلة الحماية.
+    return WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: false);
+  }
+
+  Future<List<String>> _aliasesForUser(SharedPreferences prefs, User user) async {
+    final id = await WazenIdentityStore.currentIdentity(user: user, migrate: false);
+    final sessionKey = await SessionManager.currentStorageKey();
+    return <String>{
+      id.storageKey.trim(),
+      id.uid.trim(),
+      id.email.trim(),
+      id.emailKey.trim(),
+      ...id.aliases.map((e) => e.trim()),
+      (user.email ?? '').trim().toLowerCase(),
+      sessionKey.trim(),
+    }.where((e) => e.isNotEmpty && e != 'unknown_user').toList(growable: false);
+  }
+
+  Future<void> _setPrefForAliases(
+    SharedPreferences prefs,
+    Iterable<String> aliases,
+    String Function(String alias) keyBuilder,
+    Object? value, {
+    required bool overwriteLocal,
+    bool allowZeroDouble = false,
+  }) async {
+    if (value == null) return;
+    for (final alias in aliases.where((e) => e.trim().isNotEmpty && e != 'unknown_user').toSet()) {
+      final key = keyBuilder(alias);
+      final existing = prefs.get(key);
+      final hasExisting = existing != null && (!(existing is String) || existing.trim().isNotEmpty);
+      if (!overwriteLocal && hasExisting) continue;
+      if (value is String) {
+        final s = value.trim();
+        if (s.isNotEmpty) await prefs.setString(key, s);
+      } else if (value is int) {
+        if (value > 0 || allowZeroDouble) await prefs.setInt(key, value);
+      } else if (value is double) {
+        if (value > 0 || allowZeroDouble) await prefs.setDouble(key, value);
+      } else if (value is bool) {
+        await prefs.setBool(key, value);
+      } else if (value is List<String>) {
+        await prefs.setStringList(key, value);
+      } else {
+        await prefs.setString(key, value.toString());
+      }
+    }
   }
 
   Future<String> _emailKey(SharedPreferences prefs, User user) async {
@@ -238,13 +292,66 @@ class SmartCloudSyncService {
   Future<SmartCloudSyncStatus> status() async {
     final prefs = await SharedPreferences.getInstance();
     final days = _discoverLocalDays(prefs).length;
+    var cloudDays = prefs.getInt('manual_cloud_sync_cloud_days_count') ?? 0;
+    var cloudLastUpload = _parseDate(prefs.getString('manual_cloud_sync_cloud_last_upload_at'));
+    var hasCloudBackup = prefs.getBool('manual_cloud_sync_has_cloud_backup') ?? false;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        final userSnap = await _db
+            .collection('users')
+            .doc(user.uid)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
+        final data = userSnap.data();
+        if (data != null) {
+          hasCloudBackup = true;
+          final cloudSync = data['cloudSync'];
+          dynamic lastRaw;
+          if (cloudSync is Map) lastRaw = cloudSync['lastUploadAt'];
+          cloudLastUpload = _dateFromCloud(lastRaw) ??
+              _dateFromCloud(data['updatedAt']) ??
+              cloudLastUpload;
+        }
+        final q = await _db
+            .collection('users')
+            .doc(user.uid)
+            .collection('days')
+            .orderBy('date', descending: true)
+            .limit(maxDayLimit)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
+        cloudDays = q.docs.length;
+        hasCloudBackup = hasCloudBackup || cloudDays > 0;
+        await prefs.setInt('manual_cloud_sync_cloud_days_count', cloudDays);
+        await prefs.setBool('manual_cloud_sync_has_cloud_backup', hasCloudBackup);
+        if (cloudLastUpload != null) {
+          await prefs.setString('manual_cloud_sync_cloud_last_upload_at', cloudLastUpload.toIso8601String());
+        }
+      } catch (_) {}
+    }
+
     return SmartCloudSyncStatus(
       enabled: prefs.getBool('manual_cloud_sync_enabled') ?? false,
       running: _running,
       lastUploadAt: _parseDate(prefs.getString('manual_cloud_sync_last_upload_at')),
       lastRestoreAt: _parseDate(prefs.getString('manual_cloud_sync_last_restore_at')),
       localDaysCount: days,
+      cloudDaysCount: cloudDays,
+      hasCloudBackup: hasCloudBackup,
+      cloudLastUploadAt: cloudLastUpload,
     );
+  }
+
+  DateTime? _dateFromCloud(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    if (value is String) return DateTime.tryParse(value.trim());
+    return null;
   }
 
   Future<void> setEnabled(bool value) async {
@@ -356,6 +463,9 @@ class SmartCloudSyncService {
 
       final nowIso = DateTime.now().toIso8601String();
       await prefs.setString('manual_cloud_sync_last_upload_at', nowIso);
+      await prefs.setString('manual_cloud_sync_cloud_last_upload_at', nowIso);
+      await prefs.setBool('manual_cloud_sync_has_cloud_backup', true);
+      await prefs.setInt('manual_cloud_sync_cloud_days_count', uploaded > 0 ? uploaded : localDays.length);
       await prefs.setString('manual_cloud_sync_last_result', 'uploaded:$uploaded,writes:$writes');
 
       onProgress?.call(SmartCloudSyncProgress(
@@ -408,6 +518,7 @@ class SmartCloudSyncService {
       final prefs = await SharedPreferences.getInstance();
       final id = await _identity(prefs, user);
       final email = id.emailKey;
+      final aliases = await _aliasesForUser(prefs, user);
       final safeLimit = dayLimit.clamp(1, maxDayLimit).toInt();
       final deletedDays = _readDeletedDays(prefs);
 
@@ -423,7 +534,12 @@ class SmartCloudSyncService {
       );
       final userData = userSnap.data();
       if (userData != null) {
-        await _applyProfileToPrefs(prefs: prefs, email: email, data: userData, overwriteLocal: overwriteLocal);
+        await _applyProfileToPrefs(
+          prefs: prefs,
+          aliases: aliases,
+          data: userData,
+          overwriteLocal: overwriteLocal,
+        );
       }
 
       final cloudDeleted = userData?['cloudDeletedCalorieDays'];
@@ -462,7 +578,7 @@ class SmartCloudSyncService {
         ));
         final didRestore = await _applyDayToPrefs(
           prefs: prefs,
-          email: email,
+          aliases: aliases,
           ymd: doc.id,
           data: doc.data(),
           overwriteLocal: overwriteLocal,
@@ -472,8 +588,20 @@ class SmartCloudSyncService {
       }
 
       final identityAfterRestore = await WazenIdentityStore.currentIdentity(user: user, migrate: false);
+      // الاسترجاع الآن يكتب على كل مفاتيح المستخدم مباشرة، ثم نشغل mirror كتأمين فقط.
       await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identityAfterRestore);
+      MacroTargetsController.bump();
+      WeightLiveBus.ping();
       await prefs.setString('manual_cloud_sync_last_restore_at', DateTime.now().toIso8601String());
+      await prefs.setInt('manual_cloud_sync_cloud_days_count', q.docs.length);
+      await prefs.setBool('manual_cloud_sync_has_cloud_backup', q.docs.isNotEmpty || userData != null);
+      if (userData != null) {
+        final cloudSync = userData['cloudSync'];
+        final cloudUpload = cloudSync is Map ? _dateFromCloud(cloudSync['lastUploadAt']) : null;
+        if (cloudUpload != null) {
+          await prefs.setString('manual_cloud_sync_cloud_last_upload_at', cloudUpload.toIso8601String());
+        }
+      }
 
       return SmartCloudSyncResult(
         success: true,
@@ -528,6 +656,7 @@ class SmartCloudSyncService {
     required String email,
   }) async {
     final uid = user.uid;
+    final aliases = await _aliasesForUser(prefs, user);
     final patch = <String, dynamic>{
       'uid': uid,
       'email': user.email ?? email,
@@ -541,57 +670,108 @@ class SmartCloudSyncService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    void putString(String field, List<String> keys) {
-      for (final k in keys) {
-        final v = prefs.getString(k);
-        if (v != null && v.trim().isNotEmpty) {
-          patch[field] = v.trim();
-          return;
+    String? firstString(List<String> prefixes, {List<String> globals = const <String>[]}) {
+      for (final alias in aliases) {
+        for (final prefix in prefixes) {
+          final v = prefs.getString('$prefix$alias');
+          if (v != null && v.trim().isNotEmpty) return v.trim();
         }
       }
+      for (final key in globals) {
+        final v = prefs.getString(key);
+        if (v != null && v.trim().isNotEmpty) return v.trim();
+      }
+      return null;
     }
 
-    void putDouble(String field, List<String> keys) {
-      for (final k in keys) {
-        final v = prefs.getDouble(k) ?? double.tryParse(prefs.getString(k) ?? '');
-        if (v != null && v > 0) {
-          patch[field] = v;
-          return;
+    double? firstDouble(List<String> prefixes, {List<String> globals = const <String>[]}) {
+      for (final alias in aliases) {
+        for (final prefix in prefixes) {
+          final key = '$prefix$alias';
+          final v = prefs.getDouble(key) ?? double.tryParse(prefs.getString(key) ?? '');
+          if (v != null && v > 0) return v;
         }
       }
+      for (final key in globals) {
+        final v = prefs.getDouble(key) ?? double.tryParse(prefs.getString(key) ?? '');
+        if (v != null && v > 0) return v;
+      }
+      return null;
     }
 
-    void putInt(String field, List<String> keys) {
-      for (final k in keys) {
-        final v = prefs.getInt(k) ?? int.tryParse(prefs.getString(k) ?? '');
-        if (v != null && v > 0) {
-          patch[field] = v;
-          return;
+    int? firstInt(List<String> prefixes, {List<String> globals = const <String>[]}) {
+      for (final alias in aliases) {
+        for (final prefix in prefixes) {
+          final key = '$prefix$alias';
+          final v = prefs.getInt(key) ?? int.tryParse(prefs.getString(key) ?? '');
+          if (v != null && v > 0) return v;
         }
       }
+      for (final key in globals) {
+        final v = prefs.getInt(key) ?? int.tryParse(prefs.getString(key) ?? '');
+        if (v != null && v > 0) return v;
+      }
+      return null;
     }
 
-    putString('displayName', ['displayName_$uid', 'displayName_$email', 'name_$email', 'name']);
-    putString('username', ['username_$uid', 'username_$email', 'username']);
-    putString('bio', ['bio_$uid', 'bio_$email', 'bio']);
-    putString('gender', ['gender_$uid', 'gender_$email', 'gender']);
-    putString('goal', ['goal_$uid', 'goal_$email', 'goal']);
-    putDouble('currentWeightKg', ['weight_$uid', 'weight_$email', 'current_weight_$email', 'goal_current_$email']);
-    putDouble('heightCm', ['height_$uid', 'height_$email', 'height']);
-    putInt('age', ['age_$uid', 'age_$email', 'age']);
+    final name = firstString(const ['fullName_', 'displayName_', 'name_'], globals: const ['fullName', 'displayName', 'name']);
+    final username = firstString(const ['username_', 'currentUsername_'], globals: const ['username']);
+    final bio = firstString(const ['bio_'], globals: const ['bio']);
+    final gender = firstString(const ['gender_'], globals: const ['gender']);
+    final goal = firstString(const ['goal_', 'user_goal_'], globals: const ['goal', 'user_goal']);
+    final weight = firstDouble(
+      const ['current_weight_', 'weight_', 'currentWeight_', 'weightKg_', 'user_weight_', 'goal_current_'],
+      globals: const ['weight', 'currentWeightKg', 'weightKg'],
+    );
+    final height = firstDouble(const ['height_', 'height_cm_', 'heightCm_'], globals: const ['height', 'heightCm']);
+    final age = firstInt(const ['age_'], globals: const ['age']);
+
+    if (name != null) {
+      patch['displayName'] = name;
+      patch['fullName'] = name;
+      patch['name'] = name;
+    }
+    if (username != null) patch['username'] = username;
+    if (bio != null) patch['bio'] = bio;
+    if (gender != null) patch['gender'] = gender;
+    if (goal != null) {
+      patch['goal'] = goal;
+      patch['userGoal'] = goal;
+    }
+    if (weight != null) {
+      patch['currentWeightKg'] = weight;
+      patch['weightKg'] = weight;
+      patch['weight'] = weight;
+      patch['profileUpdatedAtMs'] = DateTime.now().millisecondsSinceEpoch;
+    }
+    if (height != null) {
+      patch['heightCm'] = height;
+      patch['height'] = height;
+    }
+    if (age != null) patch['age'] = age;
 
     final nutrition = <String, dynamic>{};
-    final calories = prefs.getDouble('caloriesNeeded_$email') ?? prefs.getDouble('caloriesNeeded_$uid') ?? prefs.getDouble('caloriesNeeded');
-    final maintenance = prefs.getDouble('maintenanceCalories_$email') ?? prefs.getDouble('maintenanceCalories_$uid') ?? prefs.getDouble('maintenanceCalories');
-    final protein = prefs.getDouble('protein_$email') ?? prefs.getDouble('protein_$uid') ?? prefs.getDouble('protein');
-    final carbs = prefs.getDouble('carbs_$email') ?? prefs.getDouble('carbs_$uid') ?? prefs.getDouble('carbs');
-    final fat = prefs.getDouble('fat_$email') ?? prefs.getDouble('fat_$uid') ?? prefs.getDouble('fat');
+    final calories = firstDouble(const ['caloriesNeeded_'], globals: const ['caloriesNeeded']);
+    final maintenance = firstDouble(const ['maintenanceCalories_'], globals: const ['maintenanceCalories']);
+    final protein = firstDouble(const ['protein_'], globals: const ['protein']);
+    final carbs = firstDouble(const ['carbs_'], globals: const ['carbs']);
+    final fat = firstDouble(const ['fat_'], globals: const ['fat']);
     if (calories != null && calories > 0) nutrition['calories'] = calories;
     if (maintenance != null && maintenance > 0) nutrition['maintenanceCalories'] = maintenance;
     if (protein != null && protein > 0) nutrition['protein'] = protein;
     if (carbs != null && carbs >= 0) nutrition['carbs'] = carbs;
     if (fat != null && fat >= 0) nutrition['fat'] = fat;
-    if (nutrition.isNotEmpty) patch['nutritionTargets'] = nutrition;
+    if (nutrition.isNotEmpty) {
+      patch['nutritionTargets'] = nutrition;
+      patch['metrics'] = {
+        'caloriesNeeded': calories,
+        'maintenanceCalories': maintenance,
+        'protein': protein,
+        'carbs': carbs,
+        'fat': fat,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+    }
 
     return patch;
   }
@@ -791,72 +971,111 @@ class SmartCloudSyncService {
 
   Future<void> _applyProfileToPrefs({
     required SharedPreferences prefs,
-    required String email,
+    required Iterable<String> aliases,
     required Map<String, dynamic> data,
     required bool overwriteLocal,
   }) async {
-    Future<void> setStringIfUseful(String key, dynamic v) async {
+    final safeAliases = aliases.where((e) => e.trim().isNotEmpty && e != 'unknown_user').toSet().toList();
+
+    Future<void> setStringAll(List<String> prefixes, dynamic v) async {
       if (v == null) return;
-      if (!overwriteLocal && (prefs.getString(key)?.trim().isNotEmpty ?? false)) return;
       final s = v.toString().trim();
-      if (s.isNotEmpty) await prefs.setString(key, s);
+      if (s.isEmpty) return;
+      for (final prefix in prefixes) {
+        await _setPrefForAliases(prefs, safeAliases, (a) => '$prefix$a', s, overwriteLocal: overwriteLocal);
+      }
     }
 
-    Future<void> setDoubleIfUseful(String key, dynamic v) async {
+    Future<void> setDoubleAll(List<String> prefixes, dynamic v, {bool allowZero = false}) async {
       final d = _toD(v);
-      if (d <= 0) return;
-      if (!overwriteLocal && (prefs.getDouble(key) ?? 0) > 0) return;
-      await prefs.setDouble(key, d);
+      if (d <= 0 && !allowZero) return;
+      for (final prefix in prefixes) {
+        await _setPrefForAliases(
+          prefs,
+          safeAliases,
+          (a) => '$prefix$a',
+          d,
+          overwriteLocal: overwriteLocal,
+          allowZeroDouble: allowZero,
+        );
+      }
     }
 
-    Future<void> setIntIfUseful(String key, dynamic v) async {
+    Future<void> setIntAll(List<String> prefixes, dynamic v) async {
       final i = _toI(v);
       if (i <= 0) return;
-      if (!overwriteLocal && (prefs.getInt(key) ?? 0) > 0) return;
-      await prefs.setInt(key, i);
+      for (final prefix in prefixes) {
+        await _setPrefForAliases(prefs, safeAliases, (a) => '$prefix$a', i, overwriteLocal: overwriteLocal);
+      }
     }
 
-    await setStringIfUseful('name_$email', data['displayName'] ?? data['name']);
-    await setStringIfUseful('username_$email', data['username']);
-    await setStringIfUseful('bio_$email', data['bio']);
-    await setStringIfUseful('gender_$email', data['gender']);
-    await setStringIfUseful('goal_$email', data['goal']);
-    await setDoubleIfUseful('weight_$email', data['currentWeightKg'] ?? data['weight']);
-    await setDoubleIfUseful('height_$email', data['heightCm'] ?? data['height']);
-    await setIntIfUseful('age_$email', data['age']);
+    final displayName = data['fullName'] ?? data['displayName'] ?? data['name'];
+    await setStringAll(const ['fullName_', 'displayName_', 'name_'], displayName);
+    await setStringAll(const ['username_', 'currentUsername_'], data['username']);
+    await setStringAll(const ['bio_'], data['bio']);
+    await setStringAll(const ['gender_'], data['gender']);
+    await setStringAll(const ['goal_', 'user_goal_'], data['goal'] ?? data['userGoal']);
+    await setDoubleAll(
+      const ['weight_', 'current_weight_', 'currentWeight_', 'weightKg_', 'user_weight_', 'goal_current_'],
+      data['currentWeightKg'] ?? data['weightKg'] ?? data['weight'],
+    );
+    await setDoubleAll(const ['height_', 'height_cm_', 'heightCm_'], data['heightCm'] ?? data['height']);
+    await setIntAll(const ['age_'], data['age']);
 
     final nutrition = data['nutritionTargets'];
-    if (nutrition is Map) {
-      await setDoubleIfUseful('caloriesNeeded_$email', nutrition['calories']);
-      await setDoubleIfUseful('maintenanceCalories_$email', nutrition['maintenanceCalories']);
-      await setDoubleIfUseful('protein_$email', nutrition['protein']);
-      await setDoubleIfUseful('carbs_$email', nutrition['carbs']);
-      await setDoubleIfUseful('fat_$email', nutrition['fat']);
+    final metrics = data['metrics'];
+    dynamic n(String key) {
+      if (nutrition is Map && nutrition[key] != null) return nutrition[key];
+      if (metrics is Map && metrics[key] != null) return metrics[key];
+      return null;
+    }
+
+    await setDoubleAll(const ['caloriesNeeded_'], n('calories') ?? n('caloriesNeeded'));
+    await setDoubleAll(const ['maintenanceCalories_'], n('maintenanceCalories'));
+    await setDoubleAll(const ['protein_'], n('protein'));
+    await setDoubleAll(const ['carbs_'], n('carbs'), allowZero: true);
+    await setDoubleAll(const ['fat_'], n('fat'), allowZero: true);
+
+    final stamp = _toI(data['profileUpdatedAtMs']);
+    if (stamp > 0) {
+      for (final alias in safeAliases) {
+        final current = prefs.getInt('profileUpdatedAt_$alias') ?? 0;
+        if (overwriteLocal || stamp >= current) {
+          await prefs.setInt('profileUpdatedAt_$alias', stamp);
+        }
+      }
     }
   }
 
   Future<bool> _applyDayToPrefs({
     required SharedPreferences prefs,
-    required String email,
+    required Iterable<String> aliases,
     required String ymd,
     required Map<String, dynamic> data,
     required bool overwriteLocal,
   }) async {
     if (_readDeletedDays(prefs).contains(ymd)) return false;
     bool changed = false;
+    final safeAliases = aliases.where((e) => e.trim().isNotEmpty && e != 'unknown_user').toSet().toList();
 
-    Future<void> setStringIfAllowed(String key, String value) async {
+    Future<void> setStringAll(String Function(String alias) keyBuilder, String value) async {
       if (value.trim().isEmpty) return;
-      if (!overwriteLocal && (prefs.getString(key)?.trim().isNotEmpty ?? false)) return;
-      await prefs.setString(key, value);
-      changed = true;
+      for (final alias in safeAliases) {
+        final key = keyBuilder(alias);
+        if (!overwriteLocal && (prefs.getString(key)?.trim().isNotEmpty ?? false)) continue;
+        await prefs.setString(key, value);
+        changed = true;
+      }
     }
 
-    Future<void> setDoubleIfAllowed(String key, double value) async {
+    Future<void> setDoubleAll(String Function(String alias) keyBuilder, double value) async {
       if (value <= 0) return;
-      if (!overwriteLocal && (prefs.getDouble(key) ?? 0) > 0) return;
-      await prefs.setDouble(key, value);
-      changed = true;
+      for (final alias in safeAliases) {
+        final key = keyBuilder(alias);
+        if (!overwriteLocal && (prefs.getDouble(key) ?? 0) > 0) continue;
+        await prefs.setDouble(key, value);
+        changed = true;
+      }
     }
 
     final intake = data['intake'];
@@ -869,31 +1088,34 @@ class SmartCloudSyncService {
           'c': _toD(totals['c'] ?? totals['carb'] ?? totals['carbs']),
           'f': _toD(totals['f'] ?? totals['fat']),
         };
-        await setStringIfAllowed('kcal_daytotals_${email}_$ymd', jsonEncode(safeTotals));
-        await setDoubleIfAllowed('dietCalories_$ymd', _toD(safeTotals['k']));
-        await setDoubleIfAllowed('dietProtein_$ymd', _toD(safeTotals['p']));
-        await setDoubleIfAllowed('dietCarb_$ymd', _toD(safeTotals['c']));
-        await setDoubleIfAllowed('dietFat_$ymd', _toD(safeTotals['f']));
+        await setStringAll((a) => 'kcal_daytotals_${a}_$ymd', jsonEncode(safeTotals));
+        if (overwriteLocal || (prefs.getDouble('dietCalories_$ymd') ?? 0) <= 0) {
+          await prefs.setDouble('dietCalories_$ymd', _toD(safeTotals['k']));
+          await prefs.setDouble('dietProtein_$ymd', _toD(safeTotals['p']));
+          await prefs.setDouble('dietCarb_$ymd', _toD(safeTotals['c']));
+          await prefs.setDouble('dietFat_$ymd', _toD(safeTotals['f']));
+          changed = true;
+        }
       }
       final entries = intake['entries'];
       if (entries is List && entries.isNotEmpty) {
-        await setStringIfAllowed('intake_entries_${email}_$ymd', jsonEncode(entries));
+        await setStringAll((a) => 'intake_entries_${a}_$ymd', jsonEncode(entries));
       }
     }
 
     final meals = data['meals'];
     if (meals is List && meals.isNotEmpty) {
-      await setStringIfAllowed('meals_${email}_$ymd', jsonEncode(meals));
+      await setStringAll((a) => 'meals_${a}_$ymd', jsonEncode(meals));
       if (ymd == _ymd(DateTime.now())) {
-        final storageKey = await SessionManager.currentStorageKey();
-        await setStringIfAllowed('meals_$storageKey', jsonEncode(meals));
+        await setStringAll((a) => 'meals_$a', jsonEncode(meals));
       }
     }
 
     final water = data['water'];
     if (water is Map) {
-      await setDoubleIfAllowed('water_${ymd}_$email', _toD(water['liters']));
-      await setStringIfAllowed('water_total_${email}_$ymd', _toD(water['liters']).toString());
+      final liters = _toD(water['liters']);
+      await setDoubleAll((a) => 'water_${ymd}_$a', liters);
+      if (liters > 0) await setStringAll((a) => 'water_total_${a}_$ymd', liters.toString());
     }
 
     final activity = data['activity'];
@@ -901,7 +1123,7 @@ class SmartCloudSyncService {
       final steps = _toI(activity['steps']);
       final burned = _toI(activity['burned']);
       if (steps > 0 || burned > 0) {
-        await setStringIfAllowed('activity_${ymd}_$email', jsonEncode({'steps': steps, 'burned': burned}));
+        await setStringAll((a) => 'activity_${ymd}_$a', jsonEncode({'steps': steps, 'burned': burned}));
       }
     }
 
@@ -910,10 +1132,13 @@ class SmartCloudSyncService {
     if (tracking is Map) weightKg = _toD(tracking['weightKg']);
     weightKg = weightKg <= 0 ? _toD(data['currentWeightKg']) : weightKg;
     if (weightKg > 0) {
-      await _mergeWeightLog(prefs: prefs, email: email, ymd: ymd, kg: weightKg, overwriteLocal: overwriteLocal);
+      for (final alias in safeAliases) {
+        await _mergeWeightLog(prefs: prefs, email: alias, ymd: ymd, kg: weightKg, overwriteLocal: overwriteLocal);
+      }
       if (ymd == _ymd(DateTime.now())) {
-        await setDoubleIfAllowed('weight_$email', weightKg);
-        await setDoubleIfAllowed('current_weight_$email', weightKg);
+        for (final prefix in const ['weight_', 'current_weight_', 'currentWeight_', 'weightKg_', 'user_weight_', 'goal_current_']) {
+          await setDoubleAll((a) => '$prefix$a', weightKg);
+        }
       }
       changed = true;
     }

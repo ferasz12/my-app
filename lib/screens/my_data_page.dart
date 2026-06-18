@@ -21,8 +21,8 @@ class MyDataPage extends StatefulWidget {
 }
 
 class _MyDataPageState extends State<MyDataPage> {
-  // ✅ أداء سريع: لا نفتح Stream/قراءة Firestore عند دخول صفحة بياناتي.
-  static const bool _enableOpeningUserDocStream = false;
+  // مزامنة سريعة: نعرض المحلي فورًا، ثم نسمع تحديث السحابة بدون تعطيل الصفحة.
+  static const bool _enableOpeningUserDocStream = true;
   static const bool _enableOpeningCloudRefresh = false;
   // بيانات أساسية
   String gender = 'ذكر';
@@ -81,7 +81,7 @@ class _MyDataPageState extends State<MyDataPage> {
 
     // ✅ تحديث فوري إذا تغيّرت أهداف الماكروز من صفحة ثانية (مثل الملخص الصحي)
     _macroRevListener = () {
-      unawaited(_bootstrap());
+      unawaited(_refreshMacrosFromPrefs(force: true));
     };
     MacroTargetsController.revision.addListener(_macroRevListener!);
   }
@@ -127,6 +127,20 @@ class _MyDataPageState extends State<MyDataPage> {
         // لو تم حذف الصورة نرجّعها null عشان يظهر الافتراضي
         _livePhotoUrl = pu.isNotEmpty ? pu : null;
       });
+
+      // مزامنة بياناتي بين الأجهزة: أي تغيير في users/{uid} ينعكس محليًا،
+      // ثم ترسل نبضة للتتبع والرئيسية بدون انتظار المستخدم يعيد فتح التطبيق.
+      unawaited(() async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+          await _seedFromCloud(prefs, identity.storageKey)
+              .timeout(const Duration(seconds: 2));
+          await _recalculate(useStoredIfAvailable: true);
+          MacroTargetsController.bump();
+          if (mounted) setState(() {});
+        } catch (_) {}
+      }());
     }, onError: (e) {
       debugPrint('[MyDataPage] user doc stream error: $e');
     });
@@ -203,6 +217,10 @@ class _MyDataPageState extends State<MyDataPage> {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
 
+    final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+    final cloudAliases = <String>{storageKey, ...identity.aliases}
+      ..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+
     try {
       final snap = await _db.collection('users').doc(uid).get(const GetOptions(source: Source.serverAndCache)).timeout(const Duration(seconds: 2));
       final data = snap.data();
@@ -253,6 +271,11 @@ class _MyDataPageState extends State<MyDataPage> {
       final cloudMacroPlanId = (metrics['macroPlanId'] ?? '').toString().trim();
       final cloudMacroCalculationNote =
           (metrics['macroCalculationNote'] ?? '').toString().trim();
+      final cloudLastWeightChangeAt = _timestampToMs(
+        metrics['lastWeightChangeAtMs'] ??
+            data['lastWeightChangeAtMs'] ??
+            data['lastWeightChangeAt'],
+      );
 
       // نطبّق السحابة فقط إذا عندها قيم منطقية
       if (cloudGender.isNotEmpty) {
@@ -280,6 +303,11 @@ class _MyDataPageState extends State<MyDataPage> {
       if (cloudGoal.isNotEmpty) {
         goal = cloudGoal;
         await prefs.setString('${_Prefs.goal}_$storageKey', cloudGoal);
+        await prefs.setString('user_goal_$storageKey', cloudGoal);
+      }
+      if (cloudLastWeightChangeAt > 0) {
+        _lastWeightChangeAtMs = cloudLastWeightChangeAt;
+        await prefs.setInt('${_Prefs.lastWeightChangeAt}_$storageKey', cloudLastWeightChangeAt);
       }
 
       if (cloudLifestyleScore != null && cloudLifestyleScore >= 0) {
@@ -330,12 +358,22 @@ class _MyDataPageState extends State<MyDataPage> {
           cloudMacroCalculationNote,
         );
       }
+      final mirrorStamp = cloudStamp > 0
+          ? cloudStamp
+          : DateTime.now().millisecondsSinceEpoch;
       if (cloudStamp > 0) {
         _lastProfileUpdatedAtMs = cloudStamp;
         _lastMacrosUpdatedAtMs = math.max(_lastMacrosUpdatedAtMs, cloudStamp);
         await prefs.setInt('profileUpdatedAt_$storageKey', cloudStamp);
         await prefs.setInt('macrosUpdatedAt_$storageKey', cloudStamp);
       }
+
+      // أهم جزء للتزامن: اكتب بيانات السحابة على كل مفاتيح المستخدم المحلية
+      // حتى صفحة التتبع وPDF والرئيسية يقرؤون نفس الأرقام فورًا.
+      for (final alias in cloudAliases) {
+        await _mirrorCorePrefs(prefs, alias, stamp: mirrorStamp);
+      }
+      MacroTargetsController.bump();
     } catch (e) {
       debugPrint('[MyDataPage] cloud seed skipped: $e');
     }
@@ -354,20 +392,29 @@ class _MyDataPageState extends State<MyDataPage> {
       final prefs = await SharedPreferences.getInstance();
       final user = _auth.currentUser;
       final identity = user != null
-          ? await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs)
+          ? await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: false)
           : await WazenIdentityStore.currentIdentity(migrate: false);
       final authEmail = identity.email;
       final uid = identity.uid;
       final storageKey = identity.storageKey;
-      await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
+      // لا نشغل mirrorKnownLocalKeys عند فتح الصفحة لأنه يفحص مفاتيح كثيرة وقد يسبب تعليق.
 
       email = authEmail.isNotEmpty ? authEmail : identity.emailKey;
       displayName = _auth.currentUser?.displayName ?? email;
       gender = prefs.getString('${_Prefs.gender}_$storageKey') ?? gender;
       age = prefs.getInt('${_Prefs.age}_$storageKey') ?? age;
-      height = prefs.getDouble('${_Prefs.height}_$storageKey') ?? height;
-      weight = prefs.getDouble('${_Prefs.weight}_$storageKey') ?? weight;
-      goal = prefs.getString('${_Prefs.goal}_$storageKey') ?? goal;
+      height = prefs.getDouble('${_Prefs.height}_$storageKey') ??
+          prefs.getDouble('height_cm_$storageKey') ??
+          prefs.getDouble('heightCm_$storageKey') ??
+          height;
+      weight = prefs.getDouble('current_weight_$storageKey') ??
+          prefs.getDouble('weightKg_$storageKey') ??
+          prefs.getDouble('currentWeight_$storageKey') ??
+          prefs.getDouble('${_Prefs.weight}_$storageKey') ??
+          weight;
+      goal = prefs.getString('${_Prefs.goal}_$storageKey') ??
+          prefs.getString('user_goal_$storageKey') ??
+          goal;
       goalFatShred = prefs.getBool('${_Prefs.goalFatShred}_$storageKey') ?? false;
       lifestyleScore =
           prefs.getInt('${_Prefs.lifestyleScore}_$storageKey') ?? lifestyleScore;
@@ -378,6 +425,12 @@ class _MyDataPageState extends State<MyDataPage> {
           prefs.getString('macroCalculationNote_$storageKey') ?? macroCalculationNote;
       _lastWeightChangeAtMs =
           prefs.getInt('${_Prefs.lastWeightChangeAt}_$storageKey');
+      for (final alias in identity.aliases) {
+        final stamp = prefs.getInt('${_Prefs.lastWeightChangeAt}_$alias');
+        if (stamp != null && stamp > (_lastWeightChangeAtMs ?? 0)) {
+          _lastWeightChangeAtMs = stamp;
+        }
+      }
 
       // لو ما فيه plan id محفوظ، استخدم الافتراضي حسب الهدف.
       final effectiveGoal = (goalFatShred || goal.trim() == 'تنشيف الدهون') ? 'تنشيف الدهون' : goal;
@@ -421,8 +474,8 @@ class _MyDataPageState extends State<MyDataPage> {
   Future<void> _refreshMacrosFromPrefs({bool force = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final identity = await WazenIdentityStore.currentIdentity();
-      await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
+      final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+      // قراءة خفيفة فقط بدون mirror شامل عند فتح/تحديث الصفحة.
       final candidates = identity.aliases.where((k) => k.isNotEmpty && k != 'unknown_user').toList();
       String storageKey = identity.storageKey;
       int stamp = prefs.getInt('macrosUpdatedAt_$storageKey') ?? 0;
@@ -462,7 +515,7 @@ class _MyDataPageState extends State<MyDataPage> {
 
   Future<void> _recalculate({bool useStoredIfAvailable = false}) async {
     final prefs = await SharedPreferences.getInstance();
-    final identity = await WazenIdentityStore.currentIdentity();
+    final identity = await WazenIdentityStore.currentIdentity(migrate: false);
     final activityKey = identity.storageKey;
     final activityFactor = prefs.getDouble('activityFactor_$activityKey') ?? _activityFromScore(lifestyleScore);
 
@@ -629,7 +682,7 @@ class _MyDataPageState extends State<MyDataPage> {
     final prefs = await SharedPreferences.getInstance();
     final user = _auth.currentUser;
     final identity = user != null
-        ? await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs)
+        ? await WazenIdentityStore.syncFromFirebaseUser(user, prefs: prefs, migrate: false)
         : await WazenIdentityStore.currentIdentity(migrate: false);
     final currentEmail = identity.storageKey;
     final uid = identity.uid;
@@ -675,7 +728,7 @@ class _MyDataPageState extends State<MyDataPage> {
       if (alias.trim().isEmpty || alias == 'unknown_user') continue;
       await _mirrorCorePrefs(prefs, alias, stamp: stamp);
     }
-    await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
+    // لا نستخدم mirrorKnownLocalKeys هنا؛ نحن نكتب القيم المهمة يدويًا لكل aliases.
 
     // ✅ توحيد الوزن مع صفحة التتبع فورًا: current_weight + weight_log + uid/email aliases.
     // مهم: يحدث قبل أي كتابة Firestore حتى صفحة التتبع تتحدث مباشرة حتى لو الشبكة بطيئة.
@@ -702,6 +755,8 @@ class _MyDataPageState extends State<MyDataPage> {
           'goal': goal,
           'goalType': goal,
           'profileUpdatedAtMs': stamp,
+          if (_lastWeightChangeAtMs != null)
+            'lastWeightChangeAtMs': _lastWeightChangeAtMs,
           'updatedAt': now,
           // ✅ نحدّث مفاتيح metrics بدون استبدال كامل الماب
           'metrics.caloriesNeeded': targetCalories,
@@ -742,6 +797,8 @@ class _MyDataPageState extends State<MyDataPage> {
           'goal': goal,
           'goalType': goal,
           'profileUpdatedAtMs': stamp,
+          if (_lastWeightChangeAtMs != null)
+            'lastWeightChangeAtMs': _lastWeightChangeAtMs,
           'updatedAt': now,
           'metrics': {
             'caloriesNeeded': targetCalories,
@@ -1008,10 +1065,11 @@ class _MyDataPageState extends State<MyDataPage> {
             macroPlanId = MacroPlanEngine.defaultPlanIdForGoal(effectiveGoal);
           }
 
-          // قفل تغيير الوزن 7 أيام (نفس منطقك السابق)
+          // قفل تغيير الوزن 7 أيام للحفاظ على دقة التتبع.
           final now = DateTime.now().millisecondsSinceEpoch;
           const seven = 7 * 24 * 60 * 60 * 1000;
-          if ((upd.weight - weight).abs() > 0.01) {
+          final weightChanged = (upd.weight - weight).abs() > 0.01;
+          if (weightChanged) {
             if (_lastWeightChangeAtMs != null && now - _lastWeightChangeAtMs! < seven) {
               if (mounted) {
                 final days =
@@ -1022,15 +1080,27 @@ class _MyDataPageState extends State<MyDataPage> {
               }
             } else {
               weight = upd.weight;
-              // ✅ حفظ فوري للوزن بدون انتظار تغيير الهدف أو انتهاء حفظ Firestore.
+              _lastWeightChangeAtMs = now;
+
+              // أي تغيير وزن يرجع حساب الماكروز تلقائيًا حسب دوال وازن،
+              // حتى لو كان المستخدم سابقًا مخصص الماكروز يدويًا.
+              macroMode = MacroPlanEngine.modeAuto;
+              final effectiveGoal =
+                  (goalFatShred || goal.trim() == 'تنشيف الدهون') ? 'تنشيف الدهون' : goal;
+              macroPlanId = MacroPlanEngine.defaultPlanIdForGoal(effectiveGoal);
+
+              final prefs = await SharedPreferences.getInstance();
+              final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+              await WazenIdentityStore.writeToAllAliases(
+                prefs,
+                identity.aliases,
+                (alias) => '${_Prefs.lastWeightChangeAt}_$alias',
+                _lastWeightChangeAtMs!,
+              );
+
+              // حفظ فوري للوزن محليًا + رفع خفيف للسحابة في الخلفية.
               await WeightSyncService.saveCurrentWeight(kg: weight);
               MacroTargetsController.bump();
-              _lastWeightChangeAtMs = now;
-              final prefs = await SharedPreferences.getInstance();
-              final currentEmail =
-                  prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
-              await prefs.setInt(
-                  '${_Prefs.lastWeightChangeAt}_$currentEmail', _lastWeightChangeAtMs!);
             }
           }
 
