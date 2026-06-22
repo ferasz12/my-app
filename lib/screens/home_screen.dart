@@ -69,6 +69,7 @@ import 'achievements_page.dart' show AchievementsStore;
 // ✅ تنظيف المفاتيح التي خُزّنت بنوع خاطئ
 import '../shared/safe_prefs.dart';
 import '../shared/macro_targets_controller.dart';
+import '../shared/wazen_profile_prefs.dart';
 import '../achievements/achievements_with_leaderboard.dart';
 
 import '../features/meal_analysis/meal_analysis.dart';
@@ -894,19 +895,48 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   // ====== تحميل الأهداف: محلي فورًا، والسحابة بالخلفية عند الحاجة فقط ======
   Future<void> refreshTargets() async {
     final prefs = await SharedPreferences.getInstance();
-    final identity = await WazenIdentityStore.currentIdentity();
-    final email = identity.storageKey;
-    await WazenIdentityStore.mirrorKnownLocalKeys(prefs, identity);
+    final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+    final aliases = await WazenProfilePrefs.aliases(
+      prefs,
+      user: FirebaseAuth.instance.currentUser,
+      migrate: false,
+    );
+    final profileKey = WazenProfilePrefs.latestAlias(prefs, aliases);
+    final email = profileKey.isNotEmpty && profileKey != 'unknown_user'
+        ? profileKey
+        : identity.storageKey;
 
     if (email.isEmpty || email == 'unknown_user') {
       debugPrint('[HomeScreen] refreshTargets skipped: no identity');
       return;
     }
 
-    final k = prefs.getDouble('caloriesNeeded_$email');
-    final p = prefs.getDouble('protein_$email');
-    final c = prefs.getDouble('carbs_$email');
-    final f = prefs.getDouble('fat_$email');
+    // لا نقرأ من مفتاح واحد فقط. آخر تعديل للماكروز قد يكون محفوظًا تحت UID
+    // أو البريد أو alias قديم، لذلك نأخذ alias صاحب أحدث macrosUpdatedAt.
+    final k = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['caloriesNeeded_'],
+      aliases,
+      preferred: email,
+    );
+    final p = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['protein_'],
+      aliases,
+      preferred: email,
+    );
+    final c = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['carbs_', 'carb_'],
+      aliases,
+      preferred: email,
+    );
+    final f = WazenProfilePrefs.readDouble(
+      prefs,
+      const ['fat_'],
+      aliases,
+      preferred: email,
+    );
 
     if (!mounted) return;
     setState(() {
@@ -920,8 +950,6 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     final recentlyFetched = _lastTargetsRemoteFetchAt != null &&
         now.difference(_lastTargetsRemoteFetchAt!) < const Duration(minutes: 10);
 
-    // نعرض المحلي فورًا، لكن لا نمنع التحديث السحابي بالكامل؛
-    // لأن جهازًا آخر قد يغير الوزن/الماكروز. التحديث يشتغل بالخلفية وبحد أقصى كل 10 دقائق.
     if (recentlyFetched) return;
 
     _lastTargetsRemoteFetchAt = now;
@@ -941,15 +969,34 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       final ff = (fetched['f'] as double?) ?? 0.0;
       if (fk <= 0 || fp <= 0 || fc <= 0 || ff <= 0) return;
 
-      await prefs.setDouble('caloriesNeeded_$email', fk);
-      await prefs.setDouble('protein_$email', fp);
-      await prefs.setDouble('carbs_$email', fc);
-      await prefs.setDouble('fat_$email', ff);
       final identity = await WazenIdentityStore.currentIdentity(migrate: false);
-      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'caloriesNeeded_$a', fk);
-      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'protein_$a', fp);
-      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'carbs_$a', fc);
-      await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'fat_$a', ff);
+      final aliases = await WazenProfilePrefs.aliases(
+        prefs,
+        user: FirebaseAuth.instance.currentUser,
+        migrate: false,
+      );
+      final localStamp = aliases
+          .map((a) => prefs.getInt('macrosUpdatedAt_$a') ?? 0)
+          .fold<int>(0, (best, value) => value > best ? value : best);
+      final remoteStamp = (fetched['updatedAtMs'] as int?) ?? 0;
+
+      // لا نخلي Firestore قديم يرجع يمسح تخصيص الماكروز المحلي.
+      if (localStamp > 0 && remoteStamp > 0 && remoteStamp < localStamp) return;
+
+      await WazenProfilePrefs.writeMacroTargets(
+        prefs: prefs,
+        aliases: <String>{email, ...identity.aliases, ...aliases},
+        calories: fk,
+        maintenanceCalories: prefs.getDouble('maintenanceCalories_$email') ?? fk,
+        protein: fp,
+        carbs: fc,
+        fat: ff,
+        activityFactor: prefs.getDouble('activityFactor_$email') ?? 1.2,
+        macroMode: (fetched['macroMode'] ?? prefs.getString('macroMode_$email') ?? 'auto').toString(),
+        macroPlanId: (fetched['macroPlanId'] ?? prefs.getString('macroPlanId_$email') ?? '').toString(),
+        macroCalculationNote: (fetched['macroCalculationNote'] ?? prefs.getString('macroCalculationNote_$email') ?? '').toString(),
+        stamp: remoteStamp > 0 ? remoteStamp : DateTime.now().millisecondsSinceEpoch,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -980,14 +1027,16 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       final f = metrics['fat'];
 
       int updatedAtMs = 0;
+      final directStamp = metrics['updatedAtMs'];
+      if (directStamp is num) updatedAtMs = directStamp.toInt();
       final ua = metrics['updatedAt'];
       if (ua is Timestamp) {
-        updatedAtMs = ua.toDate().millisecondsSinceEpoch;
+        updatedAtMs = math.max(updatedAtMs, ua.toDate().millisecondsSinceEpoch);
       } else if (ua is num) {
-        updatedAtMs = ua.toInt();
+        updatedAtMs = math.max(updatedAtMs, ua.toInt());
       } else if (ua is String) {
         final dt = DateTime.tryParse(ua);
-        if (dt != null) updatedAtMs = dt.millisecondsSinceEpoch;
+        if (dt != null) updatedAtMs = math.max(updatedAtMs, dt.millisecondsSinceEpoch);
       }
 
       if (k is num && p is num && c is num && f is num) {
@@ -997,6 +1046,9 @@ Future<void> _maybeAwardDailyBonusesNow() async {
           'c': c.toDouble(),
           'f': f.toDouble(),
           'updatedAtMs': updatedAtMs,
+          'macroMode': metrics['macroMode'],
+          'macroPlanId': metrics['macroPlanId'],
+          'macroCalculationNote': metrics['macroCalculationNote'],
         };
       }
       return null;
@@ -1069,6 +1121,11 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     }
 
     if (lastMealsDate != today) {
+      // قبل ما نصفر الوجبات، ثبّت إجمالي آخر يوم في سجل السعرات.
+      // بدون هذه الخطوة لو المستخدم فتح التطبيق بعد منتصف الليل قبل آخر مزامنة،
+      // الـ PDF وسجل السعرات قد يفقدان آخر مجاميع اليوم السابق.
+      await _syncEntriesAndTotalsForDate(lastMealsDate, meals);
+
       // قبل ما نصفر، قوّم مكافآت اليوم السابق
       await _queueEndOfDayRewardsFor(lastMealsDate);
 
@@ -2851,33 +2908,36 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
     });
   }
 
-  // ====== مزامنة إدخالات اليوم + المجاميع (محلي فقط وسريع) ======
-  Future<void> _syncTodayEntriesAndTotals() async {
+  // ====== مزامنة إدخالات يوم محدد + المجاميع (محلي فقط وسريع) ======
+  Future<void> _syncEntriesAndTotalsForDate(
+    String ymd,
+    List<Map<String, dynamic>> sourceMeals,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final identity = await WazenIdentityStore.currentIdentity();
     final email = identity.storageKey;
-    final ymd = DateTime.now().toIso8601String().split('T').first;
+    final date = TrackerStore.normalizeYmd(ymd);
 
-    final entriesKey = 'intake_entries_${email}_$ymd';
+    final entriesKey = 'intake_entries_${email}_$date';
     final List<Map<String, dynamic>> entries = [];
     double k = 0, p = 0, c = 0, f = 0;
 
-    for (final meal in meals) {
+    for (final meal in sourceMeals) {
       final rawItems = meal['items'];
       if (rawItems is! List) continue;
       for (final raw in rawItems) {
         if (raw is! Map) continue;
         final item = Map<String, dynamic>.from(raw);
-        final kk = _toD(item['cal']);
-        final pp = _toD(item['protein']);
-        final cc = _toD(item['carb']);
-        final ff = _toD(item['fat']);
+        final kk = _toD(item['cal'] ?? item['calories'] ?? item['kcal']);
+        final pp = _toD(item['protein'] ?? item['p'] ?? item['protein_g']);
+        final cc = _toD(item['carb'] ?? item['carbs'] ?? item['c'] ?? item['carbs_g']);
+        final ff = _toD(item['fat'] ?? item['f'] ?? item['fat_g']);
         k += kk;
         p += pp;
         c += cc;
         f += ff;
         entries.add({
-          'name': item['name'],
+          'name': item['name'] ?? item['label'] ?? 'وجبة',
           'k': kk,
           'p': pp,
           'c': cc,
@@ -2886,22 +2946,42 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
       }
     }
 
-    await prefs.setString(entriesKey, jsonEncode(entries));
-    await prefs.setString(
-      'kcal_daytotals_${email}_$ymd',
-      jsonEncode({'k': k, 'p': p, 'c': c, 'f': f}),
+    final totalsRaw = jsonEncode({'k': k, 'p': p, 'c': c, 'f': f});
+    final entriesRaw = jsonEncode(entries);
+
+    await prefs.setString(entriesKey, entriesRaw);
+    await prefs.setString('kcal_daytotals_${email}_$date', totalsRaw);
+    await WazenIdentityStore.writeToAllAliases(
+      prefs,
+      identity.aliases,
+      (a) => 'intake_entries_${a}_$date',
+      entriesRaw,
     );
-    await WazenIdentityStore.writeToAllAliases(prefs, identity.aliases, (a) => 'intake_entries_${a}_$ymd', jsonEncode(entries));
-    await WazenDailyStore.writeTotals(ymd, WazenDailyTotals(calories: k, protein: p, carbs: c, fat: f));
+    await WazenIdentityStore.writeToAllAliases(
+      prefs,
+      identity.aliases,
+      (a) => 'kcal_daytotals_${a}_$date',
+      totalsRaw,
+    );
+    await WazenDailyStore.writeTotals(
+      date,
+      WazenDailyTotals(calories: k, protein: p, carbs: c, fat: f),
+    );
 
     await TrackerStore.setDayTotals(
-      ymd: ymd,
+      ymd: date,
       cal: k,
       protein: p,
       carb: c,
       fat: f,
       entries: entries,
     );
+  }
+
+  // ====== مزامنة إدخالات اليوم + المجاميع (محلي فقط وسريع) ======
+  Future<void> _syncTodayEntriesAndTotals() async {
+    final ymd = DateTime.now().toIso8601String().split('T').first;
+    await _syncEntriesAndTotalsForDate(ymd, meals);
   }
 
   // ====== فهرس أيام "سجل السعرات" (محلي فقط للعرض السريع) ======

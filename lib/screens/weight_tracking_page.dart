@@ -1978,6 +1978,26 @@ final dir = await getApplicationDocumentsDirectory();
       } catch (_) {}
     }
 
+    // آخر 7 أيام في PDF لازم تكون مطابقة 100% لمصدر سجل السعرات.
+    // لذلك نعمل override من TrackerStore حتى لو كانت مفاتيح قديمة أو dailyNutritionHistory
+    // فيها أرقام أهداف/لقطات أعلى من الاستهلاك الفعلي.
+    for (final ymd in ymds.skip(358)) {
+      try {
+        final trackerDay = await TrackerStore.getDay(DateTime.parse(ymd));
+        final totals = <String, double>{
+          'cal': _asSafeDouble(trackerDay['calories']),
+          'p': _asSafeDouble(trackerDay['protein']),
+          'c': _asSafeDouble(trackerDay['carb'] ?? trackerDay['carbs']),
+          'f': _asSafeDouble(trackerDay['fat']),
+        };
+        if (score(totals) > 0) {
+          nutrition[ymd] = totals;
+        } else {
+          nutrition.remove(ymd);
+        }
+      } catch (_) {}
+    }
+
     final currentWeight = _prefDoubleAnyAlias(
       prefs,
       const ['current_weight_', 'weight_', 'weightKg_', 'currentWeight_', 'user_weight_'],
@@ -2026,7 +2046,62 @@ final dir = await getApplicationDocumentsDirectory();
       );
     }
 
-    final week = makeSeries(7);
+    Future<_Series> makeWeekFromCalorieHistory() async {
+      final todayYmd = DateFormat('yyyy-MM-dd').format(today);
+      final allDays = await TrackerStore.getAllDays();
+      final maps = <Map<String, dynamic>>[];
+      for (final raw in allDays) {
+        final ymd = TrackerStore.normalizeYmd((raw['date'] ?? '').toString());
+        if (ymd == todayYmd) continue; // سجل السعرات يعرض الأيام المنتهية فقط.
+        if (!ymdSet.contains(ymd)) continue;
+        maps.add({...raw, 'date': ymd});
+      }
+      maps.sort((a, b) => (a['date'] as String).compareTo(b['date'] as String));
+      final selected = maps.length > 7 ? maps.sublist(maps.length - 7) : maps;
+
+      final d = <DateTime>[];
+      final calories = <double>[];
+      final protein = <double>[];
+      final carbs = <double>[];
+      final fat = <double>[];
+      final waterMl = <double>[];
+      final steps = <int>[];
+      final burned = <int>[];
+      final seriesWeights = <double?>[];
+
+      for (final m in selected) {
+        final ymd = (m['date'] ?? '').toString();
+        final parsed = DateTime.tryParse(ymd);
+        if (parsed == null) continue;
+        // نعيد القراءة من TrackerStore حتى لو كان اليوم تعدل من سجل السعرات قبل التصدير مباشرة.
+        final trackerDay = await TrackerStore.getDay(parsed);
+        d.add(parsed);
+        calories.add(_asSafeDouble(trackerDay['calories']));
+        protein.add(_asSafeDouble(trackerDay['protein']));
+        carbs.add(_asSafeDouble(trackerDay['carb'] ?? trackerDay['carbs']));
+        fat.add(_asSafeDouble(trackerDay['fat']));
+        waterMl.add((waterLiters[ymd] ?? 0.0) * 1000.0);
+        steps.add(activity[ymd]?['steps'] ?? 0);
+        burned.add(activity[ymd]?['burned'] ?? 0);
+        seriesWeights.add(weights[ymd]);
+      }
+
+      // إذا ما فيه سجل منتهٍ حتى الآن، نرجع لآخر 7 أيام تقويمية كـ fallback.
+      if (d.isEmpty) return makeSeries(7);
+      return _Series(
+        dates: d,
+        calories: calories,
+        protein: protein,
+        carb: carbs,
+        fat: fat,
+        waterMl: waterMl,
+        steps: steps,
+        burned: burned,
+        weights: seriesWeights,
+      );
+    }
+
+    final week = await makeWeekFromCalorieHistory();
     return _PdfSeriesBundle(
       week: week,
       month: makeSeries(30),

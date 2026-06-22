@@ -8,6 +8,7 @@ import '../../settings/subscription_page.dart';
 import '../../shared/owner_feature_flags.dart';
 import '../../shared/premium_feature.dart';
 import '../admin_support/admin_support_dashboard_page.dart';
+import '../polls/app_poll_editor_page.dart';
 
 class OwnerPage extends StatefulWidget {
   const OwnerPage({super.key});
@@ -20,7 +21,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
   final _db = FirebaseFirestore.instance;
   final _roles = RolesService();
 
-  late final TabController _tab = TabController(length: 3, vsync: this);
+  late final TabController _tab = TabController(length: 4, vsync: this);
   late final Future<AppRole> _roleFuture = _roles.currentUserRoleOnce();
   final _searchCtrl = TextEditingController();
   String _search = '';
@@ -70,6 +71,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
               tabs: const [
                 Tab(icon: Icon(Icons.analytics_outlined), text: 'الإحصاءات'),
                 Tab(icon: Icon(Icons.workspace_premium_outlined), text: 'اشتراك مجاني'),
+                Tab(icon: Icon(Icons.how_to_vote_outlined), text: 'التصويت'),
                 Tab(icon: Icon(Icons.toggle_on_outlined), text: 'الميزات'),
               ],
             ),
@@ -79,6 +81,7 @@ class _OwnerPageState extends State<OwnerPage> with SingleTickerProviderStateMix
             children: [
               _buildOverviewTab(),
               _buildGrantTab(),
+              const AppPollEditorPage(),
               _buildFeaturesTab(),
             ],
           ),

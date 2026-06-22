@@ -18,6 +18,7 @@ import 'settings_page.dart';
 import '../settings/edit_username_page.dart';
 import '../shared/user_goal_controller.dart';
 import '../services/whats_new_service.dart';
+import '../features/polls/app_poll_prompt.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -167,8 +168,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Future<void> _runStartupPrompts() async {
     if (_didCheckWhatsNew) return;
 
-    // أولاً نعطي أولوية لإصلاح اليوزر إذا كان مطلوبًا، ثم نعرض صفحة ما الجديد.
+    // أولاً نعطي أولوية لإصلاح اليوزر إذا كان مطلوبًا.
     await _checkAndForceUsernameFix();
+    if (!mounted) return;
+
+    // بعدها نعرض تصويت وازن الإجباري إذا أنشأه المالك ولم يصوّت المستخدم بعد.
+    await AppPollPrompt.showIfNeeded(context);
     if (!mounted) return;
 
     _didCheckWhatsNew = true;

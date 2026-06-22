@@ -13,6 +13,7 @@ import '../utils/macro_plan_engine.dart';
 import '../shared/macro_targets_controller.dart';
 import '../shared/weight_sync_service.dart';
 import '../core/data/wazen_identity_store.dart';
+import '../shared/wazen_profile_prefs.dart';
 
 class MyDataPage extends StatefulWidget {
   const MyDataPage({super.key});
@@ -47,6 +48,7 @@ class _MyDataPageState extends State<MyDataPage> {
 
   int _lastMacrosUpdatedAtMs = 0;
   int _lastProfileUpdatedAtMs = 0;
+  int _ignoreCloudSeedUntilMs = 0;
 
   // أهداف يومية
   int waterMlTarget = 2000;
@@ -216,6 +218,7 @@ class _MyDataPageState extends State<MyDataPage> {
   Future<void> _seedFromCloud(SharedPreferences prefs, String storageKey) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
+    if (DateTime.now().millisecondsSinceEpoch < _ignoreCloudSeedUntilMs) return;
 
     final identity = await WazenIdentityStore.currentIdentity(migrate: false);
     final cloudAliases = <String>{storageKey, ...identity.aliases}
@@ -474,12 +477,14 @@ class _MyDataPageState extends State<MyDataPage> {
   Future<void> _refreshMacrosFromPrefs({bool force = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final identity = await WazenIdentityStore.currentIdentity(migrate: false);
-      // قراءة خفيفة فقط بدون mirror شامل عند فتح/تحديث الصفحة.
-      final candidates = identity.aliases.where((k) => k.isNotEmpty && k != 'unknown_user').toList();
-      String storageKey = identity.storageKey;
+      final aliases = await WazenProfilePrefs.aliases(
+        prefs,
+        user: _auth.currentUser,
+        migrate: false,
+      );
+      String storageKey = WazenProfilePrefs.latestAlias(prefs, aliases);
       int stamp = prefs.getInt('macrosUpdatedAt_$storageKey') ?? 0;
-      for (final k in candidates) {
+      for (final k in aliases) {
         final s = prefs.getInt('macrosUpdatedAt_$k') ?? 0;
         if (s > stamp) {
           stamp = s;
@@ -598,17 +603,62 @@ class _MyDataPageState extends State<MyDataPage> {
 
     if (useStoredIfAvailable) {
       final prefs = await SharedPreferences.getInstance();
-      final currentEmail = identity.storageKey;
-      targetCalories =
-          prefs.getDouble('${_Prefs.caloriesNeeded}_$currentEmail') ?? targetCalories;
-      proteinG = prefs.getDouble('${_Prefs.protein}_$currentEmail') ?? proteinG;
-      carbsG = prefs.getDouble('${_Prefs.carbs}_$currentEmail') ?? carbsG;
-      fatG = prefs.getDouble('${_Prefs.fat}_$currentEmail') ?? fatG;
+      final aliases = await WazenProfilePrefs.aliases(
+        prefs,
+        user: _auth.currentUser,
+        migrate: false,
+      );
+      final currentEmail = WazenProfilePrefs.latestAlias(prefs, aliases);
+      targetCalories = WazenProfilePrefs.readDouble(
+            prefs,
+            const ['caloriesNeeded_'],
+            aliases,
+            preferred: currentEmail,
+          ) ??
+          targetCalories;
+      proteinG = WazenProfilePrefs.readDouble(
+            prefs,
+            const ['protein_'],
+            aliases,
+            preferred: currentEmail,
+          ) ??
+          proteinG;
+      carbsG = WazenProfilePrefs.readDouble(
+            prefs,
+            const ['carbs_', 'carb_'],
+            aliases,
+            preferred: currentEmail,
+          ) ??
+          carbsG;
+      fatG = WazenProfilePrefs.readDouble(
+            prefs,
+            const ['fat_'],
+            aliases,
+            preferred: currentEmail,
+          ) ??
+          fatG;
 
-      macroMode = prefs.getString('macroMode_$currentEmail') ?? macroMode;
-      macroPlanId = prefs.getString('macroPlanId_$currentEmail') ?? macroPlanId;
-      macroCalculationNote =
-          prefs.getString('macroCalculationNote_$currentEmail') ?? macroCalculationNote;
+      macroMode = WazenProfilePrefs.readString(
+            prefs,
+            const ['macroMode_'],
+            aliases,
+            preferred: currentEmail,
+          ) ??
+          macroMode;
+      macroPlanId = WazenProfilePrefs.readString(
+            prefs,
+            const ['macroPlanId_'],
+            aliases,
+            preferred: currentEmail,
+          ) ??
+          macroPlanId;
+      macroCalculationNote = WazenProfilePrefs.readString(
+            prefs,
+            const ['macroCalculationNote_'],
+            aliases,
+            preferred: currentEmail,
+          ) ??
+          macroCalculationNote;
     }
     if (mounted) setState(() {});
   }
@@ -687,9 +737,19 @@ class _MyDataPageState extends State<MyDataPage> {
     final currentEmail = identity.storageKey;
     final uid = identity.uid;
     final authEmail = identity.email;
+    final allAliases = <String>{
+      currentEmail,
+      uid,
+      authEmail,
+      identity.emailKey,
+      ...identity.aliases,
+      prefs.getString(_Prefs.currentEmail) ?? '',
+      prefs.getString(WazenIdentityStore.kCurrentStorageKey) ?? '',
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
     final stamp = DateTime.now().millisecondsSinceEpoch;
     _lastProfileUpdatedAtMs = stamp;
     _lastMacrosUpdatedAtMs = stamp;
+    _ignoreCloudSeedUntilMs = stamp + 15000;
 
     await prefs.setString(_Prefs.currentEmail, identity.emailKey);
     await prefs.setString(WazenIdentityStore.kCurrentStorageKey, currentEmail);
@@ -724,11 +784,38 @@ class _MyDataPageState extends State<MyDataPage> {
 
     // مرايا للمفاتيح المهمة: كل alias للـ UID/الإيميل/المفتاح القديم يأخذ نفس القيم فورًا.
     // نكتب فوق القيم القديمة هنا عمدًا حتى لا تعرض صفحة التتبع أو PDF أرقامًا قديمة.
-    for (final alias in identity.aliases.toSet()) {
+    for (final alias in allAliases.toSet()) {
       if (alias.trim().isEmpty || alias == 'unknown_user') continue;
       await _mirrorCorePrefs(prefs, alias, stamp: stamp);
     }
     // لا نستخدم mirrorKnownLocalKeys هنا؛ نحن نكتب القيم المهمة يدويًا لكل aliases.
+    await WazenProfilePrefs.writeCoreProfile(
+      prefs: prefs,
+      aliases: allAliases,
+      gender: gender,
+      age: age,
+      heightCm: height,
+      weightKg: weight,
+      goal: goal,
+      lifestyleScore: lifestyleScore,
+      activityFactor: prefs.getDouble('activityFactor_$currentEmail') ?? _activityFromScore(lifestyleScore),
+      goalFatShred: goalFatShred,
+      stamp: stamp,
+    );
+    await WazenProfilePrefs.writeMacroTargets(
+      prefs: prefs,
+      aliases: allAliases,
+      calories: targetCalories,
+      maintenanceCalories: maintenanceCalories,
+      protein: proteinG,
+      carbs: carbsG,
+      fat: fatG,
+      activityFactor: prefs.getDouble('activityFactor_$currentEmail') ?? _activityFromScore(lifestyleScore),
+      macroMode: macroMode,
+      macroPlanId: macroPlanId,
+      macroCalculationNote: macroCalculationNote,
+      stamp: stamp,
+    );
 
     // ✅ توحيد الوزن مع صفحة التتبع فورًا: current_weight + weight_log + uid/email aliases.
     // مهم: يحدث قبل أي كتابة Firestore حتى صفحة التتبع تتحدث مباشرة حتى لو الشبكة بطيئة.
@@ -1114,7 +1201,17 @@ class _MyDataPageState extends State<MyDataPage> {
 
   Future<void> _openSmartMacrosBottomSheet() async {
     final prefs = await SharedPreferences.getInstance();
-    final storageKey = prefs.getString(_Prefs.currentEmail) ?? email ?? 'unknown_user';
+    final identity = await WazenIdentityStore.currentIdentity(migrate: false);
+    final storageKey = identity.storageKey.isNotEmpty ? identity.storageKey : identity.emailKey;
+    final allAliases = <String>{
+      storageKey,
+      identity.uid,
+      identity.email,
+      identity.emailKey,
+      ...identity.aliases,
+      prefs.getString(_Prefs.currentEmail) ?? '',
+      prefs.getString(WazenIdentityStore.kCurrentStorageKey) ?? '',
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
 
     final kcalCtrl = TextEditingController(
       text: (targetCalories > 0 ? targetCalories : 0).toStringAsFixed(0),
@@ -1421,20 +1518,30 @@ class _MyDataPageState extends State<MyDataPage> {
                               });
 
                               final stamp = DateTime.now().millisecondsSinceEpoch;
-                              await prefs.setDouble('${_Prefs.caloriesNeeded}_$storageKey', kcal);
-                              await prefs.setDouble('${_Prefs.protein}_$storageKey', p);
-                              await prefs.setDouble('${_Prefs.carbs}_$storageKey', c);
-                              await prefs.setDouble('${_Prefs.fat}_$storageKey', f);
-                              await prefs.setString('macroMode_$storageKey', macroMode);
-                              await prefs.setString('macroPlanId_$storageKey', macroPlanId);
-                              await prefs.setString(
-                                'macroCalculationNote_$storageKey',
-                                macroCalculationNote,
+                              _ignoreCloudSeedUntilMs = stamp + 15000;
+                              await WazenProfilePrefs.writeMacroTargets(
+                                prefs: prefs,
+                                aliases: allAliases,
+                                calories: kcal,
+                                maintenanceCalories: maintenanceCalories,
+                                protein: p,
+                                carbs: c,
+                                fat: f,
+                                activityFactor: prefs.getDouble('activityFactor_$storageKey') ?? _activityFromScore(lifestyleScore),
+                                macroMode: MacroPlanEngine.modeCustom,
+                                macroPlanId: 'custom_smart',
+                                macroCalculationNote: macroCalculationNote,
+                                stamp: stamp,
                               );
-                              await prefs.setInt('profileUpdatedAt_$storageKey', stamp);
-                              await prefs.setInt('macrosUpdatedAt_$storageKey', stamp);
+                              await WazenProfilePrefs.writeAll(
+                                prefs,
+                                allAliases,
+                                (alias) => 'profileUpdatedAt_$alias',
+                                stamp,
+                              );
 
                               await _persistAll();
+                              MacroTargetsController.bump();
                               if (mounted) await _refreshMacrosFromPrefs(force: true);
                               if (Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
                             },
@@ -3665,6 +3772,10 @@ class _TargetsSheetState extends State<_TargetsSheet> {
   Widget build(BuildContext context) {
     final view = MediaQuery.of(context).viewInsets.bottom;
     final cs = Theme.of(context).colorScheme;
+    final previewKcal = custom ? (double.tryParse(kcalCtrl.text.trim()) ?? kcal) : kcal;
+    final previewPro = custom ? (double.tryParse(proCtrl.text.trim()) ?? pro) : pro;
+    final previewCarb = custom ? (double.tryParse(carbCtrl.text.trim()) ?? carb) : carb;
+    final previewFat = custom ? (double.tryParse(fatCtrl.text.trim()) ?? fat) : fat;
 
     // Ensure a valid auto plan selection when entering the sheet.
     if (!custom && planId.trim().isNotEmpty) {
@@ -3755,17 +3866,17 @@ class _TargetsSheetState extends State<_TargetsSheet> {
                     ),
                   ] else ...[
                     const SizedBox(height: 8),
-                    _NumField(label: 'السعرات', controller: kcalCtrl),
+                    _NumField(label: 'السعرات', controller: kcalCtrl, onChanged: (_) => setState(() {})),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Expanded(child: _NumField(label: 'بروتين (جم)', controller: proCtrl)),
+                        Expanded(child: _NumField(label: 'بروتين (جم)', controller: proCtrl, onChanged: (_) => setState(() {}))),
                         const SizedBox(width: 10),
-                        Expanded(child: _NumField(label: 'كارب (جم)', controller: carbCtrl)),
+                        Expanded(child: _NumField(label: 'كارب (جم)', controller: carbCtrl, onChanged: (_) => setState(() {}))),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    _NumField(label: 'دهون (جم)', controller: fatCtrl),
+                    _NumField(label: 'دهون (جم)', controller: fatCtrl, onChanged: (_) => setState(() {})),
                   ],
 
                   const SizedBox(height: 10),
@@ -3782,9 +3893,9 @@ class _TargetsSheetState extends State<_TargetsSheet> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('${kcal.toStringAsFixed(0)} سعرة', style: const TextStyle(fontWeight: FontWeight.w900)),
+                              Text('${previewKcal.toStringAsFixed(0)} سعرة', style: const TextStyle(fontWeight: FontWeight.w900)),
                               const SizedBox(height: 4),
-                              Text('P ${pro.toStringAsFixed(0)}g  •  C ${carb.toStringAsFixed(0)}g  •  F ${fat.toStringAsFixed(0)}g',
+                              Text('P ${previewPro.toStringAsFixed(0)}g  •  C ${previewCarb.toStringAsFixed(0)}g  •  F ${previewFat.toStringAsFixed(0)}g',
                                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
                             ],
                           ),
@@ -3881,15 +3992,17 @@ class _TargetsSheetState extends State<_TargetsSheet> {
 class _NumField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
+  final ValueChanged<String>? onChanged;
 
-  const _NumField({required this.label, required this.controller});
+  const _NumField({required this.label, required this.controller, this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
-      keyboardType: const TextInputType.numberWithOptions(decimal: false, signed: false),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
       textAlign: TextAlign.right,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
