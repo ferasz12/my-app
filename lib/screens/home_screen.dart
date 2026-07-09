@@ -1104,37 +1104,88 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     }
   }
 
+  List<Map<String, dynamic>> _emptyMealBuckets() => [
+        {'name': '🍳 الفطور', 'items': <Map<String, dynamic>>[]},
+        {'name': '🍽️ الغداء', 'items': <Map<String, dynamic>>[]},
+        {'name': '🌙 العشاء', 'items': <Map<String, dynamic>>[]},
+      ];
+
+  double _mealsCaloriesSum(List<Map<String, dynamic>> sourceMeals) {
+    double total = 0.0;
+    for (final meal in sourceMeals) {
+      final rawItems = meal['items'];
+      if (rawItems is! List) continue;
+      for (final raw in rawItems) {
+        if (raw is! Map) continue;
+        total += _toD(raw['cal'] ?? raw['calories'] ?? raw['kcal'] ?? raw['k']);
+      }
+    }
+    return total;
+  }
+
+  Future<List<Map<String, dynamic>>> _readStoredMealsSnapshot() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storageKey = await SessionManager.currentStorageKey();
+    final raw = prefs.getString('meals_$storageKey') ?? prefs.getString('meals');
+    if (raw == null || raw.trim().isEmpty) return _emptyMealBuckets();
+    try {
+      final decoded = json.decode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList(growable: true);
+      }
+    } catch (_) {}
+    return _emptyMealBuckets();
+  }
+
   // ====== لفّ اليوم + توليد مكافآت أمس ======
   Future<void> _rollToNewDayIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
+    final identity = await WazenIdentityStore.currentIdentity();
     final email = prefs.getString('currentEmail') ??
         FirebaseAuth.instance.currentUser?.email ??
-        'local';
+        identity.storageKey;
+    final aliases = <String>{
+      email,
+      identity.storageKey,
+      identity.emailKey,
+      ...identity.aliases,
+      FirebaseAuth.instance.currentUser?.uid ?? '',
+      FirebaseAuth.instance.currentUser?.email ?? '',
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
     final today = DateTime.now().toIso8601String().split('T').first;
 
-    final lastMealsDate = prefs.getString('activeMealsDate_$email');
+    String? lastMealsDate;
+    for (final alias in aliases) {
+      lastMealsDate ??= prefs.getString('activeMealsDate_$alias');
+    }
 
     if (lastMealsDate == null) {
-      await prefs.setString('activeMealsDate_$email', today);
+      for (final alias in aliases) {
+        await prefs.setString('activeMealsDate_$alias', today);
+      }
       _activeMealsStoredDate = today;
       return;
     }
 
     if (lastMealsDate != today) {
-      // قبل ما نصفر الوجبات، ثبّت إجمالي آخر يوم في سجل السعرات.
-      // بدون هذه الخطوة لو المستخدم فتح التطبيق بعد منتصف الليل قبل آخر مزامنة،
-      // الـ PDF وسجل السعرات قد يفقدان آخر مجاميع اليوم السابق.
-      await _syncEntriesAndTotalsForDate(lastMealsDate, meals);
+      // مهم جدًا: عند فتح التطبيق في يوم جديد، حالة meals في الذاكرة تكون غالبًا
+      // فاضية قبل loadMeals(). لذلك نقرأ نسخة الوجبات المحفوظة أولًا، ثم نثبت
+      // أمس في سجل السعرات. هذا يمنع اختفاء أيام كاملة من السجل بعد منتصف الليل.
+      final storedMeals = await _readStoredMealsSnapshot();
+      final sourceMeals = _mealsCaloriesSum(storedMeals) > _mealsCaloriesSum(meals)
+          ? storedMeals
+          : meals;
+
+      await _syncEntriesAndTotalsForDate(lastMealsDate, sourceMeals);
 
       // قبل ما نصفر، قوّم مكافآت اليوم السابق
       await _queueEndOfDayRewardsFor(lastMealsDate);
 
       setState(() {
-        meals = [
-          {'name': '🍳 الفطور', 'items': <Map<String, dynamic>>[]},
-          {'name': '🍽️ الغداء', 'items': <Map<String, dynamic>>[]},
-          {'name': '🌙 العشاء', 'items': <Map<String, dynamic>>[]},
-        ];
+        meals = _emptyMealBuckets();
         totalCalories = 0.0;
         totalProtein = 0.0;
         totalCarbs = 0.0;
@@ -1142,7 +1193,9 @@ Future<void> _maybeAwardDailyBonusesNow() async {
       });
 
       await saveMeals();
-      await prefs.setString('activeMealsDate_$email', today);
+      for (final alias in aliases) {
+        await prefs.setString('activeMealsDate_$alias', today);
+      }
       _activeMealsStoredDate = today;
 
       await _ensureTodaySnapshot();

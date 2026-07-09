@@ -166,9 +166,9 @@ const WAZEN_COACH_MAX_INSTANCES = intFromEnv("WAZEN_COACH_MAX_INSTANCES", 20, 1,
 const WAZEN_COACH_CONCURRENCY = intFromEnv("WAZEN_COACH_CONCURRENCY", 30, 1, 80);
 
 
-// Web payments (Moyasar)
-const MOYASAR_SECRET_KEY = defineSecret("MOYASAR_SECRET_KEY");
-const MOYASAR_PUBLISHABLE_KEY = defineSecret("MOYASAR_PUBLISHABLE_KEY");
+// Web payments (Tap)
+// لا تضع مفتاح Tap السري في ملفات public. يتم تخزينه كـ Firebase Secret فقط.
+const TAP_SECRET_KEY = defineSecret("TAP_SECRET_KEY");
 const WEB_PAYMENTS_BASE_URL = defineSecret("WEB_PAYMENTS_BASE_URL");
 
 // Apple (App Store Server API)
@@ -7684,7 +7684,7 @@ type ResolvedWebCoupon = {
   discountAmount: number;
 };
 
-const WEB_PAYMENT_PLANS: Record<WebPlanId, WebPaymentPlan> = {
+const DEFAULT_WEB_PAYMENT_PLANS: Record<WebPlanId, WebPaymentPlan> = {
   monthly: {
     id: "monthly",
     productId: "wazen_web_monthly",
@@ -7700,6 +7700,66 @@ const WEB_PAYMENT_PLANS: Record<WebPlanId, WebPaymentPlan> = {
     days: 365,
   },
 };
+
+const WEB_PAYMENT_SETTINGS_COLLECTION = "web_payment_settings";
+const WEB_PAYMENT_SETTINGS_DOC = "default";
+
+function sanitizeWebPaymentPlan(planId: WebPlanId, input: any): WebPaymentPlan {
+  const fallback = DEFAULT_WEB_PAYMENT_PLANS[planId];
+  const amountRaw = Number(input?.amount ?? input?.amountHalalas ?? fallback.amount);
+  const daysRaw = Number(input?.days ?? fallback.days);
+  const productId = String(input?.productId || fallback.productId).trim().slice(0, 90) || fallback.productId;
+  const label = String(input?.label || fallback.label).trim().slice(0, 90) || fallback.label;
+  const amount = Number.isFinite(amountRaw) ? Math.round(amountRaw) : fallback.amount;
+  const days = Number.isFinite(daysRaw) ? Math.floor(daysRaw) : fallback.days;
+  return {
+    id: planId,
+    productId,
+    label,
+    amount: Math.min(Math.max(amount, 100), 1000000),
+    days: Math.min(Math.max(days, 1), 3660),
+  };
+}
+
+async function getWebPaymentPlans(): Promise<Record<WebPlanId, WebPaymentPlan>> {
+  try {
+    const snap = await db.collection(WEB_PAYMENT_SETTINGS_COLLECTION).doc(WEB_PAYMENT_SETTINGS_DOC).get();
+    const data = snap.exists ? (snap.data() as any) : {};
+    return {
+      monthly: sanitizeWebPaymentPlan("monthly", data?.plans?.monthly),
+      yearly: sanitizeWebPaymentPlan("yearly", data?.plans?.yearly),
+    };
+  } catch (e: any) {
+    logger.warn("getWebPaymentPlans fallback", {error: String(e?.message ?? e)});
+    return DEFAULT_WEB_PAYMENT_PLANS;
+  }
+}
+
+function webPaymentPlanPublicPayload(plan: WebPaymentPlan) {
+  return {
+    id: plan.id,
+    productId: plan.productId,
+    label: plan.label,
+    amount: plan.amount,
+    amountSar: amountToSar(plan.amount),
+    days: plan.days,
+  };
+}
+
+function webPaymentPlansPublicPayload(plans: Record<WebPlanId, WebPaymentPlan>) {
+  return {
+    monthly: webPaymentPlanPublicPayload(plans.monthly),
+    yearly: webPaymentPlanPublicPayload(plans.yearly),
+  };
+}
+
+function moneyCouponValueToHalalas(value: number): number {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (n < 1000) return Math.round(n * 100);
+  return Math.round(n);
+}
+
 
 const WEB_PAYMENT_ADMIN_UIDS = new Set([
   "7CYI66sIq3UbOHwq2qi85bpFL7x2",
@@ -7743,6 +7803,19 @@ async function assertWebPaymentsAdmin(req: any) {
   const isAllowedFlag = data?.isOwner === true || data?.owner === true || data?.isAdmin === true;
   if (isAllowedRole || isAllowedFlag) return decoded;
   throw new Error("not_admin");
+}
+
+async function assertWebPaymentsOwner(req: any) {
+  const decoded = await readFirebaseUserFromBearer(req);
+  const uid = String(decoded.uid || "");
+  if (WEB_PAYMENT_ADMIN_UIDS.has(uid)) return decoded;
+
+  const snap = await db.collection("users").doc(uid).get();
+  const data = snap.exists ? (snap.data() as any) : {};
+  const role = String(data?.role || data?.adminRole || "").toLowerCase();
+  const isOwner = role === "owner" || data?.isOwner === true || data?.owner === true;
+  if (isOwner) return decoded;
+  throw new Error("owner_only");
 }
 
 function coercePlanId(value: any): WebPlanId | null {
@@ -7803,16 +7876,17 @@ function clampFinalAmount(value: number): number {
   return Math.max(100, Math.round(Number(value || 0)));
 }
 
-async function fetchMoyasarPayment(paymentId: string) {
-  const secret = MOYASAR_SECRET_KEY.value();
-  if (!secret) throw new Error("missing_moyasar_secret");
-
-  const auth = Buffer.from(`${secret}:`).toString("base64");
-  const resp = await fetchAny(`https://api.moyasar.com/v1/payments/${encodeURIComponent(paymentId)}`, {
-    method: "GET",
+async function tapApiRequest(pathName: string, init: any = {}) {
+  const secret = String(TAP_SECRET_KEY.value() || "").trim();
+  if (!secret) throw new Error("missing_tap_secret");
+  const url = `https://api.tap.company/v2${pathName.startsWith("/") ? pathName : `/${pathName}`}`;
+  const resp = await fetchAny(url, {
+    ...init,
     headers: {
-      "Authorization": `Basic ${auth}`,
+      "Authorization": `Bearer ${secret}`,
       "Accept": "application/json",
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
     },
   });
 
@@ -7825,17 +7899,98 @@ async function fetchMoyasarPayment(paymentId: string) {
   }
 
   if (!resp.ok) {
-    logger.warn("moyasar fetch failed", {status: resp.status, body: data});
-    throw new Error("moyasar_fetch_failed");
+    logger.warn("tap api request failed", {pathName, status: resp.status, body: data});
+    throw new Error("tap_api_failed");
   }
   return data;
+}
+
+async function createTapCharge(payload: any) {
+  return tapApiRequest("/charges", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+async function fetchTapCharge(chargeId: string) {
+  if (!chargeId) throw new Error("missing_tap_charge_id");
+  return tapApiRequest(`/charges/${encodeURIComponent(chargeId)}`, {method: "GET"});
+}
+
+function tapAmountToHalalas(value: any): number {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
+function extractTapCheckoutUrl(charge: any): string {
+  return String(
+    charge?.transaction?.url ||
+    charge?.redirect?.url ||
+    charge?.url ||
+    ""
+  ).trim();
+}
+
+function extractTapChargeIdFromAny(value: any): string {
+  return String(
+    value?.tap_id ||
+    value?.tapId ||
+    value?.chargeId ||
+    value?.charge_id ||
+    value?.paymentId ||
+    value?.payment_id ||
+    value?.id ||
+    value?.data?.id ||
+    value?.charge?.id ||
+    ""
+  ).trim();
+}
+
+function tapStatusFromCharge(charge: any): string {
+  return String(charge?.status || "").trim().toUpperCase();
+}
+
+function isTapChargePaid(charge: any): boolean {
+  const status = tapStatusFromCharge(charge);
+  return [
+    "CAPTURED",
+    "PAID",
+    "SUCCESS",
+    "SUCCEEDED",
+    "APPROVED",
+    "AUTHORIZED",
+    "AUTHORISED",
+  ].includes(status);
+}
+
+function safeTapMetadata(charge: any): any {
+  const m = charge?.metadata;
+  return m && typeof m === "object" ? m : {};
+}
+
+function cleanPhoneForTap(value: any): {country_code: string; number: string} {
+  const digits = String(value || "").replace(/\D+/g, "");
+  let number = digits;
+  const country = "966";
+  if (number.startsWith("00966")) number = number.slice(5);
+  if (number.startsWith("966")) number = number.slice(3);
+  if (number.startsWith("0")) number = number.slice(1);
+  if (!/^5\d{8}$/.test(number)) number = "500000000";
+  return {country_code: country, number};
+}
+
+function cloudFunctionsBaseUrl(): string {
+  const project = String(process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "wazenfapp").trim();
+  return `https://${WAZEN_REGION}-${project}.cloudfunctions.net`;
 }
 
 async function resolveWebCoupon(planId: WebPlanId, couponRaw: any): Promise<ResolvedWebCoupon | null> {
   const code = couponCodeFromAny(couponRaw);
   if (!code) return null;
 
-  const plan = WEB_PAYMENT_PLANS[planId];
+  const plans = await getWebPaymentPlans();
+  const plan = plans[planId];
   const ref = db.collection("web_payment_coupons").doc(code);
   const snap = await ref.get();
   if (!snap.exists) throw new Error("coupon_not_found");
@@ -7869,9 +8024,9 @@ async function resolveWebCoupon(planId: WebPlanId, couponRaw: any): Promise<Reso
     if (value >= 100) throw new Error("coupon_invalid_value");
     finalAmount = clampFinalAmount(plan.amount * (1 - value / 100));
   } else if (type === "fixed") {
-    finalAmount = clampFinalAmount(plan.amount - value);
+    finalAmount = clampFinalAmount(plan.amount - moneyCouponValueToHalalas(value));
   } else if (type === "final") {
-    finalAmount = clampFinalAmount(value);
+    finalAmount = clampFinalAmount(moneyCouponValueToHalalas(value));
   }
 
   if (finalAmount >= plan.amount) throw new Error("coupon_no_discount");
@@ -7918,6 +8073,89 @@ function couponPublicPayload(coupon: ResolvedWebCoupon | null) {
   };
 }
 
+export const getWebPaymentConfig = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 20,
+    memory: "256MiB",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    try {
+      const plans = await getWebPaymentPlans();
+      const snap = await db.collection(WEB_PAYMENT_SETTINGS_COLLECTION).doc(WEB_PAYMENT_SETTINGS_DOC).get();
+      const data = snap.exists ? (snap.data() as any) : {};
+      res.status(200).json({
+        ok: true,
+        plans: webPaymentPlansPublicPayload(plans),
+        updatedAt: readDateFromAny(data?.updatedAt)?.toISOString() || "",
+      });
+    } catch (e: any) {
+      logger.error("getWebPaymentConfig failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر تحميل إعدادات الدفع.", "config_failed");
+    }
+  }
+);
+
+export const adminSaveWebPaymentConfig = onRequest(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 30,
+    memory: "256MiB",
+    maxInstances: 1,
+    cpu: "gcf_gen1",
+  },
+  async (req, res) => {
+    setWebPaymentsCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    if (req.method !== "POST") {
+      jsonError(res, 405, "طريقة الطلب غير مدعومة.", "method_not_allowed");
+      return;
+    }
+
+    try {
+      const owner = await assertWebPaymentsOwner(req);
+      const plans = {
+        monthly: sanitizeWebPaymentPlan("monthly", req.body?.plans?.monthly),
+        yearly: sanitizeWebPaymentPlan("yearly", req.body?.plans?.yearly),
+      };
+
+      await db.collection(WEB_PAYMENT_SETTINGS_COLLECTION).doc(WEB_PAYMENT_SETTINGS_DOC).set({
+        plans,
+        updatedBy: String(owner.uid || ""),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+
+      res.status(200).json({
+        ok: true,
+        message: "تم تحديث أسعار وباقات صفحة الدفع.",
+        plans: webPaymentPlansPublicPayload(plans),
+      });
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "missing_auth_token") {
+        jsonError(res, 401, "سجّل دخولك أولًا.", "unauthenticated");
+        return;
+      }
+      if (code === "owner_only") {
+        jsonError(res, 403, "تغيير الأسعار مخصص للمالك فقط.", "permission_denied");
+        return;
+      }
+      logger.error("adminSaveWebPaymentConfig failed", {error: String(e?.message ?? e)});
+      jsonError(res, 500, "تعذر تحديث إعدادات الدفع.", "config_save_failed");
+    }
+  }
+);
+
 export const previewWebCoupon = onRequest(
   {
     region: "europe-west1",
@@ -7941,6 +8179,7 @@ export const previewWebCoupon = onRequest(
         jsonError(res, 400, "الخطة غير صحيحة.", "invalid_plan");
         return;
       }
+      const plans = await getWebPaymentPlans();
       const coupon = await resolveWebCoupon(planId, req.body?.coupon);
       if (!coupon) {
         jsonError(res, 400, "اكتب كود الخصم أولًا.", "missing_coupon");
@@ -7948,11 +8187,7 @@ export const previewWebCoupon = onRequest(
       }
       res.status(200).json({
         ok: true,
-        plan: {
-          id: planId,
-          amount: WEB_PAYMENT_PLANS[planId].amount,
-          amountSar: amountToSar(WEB_PAYMENT_PLANS[planId].amount),
-        },
+        plan: webPaymentPlanPublicPayload(plans[planId]),
         coupon: couponPublicPayload(coupon),
       });
     } catch (e: any) {
@@ -7962,13 +8197,246 @@ export const previewWebCoupon = onRequest(
   }
 );
 
+async function finalizeTapWebPayment(chargeId: string, expectedSessionId = "") {
+  let paymentId = String(chargeId || "").trim();
+  const givenSessionId = String(expectedSessionId || "").trim();
+
+  let sessionRef: any = givenSessionId ?
+    db.collection("web_payment_sessions").doc(givenSessionId) : null;
+  let sessionSnap = sessionRef ? await sessionRef.get() : null;
+  let session = sessionSnap?.exists ? (sessionSnap.data() as any) : null;
+
+  if (!paymentId && session) {
+    paymentId = String(session?.paymentId || session?.chargeId || "").trim();
+  }
+  if (!paymentId) throw new Error("missing_tap_charge_id");
+
+  const charge = await fetchTapCharge(paymentId);
+  const metadata = safeTapMetadata(charge);
+  const sessionId = String(
+    givenSessionId || metadata?.session_id || metadata?.sessionId || ""
+  ).trim();
+  if (!sessionId) throw new Error("missing_session_id");
+
+  if (!sessionRef || sessionRef.id !== sessionId) {
+    sessionRef = db.collection("web_payment_sessions").doc(sessionId);
+    sessionSnap = await sessionRef.get();
+    session = sessionSnap.exists ? (sessionSnap.data() as any) : null;
+  }
+  if (!session) throw new Error("session_not_found");
+  const planId = coercePlanId(session?.planId);
+  if (!planId) throw new Error("invalid_session_plan");
+
+  const plans = await getWebPaymentPlans();
+  const plan = plans[planId];
+  const planDays = Number(session?.planDays || plan.days);
+  const planProductId = String(session?.productId || plan.productId);
+  const expectedAmount = Number(session?.amount || plan.amount);
+  const status = tapStatusFromCharge(charge);
+  const chargeAmountHalalas = tapAmountToHalalas(charge?.amount);
+  const chargeCurrency = String(charge?.currency || "").toUpperCase();
+
+  const isPaid = isTapChargePaid(charge);
+  const metadataSessionId = String(metadata?.session_id || metadata?.sessionId || "").trim();
+  const metadataUid = String(metadata?.uid || "").trim();
+  const metadataPlan = String(metadata?.plan || "").trim();
+  const storedPaymentId = String(session?.paymentId || session?.chargeId || "").trim();
+
+  // Tap sometimes does not return metadata exactly as it was sent, especially after hosted checkout redirects.
+  // The safest primary match is our server-created session id plus the stored charge id.
+  // Metadata/amount/currency are kept as diagnostics and extra guards only when they are available.
+  const sameSession = sessionId === sessionRef.id;
+  const samePaymentId = storedPaymentId ? storedPaymentId === paymentId : true;
+  const sameUid = metadataUid ? metadataUid === String(session.uid || "") : true;
+  const samePlan = metadataPlan ? metadataPlan === plan.id : true;
+  const sameAmount = chargeAmountHalalas > 0 ?
+    Math.abs(chargeAmountHalalas - Number(expectedAmount || 0)) <= 1 :
+    true;
+  const sameCurrency = !chargeCurrency || chargeCurrency === "SAR";
+
+  await db.collection("web_payments").doc(paymentId).set({
+    paymentId,
+    chargeId: paymentId,
+    sessionId,
+    uid: session.uid,
+    email: session.email,
+    planId: plan.id,
+    productId: planProductId,
+    provider: "tap",
+    status,
+    paid: isPaid,
+    amount: chargeAmountHalalas,
+    amountSar: amountToSar(chargeAmountHalalas),
+    originalAmount: Number(session?.originalAmount || plan.amount),
+    expectedAmount,
+    currency: chargeCurrency,
+    coupon: session?.coupon || null,
+    couponCode: session?.couponCode || session?.coupon?.code || "",
+    metadata,
+    raw: charge,
+    checkedAt: FieldValue.serverTimestamp(),
+  }, {merge: true});
+
+  const hasTrustedSession = Boolean(session && sessionId);
+  const isTrustedPaidCharge = isPaid && hasTrustedSession;
+  const verificationWarnings = {
+    sameSession,
+    samePaymentId,
+    sameUid,
+    samePlan,
+    sameAmount,
+    sameCurrency,
+    metadataSessionId,
+    metadataUid,
+    metadataPlan,
+    storedPaymentId,
+    chargeAmountHalalas,
+    expectedAmount,
+  };
+
+  if (!isTrustedPaidCharge) {
+    await sessionRef.set({
+      status: String(status || "pending").toLowerCase(),
+      paymentId,
+      chargeId: paymentId,
+      providerStatus: status,
+      verification: {
+        isPaid,
+        hasTrustedSession,
+        ...verificationWarnings,
+      },
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    return {
+      ok: false,
+      code: "payment_not_verified",
+      message: "لم يتم تأكيد الدفع من Tap حتى الآن.",
+      details: {
+        isPaid,
+        hasTrustedSession,
+        status,
+        ...verificationWarnings,
+      },
+      status,
+      sessionId,
+      paymentId,
+    };
+  }
+
+  if (!sameSession || !samePaymentId || !sameUid || !samePlan || !sameAmount || !sameCurrency) {
+    logger.warn("Tap web payment verified with non-blocking warnings", {
+      paymentId,
+      sessionId,
+      status,
+      verificationWarnings,
+    });
+    await sessionRef.set({
+      verificationWarning: true,
+      verificationWarnings,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+  }
+
+  const userRef = db.collection("users").doc(String(session.uid));
+  const couponCode = String(session?.couponCode || session?.coupon?.code || "").trim().toUpperCase();
+  const couponRef = couponCode ? db.collection("web_payment_coupons").doc(couponCode) : null;
+  let finalExpiry: Date | null = null;
+
+  await db.runTransaction(async (tx) => {
+    const freshSession = await tx.get(sessionRef);
+    const freshData = (freshSession as any).data() as any;
+    if (freshData?.status === "paid") {
+      finalExpiry = readDateFromAny(freshData?.subscriptionExpiry);
+      return;
+    }
+
+    if (couponRef) {
+      const couponSnap = await tx.get(couponRef);
+      if (couponSnap.exists) {
+        tx.set(couponRef, {
+          usedCount: FieldValue.increment(1),
+          lastUsedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
+      }
+    }
+
+    const userSnap = await tx.get(userRef);
+    const userData = userSnap.exists ? (userSnap.data() as any) : {};
+    const currentExpiry = readDateFromAny(userData?.subscription?.expiry) ||
+      readDateFromAny(userData?.subscription?.expiryMillis);
+    const now = new Date();
+    const base = currentExpiry && currentExpiry.getTime() > now.getTime() ? currentExpiry : now;
+    const expiry = addDaysFromBase(base, Number.isFinite(planDays) && planDays > 0 ? planDays : plan.days);
+    finalExpiry = expiry;
+
+    tx.set(userRef, {
+      email: session.email,
+      isPremium: true,
+      premium: true,
+      premiumSource: "WEB_TAP",
+      subscriptionExpiry: expiry,
+      subscription: {
+        active: true,
+        status: "active",
+        source: "WEB_TAP",
+        provider: "tap",
+        planId: plan.id,
+        productId: planProductId,
+        start: now,
+        expiry,
+        expiryMillis: expiry.getTime(),
+        amount: expectedAmount,
+        originalAmount: Number(session?.originalAmount || plan.amount),
+        coupon: session?.coupon || null,
+        currency: "SAR",
+        paymentId,
+        chargeId: paymentId,
+        sessionId,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    tx.set(sessionRef, {
+      status: "paid",
+      paymentId,
+      chargeId: paymentId,
+      providerStatus: status,
+      paidAt: FieldValue.serverTimestamp(),
+      subscriptionExpiry: expiry,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+  });
+
+  await db.collection("web_payments").doc(paymentId).set({
+    paid: true,
+    activated: true,
+    activatedAt: FieldValue.serverTimestamp(),
+    subscriptionExpiry: finalExpiry,
+  }, {merge: true});
+
+  return {
+    ok: true,
+    message: "تم تفعيل اشتراك وازن بنجاح.",
+    plan: plan.id,
+    productId: planProductId,
+    coupon: session?.coupon || null,
+    expiry: finalExpiry ? (finalExpiry as Date).toISOString() : null,
+    sessionId,
+    paymentId,
+    status,
+  };
+}
+
 export const createWebPaymentSession = onRequest(
   {
     region: "europe-west1",
-    secrets: [MOYASAR_PUBLISHABLE_KEY, WEB_PAYMENTS_BASE_URL],
-    timeoutSeconds: 30,
+    secrets: [TAP_SECRET_KEY, WEB_PAYMENTS_BASE_URL],
+    timeoutSeconds: 45,
     memory: "256MiB",
-    maxInstances: 1,
+    maxInstances: 2,
     cpu: "gcf_gen1",
   },
   async (req, res) => {
@@ -7982,6 +8450,7 @@ export const createWebPaymentSession = onRequest(
       return;
     }
 
+    let sessionId = "";
     try {
       const decoded = await readFirebaseUserFromBearer(req);
       const uid = decoded.uid;
@@ -7991,13 +8460,21 @@ export const createWebPaymentSession = onRequest(
         return;
       }
 
+      const appUserSnap = await db.collection("users").doc(uid).get();
+      if (!appUserSnap.exists) {
+        jsonError(res, 403, "لازم تسجل في تطبيق وازن أولًا ثم ترجع لصفحة الدفع بنفس الحساب.", "app_account_required");
+        return;
+      }
+      const appUser = appUserSnap.data() as any;
+
       const planId = coercePlanId(req.body?.plan);
       if (!planId) {
         jsonError(res, 400, "الخطة غير صحيحة.", "invalid_plan");
         return;
       }
 
-      const plan = WEB_PAYMENT_PLANS[planId];
+      const plans = await getWebPaymentPlans();
+      const plan = plans[planId];
       let coupon: ResolvedWebCoupon | null = null;
       try {
         coupon = await resolveWebCoupon(planId, req.body?.coupon);
@@ -8008,11 +8485,14 @@ export const createWebPaymentSession = onRequest(
       }
 
       const finalAmount = coupon?.finalAmount || plan.amount;
-      const sessionId = randomUUID();
+      sessionId = randomUUID();
       const baseUrl = getBaseUrlFromSecretOrRequest(req);
       const callbackUrl = `${baseUrl}/pay/result/?session_id=${encodeURIComponent(sessionId)}`;
+      const webhookUrl = `${cloudFunctionsBaseUrl()}/tapWebhook`;
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 45 * 60 * 1000);
+      const customerName = String(appUser?.displayName || decoded.name || email.split("@")[0] || "Wazen User").trim();
+      const phone = cleanPhoneForTap(req.body?.phone || appUser?.phone || appUser?.phoneNumber || appUser?.mobile);
 
       await db.collection("web_payment_sessions").doc(sessionId).set({
         sessionId,
@@ -8022,20 +8502,77 @@ export const createWebPaymentSession = onRequest(
         productId: plan.productId,
         originalAmount: plan.amount,
         amount: finalAmount,
+        amountSar: amountToSar(finalAmount),
         currency: "SAR",
+        planLabel: plan.label,
+        planDays: plan.days,
         coupon: coupon ? couponPublicPayload(coupon) : null,
         couponCode: coupon?.code || "",
         status: "created",
-        provider: "moyasar",
+        provider: "tap",
         callbackUrl,
+        webhookUrl,
         createdAt: FieldValue.serverTimestamp(),
         expiresAt,
       });
 
+      const tapPayload = {
+        amount: amountToSar(finalAmount),
+        currency: "SAR",
+        customer_initiated: true,
+        threeDSecure: true,
+        save_card: false,
+        description: coupon ? `${plan.label} - ${coupon.code}` : `${plan.label} - ${email}`,
+        metadata: {
+          session_id: sessionId,
+          uid,
+          email,
+          plan: plan.id,
+          product_id: plan.productId,
+          coupon: coupon?.code || "",
+          original_amount: String(plan.amount),
+          final_amount: String(finalAmount),
+        },
+        receipt: {email: false, sms: false},
+        customer: {
+          first_name: customerName.slice(0, 60) || "Wazen",
+          email,
+          phone,
+        },
+        source: {id: "src_all"},
+        redirect: {url: callbackUrl},
+        post: {url: webhookUrl},
+      };
+
+      const charge = await createTapCharge(tapPayload);
+      const checkoutUrl = extractTapCheckoutUrl(charge);
+      const chargeId = String(charge?.id || "").trim();
+      if (!checkoutUrl || !chargeId) {
+        throw new Error("tap_checkout_url_missing");
+      }
+
+      await db.collection("web_payment_sessions").doc(sessionId).set({
+        status: "redirect_created",
+        paymentId: chargeId,
+        chargeId,
+        providerStatus: tapStatusFromCharge(charge),
+        checkoutUrl,
+        tapCreatedAt: FieldValue.serverTimestamp(),
+        tapCharge: {
+          id: chargeId,
+          status: charge?.status || "",
+          amount: charge?.amount || null,
+          currency: charge?.currency || "SAR",
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+
       res.status(200).json({
         ok: true,
-        provider: "moyasar",
+        provider: "tap",
         sessionId,
+        paymentId: chargeId,
+        chargeId,
         plan: {
           id: plan.id,
           productId: plan.productId,
@@ -8048,38 +8585,36 @@ export const createWebPaymentSession = onRequest(
         },
         coupon: couponPublicPayload(coupon),
         checkout: {
-          amount: finalAmount,
-          currency: "SAR",
-          description: coupon ? `${plan.label} - ${coupon.code}` : `${plan.label} - ${email}`,
-          publishableApiKey: MOYASAR_PUBLISHABLE_KEY.value(),
+          redirectUrl: checkoutUrl,
+          url: checkoutUrl,
           callbackUrl,
-          supportedNetworks: ["mada", "visa", "mastercard"],
-          methods: ["creditcard", "applepay", "stcpay"],
-          apple_pay: {
-            country: "SA",
-            label: "Wazen",
-            validate_merchant_url: "https://api.moyasar.com/v1/applepay/initiate",
-          },
-          metadata: {
-            session_id: sessionId,
-            uid,
-            email,
-            plan: plan.id,
-            product_id: plan.productId,
-            coupon: coupon?.code || "",
-            original_amount: String(plan.amount),
-            final_amount: String(finalAmount),
-          },
+          amount: finalAmount,
+          amountSar: amountToSar(finalAmount),
+          currency: "SAR",
+          description: tapPayload.description,
+          metadata: tapPayload.metadata,
         },
       });
     } catch (e: any) {
-      logger.error("createWebPaymentSession failed", {error: String(e?.message ?? e)});
+      logger.error("createWebPaymentSession failed", {error: String(e?.message ?? e), sessionId});
+      if (sessionId) {
+        await db.collection("web_payment_sessions").doc(sessionId).set({
+          status: "provider_create_failed",
+          provider: "tap",
+          providerError: String(e?.message ?? e),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true}).catch(() => undefined);
+      }
       const msg = String(e?.message ?? "");
       if (msg === "missing_auth_token") {
         jsonError(res, 401, "سجّل دخولك أولًا بحساب وازن.", "unauthenticated");
         return;
       }
-      jsonError(res, 500, "تعذر تجهيز صفحة الدفع. حاول مرة أخرى.", "session_failed");
+      if (msg === "missing_tap_secret") {
+        jsonError(res, 500, "مفتاح Tap غير مضبوط في السيرفر.", "tap_secret_missing");
+        return;
+      }
+      jsonError(res, 500, "تعذر تجهيز الدفع عبر Tap. حاول مرة أخرى.", "session_failed");
     }
   }
 );
@@ -8087,10 +8622,10 @@ export const createWebPaymentSession = onRequest(
 export const verifyWebPayment = onRequest(
   {
     region: "europe-west1",
-    secrets: [MOYASAR_SECRET_KEY],
+    secrets: [TAP_SECRET_KEY],
     timeoutSeconds: 45,
     memory: "256MiB",
-    maxInstances: 1,
+    maxInstances: 2,
     cpu: "gcf_gen1",
   },
   async (req, res) => {
@@ -8105,153 +8640,68 @@ export const verifyWebPayment = onRequest(
     }
 
     try {
-      const paymentId = String(req.body?.paymentId || req.body?.id || "").trim();
+      const paymentId = extractTapChargeIdFromAny(req.body || {});
       const sessionId = String(req.body?.sessionId || req.body?.session_id || "").trim();
-      if (!paymentId || !sessionId) {
-        jsonError(res, 400, "بيانات عملية الدفع ناقصة.", "missing_payment_data");
+      if (!paymentId && !sessionId) {
+        jsonError(res, 400, "رقم عملية Tap أو جلسة الدفع ناقصة.", "missing_payment_data");
         return;
       }
 
-      const sessionRef = db.collection("web_payment_sessions").doc(sessionId);
-      const sessionSnap = await sessionRef.get();
-      if (!sessionSnap.exists) {
+      const result = await finalizeTapWebPayment(paymentId, sessionId);
+      if (!result.ok) {
+        jsonError(res, 400, result.message, result.code || "payment_not_verified");
+        return;
+      }
+      res.status(200).json(result);
+    } catch (e: any) {
+      const code = String(e?.message || "");
+      if (code === "session_not_found") {
         jsonError(res, 404, "جلسة الدفع غير موجودة أو منتهية.", "session_not_found");
         return;
       }
-
-      const session = sessionSnap.data() as any;
-      const planId = coercePlanId(session?.planId);
-      if (!planId) {
-        jsonError(res, 400, "خطة الدفع غير صحيحة.", "invalid_session_plan");
+      if (code === "missing_tap_secret") {
+        jsonError(res, 500, "مفتاح Tap غير مضبوط في السيرفر.", "tap_secret_missing");
         return;
       }
-      const plan = WEB_PAYMENT_PLANS[planId];
-      const expectedAmount = Number(session?.amount || plan.amount);
-
-      const payment = await fetchMoyasarPayment(paymentId);
-      const metadata = payment?.metadata || {};
-      const status = String(payment?.status || "").toLowerCase();
-      const isPaid = status === "paid" || status === "captured";
-
-      const sameSession = String(metadata?.session_id || "") === sessionId;
-      const sameUid = String(metadata?.uid || "") === String(session.uid || "");
-      const samePlan = String(metadata?.plan || "") === plan.id;
-      const sameAmount = Number(payment?.amount || 0) === Number(expectedAmount || 0);
-      const sameCurrency = String(payment?.currency || "").toUpperCase() === "SAR";
-
-      await db.collection("web_payments").doc(paymentId).set({
-        paymentId,
-        sessionId,
-        uid: session.uid,
-        email: session.email,
-        planId: plan.id,
-        productId: plan.productId,
-        provider: "moyasar",
-        status,
-        amount: Number(payment?.amount || 0),
-        originalAmount: Number(session?.originalAmount || plan.amount),
-        expectedAmount,
-        currency: String(payment?.currency || ""),
-        coupon: session?.coupon || null,
-        raw: payment,
-        checkedAt: FieldValue.serverTimestamp(),
-      }, {merge: true});
-
-      if (!isPaid || !sameSession || !sameUid || !samePlan || !sameAmount || !sameCurrency) {
-        await sessionRef.set({
-          status: "verification_failed",
-          paymentId,
-          verification: {
-            isPaid,
-            sameSession,
-            sameUid,
-            samePlan,
-            sameAmount,
-            sameCurrency,
-          },
-          updatedAt: FieldValue.serverTimestamp(),
-        }, {merge: true});
-
-        jsonError(res, 400, "لم يتم تأكيد الدفع أو أن بيانات العملية غير مطابقة.", "payment_not_verified");
-        return;
-      }
-
-      const userRef = db.collection("users").doc(String(session.uid));
-      const couponCode = String(session?.couponCode || session?.coupon?.code || "").trim().toUpperCase();
-      const couponRef = couponCode ? db.collection("web_payment_coupons").doc(couponCode) : null;
-      let finalExpiry: Date | null = null;
-
-      await db.runTransaction(async (tx) => {
-        const freshSession = await tx.get(sessionRef);
-        const freshData = freshSession.data() as any;
-        if (freshData?.status === "paid" && freshData?.paymentId === paymentId) {
-          finalExpiry = readDateFromAny(freshData?.subscriptionExpiry);
-          return;
-        }
-
-        if (couponRef) {
-          const couponSnap = await tx.get(couponRef);
-          if (couponSnap.exists) {
-            tx.set(couponRef, {
-              usedCount: FieldValue.increment(1),
-              lastUsedAt: FieldValue.serverTimestamp(),
-              updatedAt: FieldValue.serverTimestamp(),
-            }, {merge: true});
-          }
-        }
-
-        const userSnap = await tx.get(userRef);
-        const userData = userSnap.exists ? (userSnap.data() as any) : {};
-        const currentExpiry = readDateFromAny(userData?.subscription?.expiry) ||
-          readDateFromAny(userData?.subscription?.expiryMillis);
-        const now = new Date();
-        const base = currentExpiry && currentExpiry.getTime() > now.getTime() ? currentExpiry : now;
-        const expiry = addDaysFromBase(base, plan.days);
-        finalExpiry = expiry;
-
-        tx.set(userRef, {
-          email: session.email,
-          isPremium: true,
-          premiumSource: "WEB_MOYASAR",
-          subscription: {
-            active: true,
-            source: "WEB_MOYASAR",
-            provider: "moyasar",
-            planId: plan.id,
-            productId: plan.productId,
-            start: now,
-            expiry,
-            expiryMillis: expiry.getTime(),
-            amount: expectedAmount,
-            originalAmount: Number(session?.originalAmount || plan.amount),
-            coupon: session?.coupon || null,
-            currency: "SAR",
-            paymentId,
-            sessionId,
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-        }, {merge: true});
-
-        tx.set(sessionRef, {
-          status: "paid",
-          paymentId,
-          paidAt: FieldValue.serverTimestamp(),
-          subscriptionExpiry: expiry,
-          updatedAt: FieldValue.serverTimestamp(),
-        }, {merge: true});
-      });
-
-      res.status(200).json({
-        ok: true,
-        message: "تم تفعيل اشتراك وازن بنجاح.",
-        plan: plan.id,
-        productId: plan.productId,
-        coupon: session?.coupon || null,
-        expiry: finalExpiry ? (finalExpiry as Date).toISOString() : null,
-      });
-    } catch (e: any) {
       logger.error("verifyWebPayment failed", {error: String(e?.message ?? e)});
-      jsonError(res, 500, "تعذر التحقق من عملية الدفع. تواصل مع الدعم إذا تم خصم المبلغ.", "verify_failed");
+      jsonError(
+        res,
+        500,
+        "تعذر التحقق من عملية الدفع. تواصل مع الدعم إذا تم خصم المبلغ.",
+        `verify_failed:${String(e?.message || "unknown")}`
+      );
+    }
+  }
+);
+
+export const tapWebhook = onRequest(
+  {
+    region: "europe-west1",
+    secrets: [TAP_SECRET_KEY],
+    timeoutSeconds: 45,
+    memory: "256MiB",
+    maxInstances: 2,
+    cpu: "gcf_gen1",
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ok: false, message: "method_not_allowed"});
+      return;
+    }
+
+    try {
+      const paymentId = extractTapChargeIdFromAny(req.body || req.query || {});
+      if (!paymentId) {
+        logger.warn("tapWebhook missing charge id", {body: req.body});
+        res.status(200).json({ok: true, ignored: true, reason: "missing_charge_id"});
+        return;
+      }
+      const result = await finalizeTapWebPayment(paymentId);
+      res.status(200).json({ok: true, processed: result.ok, result});
+    } catch (e: any) {
+      logger.error("tapWebhook failed", {error: String(e?.message ?? e)});
+      // نرجع 200 حتى لا تتكرر محاولات Tap بشكل مزعج إذا كانت البيانات غير مكتملة.
+      res.status(200).json({ok: false, message: String(e?.message || "tap_webhook_failed")});
     }
   }
 );
@@ -8352,7 +8802,7 @@ export const adminSaveWebCoupon = onRequest(
         }
         value = Math.round(value * 100) / 100;
       } else {
-        value = Math.round(value);
+        value = moneyCouponValueToHalalas(value);
       }
 
       const allowedPlans = normalizeAllowedPlans(req.body?.allowedPlans);
@@ -8361,7 +8811,8 @@ export const adminSaveWebCoupon = onRequest(
         return;
       }
 
-      const maxUses = Math.max(1, Math.floor(Number(req.body?.maxUses || 1)));
+      const rawMaxUses = Number(req.body?.maxUses || 0);
+      const maxUses = Number.isFinite(rawMaxUses) && rawMaxUses > 0 ? Math.floor(rawMaxUses) : 0;
       const startsAt = readDateFromAny(req.body?.startsAt) || new Date();
       const expiresAt = readDateFromAny(req.body?.expiresAt);
       if (expiresAt && expiresAt.getTime() <= startsAt.getTime()) {
@@ -8925,10 +9376,16 @@ export const adminListWebPayments = onRequest(
     }
     try {
       await assertStaffAccess(req, true);
-      const limit = Math.min(Math.max(Number(req.body?.limit || 200), 1), 500);
+      const limit = Math.min(Math.max(Number(req.body?.limit || 500), 1), 1000);
       const snap = await db.collection("web_payment_sessions").orderBy("createdAt", "desc").limit(limit).get();
+      const now = Date.now();
       const sessions = snap.docs.map((doc) => {
         const s = doc.data() as any;
+        const createdAt = readDateFromAny(s?.createdAt);
+        const paidAt = readDateFromAny(s?.paidAt);
+        const amount = Number(s?.amount || 0);
+        const originalAmount = Number(s?.originalAmount || 0);
+        const discount = Math.max(0, originalAmount - amount);
         return {
           id: doc.id,
           sessionId: s?.sessionId || doc.id,
@@ -8936,29 +9393,78 @@ export const adminListWebPayments = onRequest(
           email: s?.email || "",
           planId: s?.planId || "",
           productId: s?.productId || "",
+          planLabel: s?.planLabel || "",
           status: s?.status || "created",
-          amount: Number(s?.amount || 0),
-          originalAmount: Number(s?.originalAmount || 0),
-          amountSar: amountToSar(Number(s?.amount || 0)),
+          provider: s?.provider || "tap",
+          providerStatus: s?.providerStatus || "",
+          amount,
+          originalAmount,
+          discount,
+          amountSar: amountToSar(amount),
+          originalAmountSar: amountToSar(originalAmount),
+          discountSar: amountToSar(discount),
           currency: s?.currency || "SAR",
           couponCode: s?.couponCode || s?.coupon?.code || "",
-          paymentId: s?.paymentId || "",
-          createdAt: readDateFromAny(s?.createdAt)?.toISOString() || "",
-          paidAt: readDateFromAny(s?.paidAt)?.toISOString() || "",
+          paymentId: s?.paymentId || s?.chargeId || "",
+          chargeId: s?.chargeId || s?.paymentId || "",
+          checkoutUrl: s?.checkoutUrl || "",
+          createdAt: createdAt?.toISOString() || "",
+          paidAt: paidAt?.toISOString() || "",
           subscriptionExpiry: readDateFromAny(s?.subscriptionExpiry)?.toISOString() || "",
+          ageHours: createdAt ? Math.round((now - createdAt.getTime()) / 36e5) : null,
         };
       });
+
       const paid = sessions.filter((s) => s.status === "paid");
+      const pending = sessions.filter((s) => !["paid", "verification_failed", "provider_create_failed", "failed", "cancelled"].includes(String(s.status || "")));
+      const failed = sessions.filter((s) => ["verification_failed", "provider_create_failed", "failed", "cancelled"].includes(String(s.status || "")));
       const uniquePaidUsers = new Set(paid.map((s) => s.uid).filter(Boolean)).size;
-      const revenue = paid.reduce((sum, s) => sum + s.amount, 0);
+      const revenue = paid.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      const originalRevenue = paid.reduce((sum, s) => sum + Number(s.originalAmount || 0), 0);
+      const discounts = paid.reduce((sum, s) => sum + Number(s.discount || 0), 0);
+      const monthlyPaid = paid.filter((s) => s.planId === "monthly");
+      const yearlyPaid = paid.filter((s) => s.planId === "yearly");
+      const paidToday = paid.filter((s) => {
+        const d = readDateFromAny(s.paidAt || s.createdAt);
+        return d ? now - d.getTime() <= 24 * 60 * 60 * 1000 : false;
+      });
+      const paid7Days = paid.filter((s) => {
+        const d = readDateFromAny(s.paidAt || s.createdAt);
+        return d ? now - d.getTime() <= 7 * 24 * 60 * 60 * 1000 : false;
+      });
+      const paid30Days = paid.filter((s) => {
+        const d = readDateFromAny(s.paidAt || s.createdAt);
+        return d ? now - d.getTime() <= 30 * 24 * 60 * 60 * 1000 : false;
+      });
+      const byCoupon: Record<string, {code: string; count: number; revenueHalalas: number; revenueSar: number}> = {};
+      for (const s of paid) {
+        const code = String(s.couponCode || "بدون كود");
+        byCoupon[code] = byCoupon[code] || {code, count: 0, revenueHalalas: 0, revenueSar: 0};
+        byCoupon[code].count += 1;
+        byCoupon[code].revenueHalalas += Number(s.amount || 0);
+        byCoupon[code].revenueSar = amountToSar(byCoupon[code].revenueHalalas);
+      }
+
       res.status(200).json({
         ok: true,
         summary: {
           totalSessions: sessions.length,
           paidCount: paid.length,
+          pendingCount: pending.length,
+          failedCount: failed.length,
           uniquePaidUsers,
+          monthlyPaidCount: monthlyPaid.length,
+          yearlyPaidCount: yearlyPaid.length,
           revenueHalalas: revenue,
           revenueSar: amountToSar(revenue),
+          originalRevenueHalalas: originalRevenue,
+          originalRevenueSar: amountToSar(originalRevenue),
+          discountsHalalas: discounts,
+          discountsSar: amountToSar(discounts),
+          todayRevenueSar: amountToSar(paidToday.reduce((sum, s) => sum + Number(s.amount || 0), 0)),
+          last7DaysRevenueSar: amountToSar(paid7Days.reduce((sum, s) => sum + Number(s.amount || 0), 0)),
+          last30DaysRevenueSar: amountToSar(paid30Days.reduce((sum, s) => sum + Number(s.amount || 0), 0)),
+          byCoupon: Object.values(byCoupon).sort((a, b) => b.revenueHalalas - a.revenueHalalas),
         },
         sessions,
       });
@@ -8973,7 +9479,7 @@ export const adminListWebPayments = onRequest(
         return;
       }
       logger.error("adminListWebPayments failed", {error: String(e?.message ?? e)});
-      jsonError(res, 500, "تعذر جلب اشتراكات صفحة الدفع.", "payments_list_failed");
+      jsonError(res, 500, "تعذر جلب لوحة تتبع المدفوعات.", "payments_list_failed");
     }
   }
 );

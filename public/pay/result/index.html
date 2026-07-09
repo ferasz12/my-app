@@ -24,7 +24,7 @@
   <section class="card">
     <div class="logo"><img src="/wazen_logo.png" alt="وازن" onerror="this.style.display='none'"></div>
     <h1 id="title">جاري تأكيد الدفع...</h1>
-    <p class="lead" id="lead">نراجع العملية مع بوابة الدفع ثم نفعّل الاشتراك في حساب وازن.</p>
+    <p class="lead" id="lead">نراجع العملية مع Tap ثم نفعّل الاشتراك في حساب وازن.</p>
     <div id="statusBox" class="status">يرجى عدم إغلاق الصفحة حتى تظهر النتيجة.</div>
     <div class="actions">
       <a class="btn" href="/pay/">الرجوع لصفحة الدفع</a>
@@ -39,7 +39,7 @@
     const API_BASE = `https://${REGION}-${PROJECT_ID}.cloudfunctions.net`;
     const verifyUrl = `${API_BASE}/verifyWebPayment`;
     const params = new URLSearchParams(location.search);
-    const paymentId = params.get('id') || params.get('payment_id') || sessionStorage.getItem('wazen_last_payment_id') || '';
+    const paymentId = params.get('tap_id') || params.get('charge_id') || params.get('id') || params.get('payment_id') || sessionStorage.getItem('wazen_last_payment_id') || '';
     const sessionId = params.get('session_id') || sessionStorage.getItem('wazen_last_payment_session') || '';
     const title = document.getElementById('title');
     const lead = document.getElementById('lead');
@@ -61,13 +61,20 @@
         const resp = await fetch(verifyUrl, {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({paymentId, sessionId})
+          body:JSON.stringify({paymentId, tap_id: paymentId, sessionId, session_id: sessionId})
         });
-        const data = await resp.json();
-        if(!resp.ok || !data.ok) throw new Error(data.message || 'verification failed');
+        const data = await resp.json().catch(()=>({}));
+        if(!resp.ok || !data.ok){
+          const details = data.details ? `\nتفاصيل: ${JSON.stringify(data.details)}` : '';
+          throw new Error(`${data.message || 'verification failed'}\nالكود: ${data.code || resp.status}${details}`);
+        }
         setState(true, 'تم تفعيل اشتراكك بنجاح', `الخطة: ${data.plan || '-'} — ينتهي الاشتراك: ${data.expiry ? new Date(data.expiry).toLocaleString('ar-SA') : 'تم التفعيل'}`);
       }catch(e){
-        setState(false, 'تعذر تأكيد الدفع', 'إذا تم خصم المبلغ، تواصل مع دعم وازن وارسل رقم العملية: ' + paymentId);
+        setState(
+          false,
+          'تعذر تأكيد الدفع',
+          `رقم العملية: ${paymentId || '-'}\nرقم الجلسة: ${sessionId || '-'}\nالسبب: ${e.message || e}`
+        );
       }
     }
     verify();

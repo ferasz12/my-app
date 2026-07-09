@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#016C66" />
+  <title>وازن — إدارة التصويت</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <link rel="icon" type="image/png" href="/wazen_logo.png?v=20260505" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--brand:#016C66;--brandDark:#004642;--card:rgba(255,255,255,.09);--stroke:rgba(255,255,255,.16);--text:#F7FFFE;--muted:rgba(247,255,254,.78);--danger:#FFE1E1;--ok:#CFFCF8;--radius:24px;--shadow:0 22px 90px rgba(0,0,0,.34)}
+    *{box-sizing:border-box} body{margin:0;font-family:"Tajawal",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:radial-gradient(900px 650px at 15% 10%,rgba(255,255,255,.16),transparent 55%),radial-gradient(900px 700px at 85% 30%,rgba(0,0,0,.20),transparent 60%),linear-gradient(180deg,var(--brand),var(--brandDark));min-height:100vh;padding:24px;display:flex;justify-content:center} a{color:inherit}.shell{width:min(1100px,100%);display:grid;gap:16px}.card{background:var(--card);border:1px solid var(--stroke);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:blur(10px);overflow:hidden}.top{display:flex;gap:14px;align-items:center;padding:18px}.logo{width:52px;height:52px;border-radius:16px;background:rgba(255,255,255,.10);display:grid;place-items:center;border:1px solid rgba(255,255,255,.18);overflow:hidden}.logo img{width:100%;height:100%;object-fit:cover}.title h1{margin:0;font-size:22px;font-weight:800}.title p{margin:6px 0 0;color:var(--muted);font-size:14px}.content{padding:18px;display:grid;gap:14px}.grid{display:grid;gap:12px}.two{display:grid;gap:16px}.hint{color:var(--muted);font-size:13px;line-height:1.7}.row{display:grid;gap:7px}label{font-size:13px;color:var(--muted);font-weight:700}input,textarea{width:100%;padding:13px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.17);background:rgba(0,0,0,.13);color:var(--text);outline:none;font-size:15px;font-family:inherit}textarea{min-height:92px;resize:vertical}input:focus,textarea:focus{border-color:rgba(255,255,255,.34);box-shadow:0 0 0 4px rgba(255,255,255,.08)}.btn,.mini{border:1px solid rgba(255,255,255,.20);background:rgba(255,255,255,.13);color:var(--text);border-radius:17px;padding:13px 16px;cursor:pointer;font-size:15px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:9px;text-decoration:none}.btn{width:100%}.mini{font-size:13px;padding:10px 12px}.btn:hover,.mini:hover{background:rgba(255,255,255,.18)}.btn:disabled,.mini:disabled{opacity:.55;cursor:not-allowed}.hide{display:none!important}.actions{display:flex;gap:10px;flex-wrap:wrap}.pill{display:inline-flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.12);border-radius:999px;font-size:13px;color:var(--muted);font-weight:800}.ok{color:var(--ok)}.err{color:var(--danger)}.bar{height:10px;border-radius:999px;background:rgba(0,0,0,.18);overflow:hidden}.bar span{display:block;height:100%;background:rgba(255,255,255,.75);border-radius:inherit}.option{display:grid;gap:7px;margin-bottom:12px}.mono{direction:ltr;text-align:left;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.footer{text-align:center;color:rgba(247,255,254,.68);font-size:12px;padding:6px 0 18px}@media(min-width:900px){.two{grid-template-columns:1fr .85fr;align-items:start}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="card">
+      <div class="top">
+        <div class="logo"><img src="/wazen_logo.png" alt="Wazen"></div>
+        <div class="title"><h1>إدارة تصويت وازن</h1><p>أنشئ تصويت يظهر للمستخدمين داخل التطبيق عند الدخول.</p></div>
+      </div>
+      <div class="content">
+        <div id="signedOut" class="grid">
+          <div class="hint">سجل دخولك بحساب الإدارة المصرّح به.</div>
+          <button id="login" class="btn">تسجيل دخول الإدارة</button>
+          <div id="loginMsg" class="hint"></div>
+        </div>
+        <div id="signedIn" class="grid hide">
+          <div class="actions">
+            <a class="mini" href="/admin/">رجوع للوحة الحضور</a>
+            <button id="logout" class="mini">تسجيل خروج</button>
+            <span class="pill">الحالة: <span id="status">—</span></span>
+            <span class="pill">الأصوات: <span id="total">0</span></span>
+          </div>
+          <div class="two">
+            <section class="card" style="box-shadow:none">
+              <div class="content">
+                <div class="row"><label>عنوان النافذة</label><input id="title" value="ساعدنا نطور وازن"></div>
+                <div class="row"><label>سؤال التصويت</label><textarea id="question" placeholder="مثال: وش أكثر ميزة تبغى نطورها في وازن؟"></textarea></div>
+                <div class="row"><label>وصف اختياري</label><textarea id="description" placeholder="اكتب توضيح بسيط للمستخدم"></textarea></div>
+                <div class="row"><label>الخيارات — خيار في كل سطر</label><textarea id="options" placeholder="تحليل الطعام\nالوصفات\nالجداول الرياضية\nالمجتمع"></textarea></div>
+                <div class="row"><label>نص زر الرابط</label><input id="linkText" value="فتح الرابط"></div>
+                <div class="row"><label>الرابط الاختياري</label><input id="linkUrl" class="mono" placeholder="https://wazensapp.com/..."></div>
+                <div class="actions">
+                  <button id="publish" class="btn">نشر التصويت</button>
+                  <button id="disable" class="mini">إيقاف التصويت</button>
+                </div>
+                <div id="msg" class="hint"></div>
+              </div>
+            </section>
+            <aside class="card" style="box-shadow:none">
+              <div class="content">
+                <h2 style="margin:0;font-size:18px">التصويت الحالي</h2>
+                <div id="current" class="hint">لا يوجد تصويت محمل.</div>
+                <div id="results" class="grid"></div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </section>
+    <div class="footer">© <span id="y"></span> وازن — مركز وازن.</div>
+  </main>
+
+  <script type="module">
+    document.getElementById('y').textContent = new Date().getFullYear();
+    const firebaseConfig = {apiKey:"AIzaSyD9y9FED7L-s0unONweN-5LhmwEdipXYUo",authDomain:"wazenfapp.firebaseapp.com",projectId:"wazenfapp",appId:"1:209409669834:web:9e33eba07509ee28a29233"};
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { getFirestore, doc, setDoc, serverTimestamp, onSnapshot, collectionGroup, query, where } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+    const pollRef = doc(db, 'appConfig', 'app_poll');
+
+    const $ = (id) => document.getElementById(id);
+    const signedOut = $('signedOut'), signedIn = $('signedIn'), loginMsg = $('loginMsg'), msg = $('msg');
+    const title = $('title'), question = $('question'), description = $('description'), options = $('options'), linkText = $('linkText'), linkUrl = $('linkUrl');
+    const status = $('status'), total = $('total'), current = $('current'), results = $('results');
+    let activePollId = '';
+    let unsubVotes = null;
+
+    function esc(s){return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+    function setMsg(t, ok=false){msg.innerHTML = t ? `<span class="${ok?'ok':'err'}">${esc(t)}</span>` : '';}
+    function cleanOptions(){return options.value.split('\n').map(x => x.trim()).filter(Boolean);}
+
+    function renderPoll(data){
+      if(!data){status.textContent='غير موجود'; current.textContent='أنشئ تصويت جديد.'; results.innerHTML=''; total.textContent='0'; return;}
+      activePollId = data.pollId || '';
+      status.textContent = data.enabled ? 'مفعل' : 'متوقف';
+      title.value = data.title || 'ساعدنا نطور وازن';
+      question.value = data.question || '';
+      description.value = data.description || '';
+      options.value = Array.isArray(data.options) ? data.options.join('\n') : '';
+      linkText.value = data.linkText || 'فتح الرابط';
+      linkUrl.value = data.linkUrl || '';
+      current.innerHTML = `<b>${esc(data.title || 'تصويت وازن')}</b><br>${esc(data.question || 'بدون سؤال')}<br><span class="mono">${esc(activePollId)}</span>`;
+      watchVotes(activePollId, Array.isArray(data.options) ? data.options : []);
+    }
+
+    function watchVotes(pollId, opts){
+      if(unsubVotes) unsubVotes();
+      results.innerHTML = '';
+      total.textContent = '0';
+      if(!pollId) return;
+      const q = query(collectionGroup(db, 'pollVotes'), where('pollId', '==', pollId));
+      unsubVotes = onSnapshot(q, (snap) => {
+        const counts = Object.fromEntries(opts.map(o => [o, 0]));
+        snap.forEach(d => { const v = d.data(); if(counts[v.optionText] !== undefined) counts[v.optionText]++; });
+        const all = snap.size;
+        total.textContent = String(all);
+        results.innerHTML = opts.map(o => {
+          const c = counts[o] || 0;
+          const pct = all ? Math.round((c / all) * 100) : 0;
+          return `<div class="option"><div><b>${esc(o)}</b> — ${c} صوت (${pct}%)</div><div class="bar"><span style="width:${pct}%"></span></div></div>`;
+        }).join('');
+      }, (err) => { results.innerHTML = `<span class="err">تعذر قراءة النتائج: ${esc(err.message || err)}</span>`; });
+    }
+
+    $('login').addEventListener('click', async () => {
+      loginMsg.textContent = '';
+      try { await signInWithPopup(auth, provider); }
+      catch(err){ loginMsg.textContent = '❌ ' + (err.message || 'تعذر تسجيل الدخول'); }
+    });
+    $('logout').addEventListener('click', () => signOut(auth));
+
+    $('publish').addEventListener('click', async () => {
+      setMsg('');
+      const opts = cleanOptions();
+      if(!question.value.trim() || opts.length < 2){ setMsg('اكتب سؤال التصويت وأضف خيارين على الأقل'); return; }
+      const id = 'poll_' + Date.now();
+      try{
+        await setDoc(pollRef, {enabled:true,pollId:id,title:title.value.trim() || 'ساعدنا نطور وازن',question:question.value.trim(),description:description.value.trim(),options:opts,linkText:linkText.value.trim(),linkUrl:linkUrl.value.trim(),createdBy:auth.currentUser?.uid || null,updatedBy:auth.currentUser?.uid || null,createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
+        setMsg('تم نشر التصويت وسيظهر للمستخدمين داخل التطبيق', true);
+      }catch(err){ setMsg(err.message || 'تعذر نشر التصويت'); }
+    });
+
+    $('disable').addEventListener('click', async () => {
+      setMsg('');
+      try{ await setDoc(pollRef, {enabled:false,updatedBy:auth.currentUser?.uid || null,updatedAt:serverTimestamp()}, {merge:true}); setMsg('تم إيقاف التصويت', true); }
+      catch(err){ setMsg(err.message || 'تعذر إيقاف التصويت'); }
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      if(!user){ signedOut.classList.remove('hide'); signedIn.classList.add('hide'); if(unsubVotes) unsubVotes(); return; }
+      signedOut.classList.add('hide'); signedIn.classList.remove('hide');
+      onSnapshot(pollRef, snap => renderPoll(snap.exists() ? snap.data() : null), err => setMsg(err.message || 'تعذر قراءة التصويت'));
+    });
+  </script>
+</body>
+</html>
