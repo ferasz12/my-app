@@ -22,6 +22,14 @@ class CommunityService {
   CollectionReference<Map<String, dynamic>> get _reports =>
       _db.collection('communityReports');
 
+  CollectionReference<Map<String, dynamic>> _commentsCollection(
+    String postId,
+    String sourceCollection,
+  ) {
+    final safeSource = sourceCollection == 'posts' ? 'posts' : 'communityPosts';
+    return _db.collection(safeSource).doc(postId).collection('comments');
+  }
+
   String? get currentUid => _auth.currentUser?.uid;
 
   Future<CommunityAuthorProfile> loadCurrentProfile() async {
@@ -46,6 +54,12 @@ class CommunityService {
       user.email?.split('@').first,
     ]);
 
+    final username = _firstNotEmpty([
+      data['username'],
+      data['userName'],
+      user.email?.split('@').first,
+    ]).replaceFirst('@', '').trim();
+
     final photo = _firstNotEmpty([
       data['photoUrl'],
       data['photoURL'],
@@ -57,6 +71,7 @@ class CommunityService {
       uid: user.uid,
       displayName:
           showAsSupport ? 'دعم وازن' : (rawName.isEmpty ? 'مستخدم وازن' : rawName),
+      username: showAsSupport ? '' : username,
       photoUrl: showAsSupport ? '' : photo,
       role: role.isEmpty ? 'user' : role,
       showAsSupport: showAsSupport,
@@ -84,6 +99,7 @@ class CommunityService {
     await ref.set({
       'authorUid': profile.uid,
       'authorName': profile.displayName,
+      'authorUsername': profile.username,
       'authorPhotoUrl': profile.photoUrl,
       'authorRole': profile.role,
       'supportDisplay': profile.showAsSupport,
@@ -175,7 +191,81 @@ class CommunityService {
     }
   }
 
-  Future<void> addComment({required CommunityPost post, required String text}) async {
+  Future<String?> resolveCommentAuthorUid(CommunityComment comment) {
+    return _resolveUserUid(
+      uid: comment.authorUid,
+      username: comment.authorUsername,
+      fallbackName: comment.authorName,
+    );
+  }
+
+  Future<String?> resolveReplyTargetUid(CommunityComment comment) {
+    return _resolveUserUid(
+      uid: comment.replyToUid,
+      username: comment.replyToUsername,
+      fallbackName: comment.replyToName,
+    );
+  }
+
+  Future<String?> _resolveUserUid({
+    String? uid,
+    String? username,
+    String? fallbackName,
+  }) async {
+    final direct = (uid ?? '').trim();
+    if (direct.isNotEmpty) return direct;
+
+    var handle = (username ?? '').trim().replaceFirst('@', '');
+    if (handle.isEmpty) {
+      final nameCandidate = (fallbackName ?? '').trim().replaceFirst('@', '');
+      if (nameCandidate.isNotEmpty &&
+          !nameCandidate.contains(RegExp(r'\s')) &&
+          nameCandidate != 'مستخدم وازن') {
+        handle = nameCandidate;
+      }
+    }
+    if (handle.isEmpty) return null;
+
+    // Older records sometimes saved only the username. Resolve it lazily when
+    // a profile is opened instead of rewriting historical user content.
+    final candidates = <String>{handle, handle.toLowerCase()};
+    for (final candidate in candidates) {
+      try {
+        final usernameDoc = await _db.collection('usernames').doc(candidate).get();
+        final data = usernameDoc.data() ?? const <String, dynamic>{};
+        final resolved = _firstNotEmpty([
+          data['ownerUid'],
+          data['uid'],
+          data['userId'],
+        ]);
+        if (resolved.isNotEmpty) return resolved;
+      } catch (_) {
+        // Continue to the users query fallback.
+      }
+    }
+
+    for (final field in const ['username', 'userName']) {
+      for (final candidate in candidates) {
+        try {
+          final snap = await _db
+              .collection('users')
+              .where(field, isEqualTo: candidate)
+              .limit(1)
+              .get();
+          if (snap.docs.isNotEmpty) return snap.docs.first.id;
+        } catch (_) {
+          // Try the next historical field name/casing.
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> addComment({
+    required CommunityPost post,
+    required String text,
+    CommunityComment? replyTo,
+  }) async {
     final trimmed = text.trim();
     if (trimmed.length < 2) throw ArgumentError('اكتب تعليقًا أوضح');
     if (trimmed.length > 700) throw ArgumentError('التعليق طويل جدًا');
@@ -184,17 +274,34 @@ class CommunityService {
     await _assertAllowedToPost(profile.uid);
 
     final postRef = _posts.doc(post.id);
-    final commentRef = postRef.collection('comments').doc();
+    // Keep replies beside the comment they belong to. This preserves old
+    // threads saved by previous app versions under posts/{postId}/comments.
+    final targetSource = replyTo?.sourceCollection == 'posts'
+        ? 'posts'
+        : 'communityPosts';
+    final commentRef = _commentsCollection(post.id, targetSource).doc();
+    final rootCommentId = replyTo == null
+        ? commentRef.id
+        : ((replyTo.rootCommentId ?? '').trim().isNotEmpty
+            ? replyTo.rootCommentId!.trim()
+            : replyTo.id);
+
     final batch = _db.batch();
     batch.set(commentRef, {
       'authorUid': profile.uid,
       'authorName': profile.displayName,
+      'authorUsername': profile.username,
       'authorPhotoUrl': profile.photoUrl,
       'authorRole': profile.role,
       'supportDisplay': profile.showAsSupport,
       'text': trimmed,
       'isDeleted': false,
       'isPinned': false,
+      'rootCommentId': rootCommentId,
+      'parentCommentId': replyTo?.id,
+      if (replyTo != null) 'replyToUid': replyTo.authorUid,
+      if (replyTo != null) 'replyToName': replyTo.authorName,
+      if (replyTo != null) 'replyToUsername': replyTo.authorUsername,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -210,26 +317,213 @@ class CommunityService {
       commentId: commentRef.id,
       sender: profile,
       commentText: trimmed,
+      replyTo: replyTo,
     ));
   }
 
   Stream<List<CommunityComment>> streamComments(String postId, {int limit = 3}) {
-    Query<Map<String, dynamic>> q = _posts
-        .doc(postId)
-        .collection('comments')
-        .orderBy('createdAt', descending: false);
-    if (limit > 0) q = q.limit(limit);
-    return q.snapshots().map((snap) {
-      final list = snap.docs
-          .map((d) => CommunityComment.fromDoc(postId: postId, doc: d))
-          .where((c) => !c.isDeleted && c.text.trim().isNotEmpty)
-          .toList(growable: true);
-      list.sort((a, b) {
+    // Do not order or filter in Firestore here. Old app releases used fields
+    // such as timestamp/content and some documents have no createdAt field.
+    // Firestore orderBy(createdAt) silently excludes those documents.
+    late final StreamController<List<CommunityComment>> controller;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? currentSub;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? legacySub;
+
+    QuerySnapshot<Map<String, dynamic>>? currentSnapshot;
+    QuerySnapshot<Map<String, dynamic>>? legacySnapshot;
+    Object? currentError;
+    Object? legacyError;
+    var currentReady = false;
+    var legacyReady = false;
+
+    void emit() {
+      if (controller.isClosed || (!currentReady && !legacyReady)) return;
+
+      final byId = <String, CommunityComment>{};
+
+      // Load legacy first. If a migrated copy with the same id exists in the
+      // new collection, the current copy replaces it and no duplicate appears.
+      void addUsable(CommunityComment comment, {required bool overwrite}) {
+        if (comment.isDeleted || comment.text.trim().isEmpty) return;
+        if (overwrite || !byId.containsKey(comment.id)) {
+          byId[comment.id] = comment;
+        }
+      }
+
+      for (final doc in legacySnapshot?.docs ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+        addUsable(
+          CommunityComment.fromDoc(
+            postId: postId,
+            doc: doc,
+            sourceCollection: 'posts',
+          ),
+          overwrite: false,
+        );
+      }
+      for (final doc in currentSnapshot?.docs ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+        addUsable(
+          CommunityComment.fromDoc(
+            postId: postId,
+            doc: doc,
+            sourceCollection: 'communityPosts',
+          ),
+          overwrite: true,
+        );
+      }
+
+      final arranged = _arrangeComments(
+        byId.values.toList(growable: false),
+        limit: limit,
+      );
+
+      if (arranged.isEmpty &&
+          currentReady &&
+          legacyReady &&
+          currentError != null &&
+          legacyError != null) {
+        controller.addError(currentError!);
+        return;
+      }
+      controller.add(arranged);
+    }
+
+    controller = StreamController<List<CommunityComment>>(
+      onListen: () {
+        currentSub = _commentsCollection(postId, 'communityPosts')
+            .snapshots()
+            .listen((snapshot) {
+          currentSnapshot = snapshot;
+          currentReady = true;
+          currentError = null;
+          emit();
+        }, onError: (Object error, StackTrace stack) {
+          currentReady = true;
+          currentError = error;
+          emit();
+        });
+
+        legacySub = _commentsCollection(postId, 'posts')
+            .snapshots()
+            .listen((snapshot) {
+          legacySnapshot = snapshot;
+          legacyReady = true;
+          legacyError = null;
+          emit();
+        }, onError: (Object error, StackTrace stack) {
+          legacyReady = true;
+          legacyError = error;
+          emit();
+        });
+      },
+      onCancel: () async {
+        await currentSub?.cancel();
+        await legacySub?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
+  List<CommunityComment> _arrangeComments(
+    List<CommunityComment> comments, {
+    required int limit,
+  }) {
+    int compareDate(CommunityComment a, CommunityComment b) {
+      if (a.hasKnownCreatedAt != b.hasKnownCreatedAt) {
+        return a.hasKnownCreatedAt ? 1 : -1;
+      }
+      final byDate = a.createdAt.compareTo(b.createdAt);
+      if (byDate != 0) return byDate;
+      return a.id.compareTo(b.id);
+    }
+
+    final roots = comments.where((c) => !c.isReply).toList(growable: true)
+      ..sort((a, b) {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
-        return a.createdAt.compareTo(b.createdAt);
+        return compareDate(a, b);
       });
-      return List<CommunityComment>.unmodifiable(list);
-    });
+
+    final rootIds = roots.map((c) => c.id).toSet();
+    final allIds = comments.map((c) => c.id).toSet();
+    final repliesByRoot = <String, List<CommunityComment>>{};
+    final repliesByParent = <String, List<CommunityComment>>{};
+    final orphanReplies = <CommunityComment>[];
+
+    for (final comment in comments.where((c) => c.isReply)) {
+      final declaredRoot = (comment.rootCommentId ?? '').trim();
+      final declaredParent = (comment.parentCommentId ?? '').trim();
+      final rootId = declaredRoot.isNotEmpty ? declaredRoot : declaredParent;
+      if (rootId.isEmpty || !rootIds.contains(rootId)) {
+        orphanReplies.add(comment);
+        continue;
+      }
+
+      repliesByRoot.putIfAbsent(rootId, () => <CommunityComment>[]).add(comment);
+      final safeParent = declaredParent.isNotEmpty && allIds.contains(declaredParent)
+          ? declaredParent
+          : rootId;
+      repliesByParent
+          .putIfAbsent(safeParent, () => <CommunityComment>[])
+          .add(comment);
+    }
+
+    for (final replies in repliesByRoot.values) {
+      replies.sort(compareDate);
+    }
+    for (final replies in repliesByParent.values) {
+      replies.sort(compareDate);
+    }
+
+    final ordered = <CommunityComment>[];
+    final visited = <String>{};
+
+    void appendReplies(String parentId) {
+      final children = repliesByParent[parentId] ?? const <CommunityComment>[];
+      for (final child in children) {
+        if (!visited.add(child.id)) continue;
+        ordered.add(child);
+        appendReplies(child.id);
+      }
+    }
+
+    for (final root in roots) {
+      ordered.add(root);
+      visited.add(root.id);
+      appendReplies(root.id);
+
+      // A malformed historical reply may reference the correct root but an
+      // unavailable parent. Keep it in this thread instead of losing it.
+      for (final reply in repliesByRoot[root.id] ?? const <CommunityComment>[]) {
+        if (!visited.add(reply.id)) continue;
+        ordered.add(reply);
+        appendReplies(reply.id);
+      }
+    }
+    orphanReplies.sort(compareDate);
+    ordered.addAll(orphanReplies.where((c) => visited.add(c.id)));
+
+    if (limit <= 0 || ordered.length <= limit) {
+      return List<CommunityComment>.unmodifiable(ordered);
+    }
+
+    // Preview the latest complete threads, never a detached reply without its
+    // parent. The full comments sheet still receives every comment.
+    final preview = <CommunityComment>[];
+    for (final root in roots.reversed) {
+      final thread = <CommunityComment>[
+        root,
+        ...(repliesByRoot[root.id] ?? const <CommunityComment>[]),
+      ];
+      if (preview.isNotEmpty && preview.length + thread.length > limit) break;
+      preview.insertAll(0, thread);
+      if (preview.length >= limit) break;
+    }
+    if (preview.isEmpty) {
+      preview.addAll(ordered.take(limit));
+    }
+    return List<CommunityComment>.unmodifiable(preview);
   }
 
   Stream<List<String>> streamMyLikedPostIds(String uid) {
@@ -347,7 +641,8 @@ class CommunityService {
     if (!canDelete) throw StateError('لا تملك صلاحية حذف هذا التعليق');
     if (comment.isDeleted) return;
 
-    final commentRef = _posts.doc(post.id).collection('comments').doc(comment.id);
+    final commentRef =
+        _commentsCollection(post.id, comment.sourceCollection).doc(comment.id);
     final canTouchPostCounter = profile.uid == post.authorUid || profile.showAsSupport;
 
     if (canTouchPostCounter) {
@@ -398,7 +693,8 @@ class CommunityService {
     final canPin = profile.uid == post.authorUid || profile.showAsSupport;
     if (!canPin) throw StateError('تثبيت التعليقات متاح لصاحب المنشور فقط');
 
-    final commentsRef = _posts.doc(post.id).collection('comments');
+    final commentsRef =
+        _commentsCollection(post.id, comment.sourceCollection);
     final batch = _db.batch();
 
     if (pinned) {
@@ -445,51 +741,42 @@ class CommunityService {
     required String commentId,
     required CommunityAuthorProfile sender,
     required String commentText,
+    CommunityComment? replyTo,
   }) async {
     try {
-      final body = _snippet(commentText, fallback: 'علق على منشورك في مجتمع وازن.');
+      final body = _snippet(commentText, fallback: 'كتب تعليقًا في مجتمع وازن.');
+      final notified = <String>{sender.uid};
 
-      await _safeSendCommunityNotification(
-        toUid: post.authorUid,
-        senderUid: sender.uid,
-        senderName: sender.displayName,
-        type: 'community_post_comment',
-        title: '${sender.displayName} رد على منشورك',
-        body: body,
-        postId: post.id,
-        commentId: commentId,
-      );
-
-      final latest = await _posts
-          .doc(post.id)
-          .collection('comments')
-          .orderBy('createdAt', descending: true)
-          .limit(40)
-          .get();
-      final participantUids = <String>{};
-      for (final doc in latest.docs) {
-        final data = doc.data();
-        final uid = (data['authorUid'] ?? '').toString().trim();
-        if (uid.isEmpty) continue;
-        if (uid == sender.uid || uid == post.authorUid) continue;
-        participantUids.add(uid);
-        if (participantUids.length >= 8) break;
-      }
-
-      for (final uid in participantUids) {
+      if (replyTo != null &&
+          replyTo.authorUid.trim().isNotEmpty &&
+          replyTo.authorUid != sender.uid) {
+        notified.add(replyTo.authorUid);
         await _safeSendCommunityNotification(
-          toUid: uid,
+          toUid: replyTo.authorUid,
           senderUid: sender.uid,
           senderName: sender.displayName,
-          type: 'community_thread_comment',
-          title: 'تعليق جديد في منشور شاركت فيه',
-          body: '${sender.displayName}: $body',
+          type: 'community_comment_reply',
+          title: '${sender.displayName} رد على تعليقك',
+          body: body,
+          postId: post.id,
+          commentId: commentId,
+        );
+      }
+
+      if (post.authorUid.trim().isNotEmpty && !notified.contains(post.authorUid)) {
+        await _safeSendCommunityNotification(
+          toUid: post.authorUid,
+          senderUid: sender.uid,
+          senderName: sender.displayName,
+          type: 'community_post_comment',
+          title: '${sender.displayName} علّق على منشورك',
+          body: body,
           postId: post.id,
           commentId: commentId,
         );
       }
     } catch (_) {
-      // الإشعارات لا تمنع التعليق من النجاح.
+      // الإشعارات لا تمنع التعليق أو الرد من النجاح.
     }
   }
 

@@ -90,6 +90,7 @@ extension CommunityFeedViewX on CommunityFeedView {
 class CommunityAuthorProfile {
   final String uid;
   final String displayName;
+  final String username;
   final String photoUrl;
   final String role;
   final bool showAsSupport;
@@ -97,6 +98,7 @@ class CommunityAuthorProfile {
   const CommunityAuthorProfile({
     required this.uid,
     required this.displayName,
+    required this.username,
     required this.photoUrl,
     required this.role,
     required this.showAsSupport,
@@ -142,21 +144,70 @@ class CommunityPost {
 
   factory CommunityPost.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
+    final created = _firstDate([
+      data['createdAt'],
+      data['timestamp'],
+      data['created_at'],
+      data['postedAt'],
+      data['date'],
+      data['updatedAt'],
+    ]);
     return CommunityPost(
       id: doc.id,
-      authorUid: (data['authorUid'] ?? '').toString(),
-      authorName: (data['authorName'] ?? 'مستخدم وازن').toString(),
-      authorPhotoUrl: (data['authorPhotoUrl'] ?? '').toString(),
-      authorRole: (data['authorRole'] ?? 'user').toString().toLowerCase(),
-      supportDisplay: data['supportDisplay'] == true,
-      category: CommunityCategoryX.fromFirestore(data['category']),
-      content: (data['content'] ?? '').toString(),
-      likesCount: _asInt(data['likesCount']),
-      commentsCount: _asInt(data['commentsCount']),
-      trendScore: _asInt(data['trendScore']),
-      createdAt: _asDate(data['createdAt']) ?? DateTime.now(),
-      updatedAt: _asDate(data['updatedAt']),
-      isDeleted: data['isDeleted'] == true,
+      authorUid: _firstString([
+        data['authorUid'],
+        data['userId'],
+        data['uid'],
+        data['authorId'],
+      ]),
+      authorName: _firstString([
+        data['authorName'],
+        data['displayName'],
+        data['name'],
+        data['username'],
+      ], fallback: 'مستخدم وازن'),
+      authorPhotoUrl: _firstString([
+        data['authorPhotoUrl'],
+        data['photoUrl'],
+        data['photoURL'],
+        data['profileImageUrl'],
+      ]),
+      authorRole: _firstString([
+        data['authorRole'],
+        data['role'],
+      ], fallback: 'user').toLowerCase(),
+      supportDisplay: data['supportDisplay'] == true ||
+          data['showAsSupport'] == true ||
+          data['isSupport'] == true,
+      category: CommunityCategoryX.fromFirestore(
+        data['category'] ?? data['type'] ?? data['postType'],
+      ),
+      content: _firstString([
+        data['content'],
+        data['text'],
+        data['body'],
+        data['message'],
+      ]),
+      likesCount: _firstInt([
+        data['likesCount'],
+        data['likeCount'],
+        data['likes'],
+      ]),
+      commentsCount: _firstInt([
+        data['commentsCount'],
+        data['commentCount'],
+        data['comments'],
+        data['repliesCount'],
+      ]),
+      trendScore: _firstInt([
+        data['trendScore'],
+        data['score'],
+      ]),
+      createdAt: created ?? DateTime.fromMillisecondsSinceEpoch(0),
+      updatedAt: _firstDate([data['updatedAt'], data['updated_at']]),
+      isDeleted: data['isDeleted'] == true ||
+          data['deleted'] == true ||
+          data['deletedAt'] != null,
       recipeId: _nullableString(data['recipeId']),
       recipeTitle: _nullableString(data['recipeTitle']),
     );
@@ -166,53 +217,177 @@ class CommunityPost {
 class CommunityComment {
   final String id;
   final String postId;
+
+  /// The Firestore parent collection that actually owns this comment.
+  /// New comments use communityPosts, while older app versions may have
+  /// stored comments under posts. Keeping the source lets old comments stay
+  /// fully interactive without moving or rewriting user data.
+  final String sourceCollection;
+
   final String authorUid;
   final String authorName;
+  final String authorUsername;
   final String authorPhotoUrl;
   final String authorRole;
   final bool supportDisplay;
   final String text;
   final DateTime createdAt;
+  final bool hasKnownCreatedAt;
   final bool isDeleted;
   final bool isPinned;
   final DateTime? pinnedAt;
   final String? pinnedBy;
 
+  /// Null means this is a top-level comment.
+  final String? parentCommentId;
+
+  /// All replies in the same thread share the root comment id.
+  final String? rootCommentId;
+
+  final String? replyToUid;
+  final String? replyToName;
+  final String? replyToUsername;
+
   const CommunityComment({
     required this.id,
     required this.postId,
+    required this.sourceCollection,
     required this.authorUid,
     required this.authorName,
+    required this.authorUsername,
     required this.authorPhotoUrl,
     required this.authorRole,
     required this.supportDisplay,
     required this.text,
     required this.createdAt,
+    required this.hasKnownCreatedAt,
     required this.isDeleted,
     required this.isPinned,
     required this.pinnedAt,
     required this.pinnedBy,
+    required this.parentCommentId,
+    required this.rootCommentId,
+    required this.replyToUid,
+    required this.replyToName,
+    required this.replyToUsername,
   });
+
+  bool get isReply => (parentCommentId ?? '').trim().isNotEmpty;
+  bool get isLegacySource => sourceCollection == 'posts';
+
+  String get mentionLabel {
+    final username = (replyToUsername ?? '').trim().replaceFirst('@', '');
+    if (username.isNotEmpty) return '@$username';
+    final name = (replyToName ?? '').trim();
+    return name.isEmpty ? '' : '@$name';
+  }
 
   factory CommunityComment.fromDoc({
     required String postId,
     required DocumentSnapshot<Map<String, dynamic>> doc,
+    String sourceCollection = 'communityPosts',
   }) {
     final data = doc.data() ?? const <String, dynamic>{};
+
+    // Older releases used more than one key for the same value. Read all
+    // known aliases so existing users never lose comments after an update.
+    final created = _firstDate([
+      data['createdAt'],
+      data['timestamp'],
+      data['created_at'],
+      data['postedAt'],
+      data['date'],
+      data['time'],
+      data['updatedAt'],
+    ]);
+
+    final deletedAt = _firstDate([
+      data['deletedAt'],
+      data['deleted_at'],
+    ]);
+
     return CommunityComment(
       id: doc.id,
       postId: postId,
-      authorUid: (data['authorUid'] ?? '').toString(),
-      authorName: (data['authorName'] ?? 'مستخدم وازن').toString(),
-      authorPhotoUrl: (data['authorPhotoUrl'] ?? '').toString(),
-      authorRole: (data['authorRole'] ?? 'user').toString().toLowerCase(),
-      supportDisplay: data['supportDisplay'] == true,
-      text: (data['text'] ?? '').toString(),
-      createdAt: _asDate(data['createdAt']) ?? DateTime.now(),
-      isDeleted: data['isDeleted'] == true,
-      isPinned: data['isPinned'] == true,
-      pinnedAt: _asDate(data['pinnedAt']),
-      pinnedBy: _nullableString(data['pinnedBy']),
+      sourceCollection: sourceCollection,
+      authorUid: _firstString([
+        data['authorUid'],
+        data['userId'],
+        data['uid'],
+        data['authorId'],
+      ]),
+      authorName: _firstString([
+        data['authorName'],
+        data['displayName'],
+        data['name'],
+        data['userName'],
+        data['username'],
+      ], fallback: 'مستخدم وازن'),
+      authorUsername: _firstString([
+        data['authorUsername'],
+        data['username'],
+        data['userName'],
+        data['handle'],
+      ]).replaceFirst('@', ''),
+      authorPhotoUrl: _firstString([
+        data['authorPhotoUrl'],
+        data['photoUrl'],
+        data['photoURL'],
+        data['profileImageUrl'],
+        data['avatarUrl'],
+      ]),
+      authorRole: _firstString([
+        data['authorRole'],
+        data['role'],
+      ], fallback: 'user').toLowerCase(),
+      supportDisplay: data['supportDisplay'] == true ||
+          data['showAsSupport'] == true ||
+          data['isSupport'] == true,
+      text: _firstString([
+        data['text'],
+        data['content'],
+        data['comment'],
+        data['message'],
+        data['body'],
+      ]),
+      createdAt: created ?? DateTime.fromMillisecondsSinceEpoch(0),
+      hasKnownCreatedAt: created != null,
+      isDeleted: data['isDeleted'] == true ||
+          data['deleted'] == true ||
+          deletedAt != null,
+      isPinned: data['isPinned'] == true || data['pinned'] == true,
+      pinnedAt: _firstDate([data['pinnedAt'], data['pinned_at']]),
+      pinnedBy: _firstNullableString([
+        data['pinnedBy'],
+        data['pinned_by'],
+      ]),
+      parentCommentId: _firstNullableString([
+        data['parentCommentId'],
+        data['parentId'],
+        data['replyToCommentId'],
+        data['reply_to_comment_id'],
+      ]),
+      rootCommentId: _firstNullableString([
+        data['rootCommentId'],
+        data['threadRootId'],
+        data['rootId'],
+        data['root_comment_id'],
+      ]),
+      replyToUid: _firstNullableString([
+        data['replyToUid'],
+        data['replyToUserId'],
+        data['reply_to_uid'],
+      ]),
+      replyToName: _firstNullableString([
+        data['replyToName'],
+        data['replyToDisplayName'],
+        data['reply_to_name'],
+      ]),
+      replyToUsername: _firstNullableString([
+        data['replyToUsername'],
+        data['replyToUserName'],
+        data['reply_to_username'],
+      ]),
     );
   }
 }
@@ -317,6 +492,39 @@ class CommunityReport {
   }
 }
 
+
+String _firstString(List<dynamic> values, {String fallback = ''}) {
+  for (final value in values) {
+    final text = (value ?? '').toString().trim();
+    if (text.isNotEmpty) return text;
+  }
+  return fallback;
+}
+
+String? _firstNullableString(List<dynamic> values) {
+  final value = _firstString(values);
+  return value.isEmpty ? null : value;
+}
+
+DateTime? _firstDate(List<dynamic> values) {
+  for (final value in values) {
+    final parsed = _asDate(value);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
+int _firstInt(List<dynamic> values) {
+  for (final value in values) {
+    if (value is num) return value.toInt();
+    if (value is String) {
+      final parsed = int.tryParse(value.trim());
+      if (parsed != null) return parsed;
+    }
+  }
+  return 0;
+}
+
 int _asInt(dynamic v) {
   if (v is num) return v.toInt();
   if (v is String) return int.tryParse(v) ?? 0;
@@ -326,7 +534,21 @@ int _asInt(dynamic v) {
 DateTime? _asDate(dynamic v) {
   if (v is Timestamp) return v.toDate();
   if (v is DateTime) return v;
-  if (v is String) return DateTime.tryParse(v);
+  if (v is num) {
+    final raw = v.toInt();
+    // 10-digit values are normally Unix seconds; 13-digit values millis.
+    final millis = raw.abs() < 100000000000 ? raw * 1000 : raw;
+    return DateTime.fromMillisecondsSinceEpoch(millis);
+  }
+  if (v is String) {
+    final parsed = DateTime.tryParse(v);
+    if (parsed != null) return parsed;
+    final number = int.tryParse(v);
+    if (number != null) {
+      final millis = number.abs() < 100000000000 ? number * 1000 : number;
+      return DateTime.fromMillisecondsSinceEpoch(millis);
+    }
+  }
   return null;
 }
 

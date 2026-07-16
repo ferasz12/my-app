@@ -354,7 +354,40 @@ class TrackerStore {
       }
     }
 
-    // 3) fallback القديم بدون هوية المستخدم.
+    // 3) استرجاع من نسخة الوجبات المؤرخة إذا وُجدت بدون مجاميع.
+    // هذا يعالج الأجهزة التي أُغلقت قبل اكتمال الترحيل أو القادمة من إصدار أقدم.
+    for (final alias in aliases) {
+      final meals = _decodeListOfMaps(prefs.getString('meals_${alias}_$ymd'));
+      final entries = _entriesFromMealBuckets(meals);
+      if (entries.isEmpty) continue;
+      final totals = _sumEntries(entries);
+      final k = totals['k'] ?? 0.0;
+      final p = totals['p'] ?? 0.0;
+      final c = totals['c'] ?? 0.0;
+      final f = totals['f'] ?? 0.0;
+      if (k > 0 || p > 0 || c > 0 || f > 0) {
+        await _cacheDay(
+          prefs: prefs,
+          email: email,
+          ymd: ymd,
+          cal: k,
+          protein: p,
+          carb: c,
+          fat: f,
+          entries: entries,
+        );
+        return {
+          'date': ymd,
+          'calories': k,
+          'protein': p,
+          'carb': c,
+          'fat': f,
+          'locked': prefs.getBool('kcal_day_locked_${alias}_$ymd') ?? false,
+        };
+      }
+    }
+
+    // 4) fallback القديم بدون هوية المستخدم.
     final raw = prefs.getString(key);
     if (raw != null) {
       final m = _decodeMap(raw) ?? <String, dynamic>{};
@@ -374,7 +407,7 @@ class TrackerStore {
       }
     }
 
-    // 4) fallback المفاتيح القديمة المنفصلة.
+    // 5) fallback المفاتيح القديمة المنفصلة.
     final legacy = {
       'date': ymd,
       'calories': prefs.getDouble('dietCalories_$ymd') ?? 0.0,
@@ -395,6 +428,48 @@ class TrackerStore {
       }
     } catch (_) {}
     return <Map<String, dynamic>>[];
+  }
+
+
+  static List<Map<String, dynamic>> _entriesFromMealBuckets(
+    List<Map<String, dynamic>> meals,
+  ) {
+    final entries = <Map<String, dynamic>>[];
+    for (final meal in meals) {
+      final slot = (meal['name'] ?? '').toString();
+      final rawItems = meal['items'];
+      if (rawItems is! List) continue;
+      for (final raw in rawItems) {
+        if (raw is! Map) continue;
+        final item = Map<String, dynamic>.from(raw);
+        final k = _toD(item['k'] ?? item['cal'] ?? item['calories'] ?? item['kcal']);
+        final p = _toD(item['p'] ?? item['protein'] ?? item['protein_g']);
+        final c = _toD(item['c'] ?? item['carb'] ?? item['carbs'] ?? item['carbs_g']);
+        final f = _toD(item['f'] ?? item['fat'] ?? item['fat_g']);
+        entries.add({
+          'name': (item['name'] ?? item['label'] ?? 'وجبة').toString(),
+          'slot': slot,
+          'k': k,
+          'p': p,
+          'c': c,
+          'f': f,
+          'source': item['source'] ?? 'meal_snapshot',
+          if (item['addedAt'] != null) 'addedAt': item['addedAt'],
+        });
+      }
+    }
+    return entries;
+  }
+
+  static Map<String, double> _sumEntries(List<Map<String, dynamic>> entries) {
+    double k = 0, p = 0, c = 0, f = 0;
+    for (final entry in entries) {
+      k += _toD(entry['k'] ?? entry['cal'] ?? entry['calories'] ?? entry['kcal']);
+      p += _toD(entry['p'] ?? entry['protein'] ?? entry['protein_g']);
+      c += _toD(entry['c'] ?? entry['carb'] ?? entry['carbs'] ?? entry['carbs_g']);
+      f += _toD(entry['f'] ?? entry['fat'] ?? entry['fat_g']);
+    }
+    return {'k': k, 'p': p, 'c': c, 'f': f};
   }
 
   static String normalizeYmd(String value) {
@@ -422,13 +497,16 @@ class TrackerStore {
       if (entries.isNotEmpty) return entries;
     }
 
-    // fallback: بعض صفحات الهوم القديمة تخزن الوجبات بهذا المفتاح.
+    // fallback: بعض صفحات الهوم القديمة تخزن الوجبات كحاويات فطور/غداء/عشاء.
+    // نحولها إلى إدخالات مسطحة حتى تظهر تفاصيل اليوم بشكل صحيح في السجل.
     for (final alias in aliases) {
       final meals = _decodeListOfMaps(prefs.getString('meals_${alias}_$date'));
-      if (meals.isNotEmpty) return meals;
+      final datedEntries = _entriesFromMealBuckets(meals);
+      if (datedEntries.isNotEmpty) return datedEntries;
       if (date == _ymd(DateTime.now())) {
         final currentMeals = _decodeListOfMaps(prefs.getString('meals_$alias'));
-        if (currentMeals.isNotEmpty) return currentMeals;
+        final currentEntries = _entriesFromMealBuckets(currentMeals);
+        if (currentEntries.isNotEmpty) return currentEntries;
       }
     }
 
@@ -632,6 +710,33 @@ class TrackerStore {
             _toD(day['fat']) > 0) {
           byDate[ymd] = day;
         }
+      }
+    }
+
+    // استرجع أي يوم لديه نسخة وجبات مؤرخة حتى لو لم تُكتب مجاميع ذلك اليوم.
+    for (final alias in aliases) {
+      final prefix = 'meals_${alias}_';
+      for (final key in prefs.getKeys().where((k) => k.startsWith(prefix))) {
+        final ymd = key.substring(prefix.length);
+        if (!_looksLikeYmd(ymd) || deleted.contains(ymd) || byDate.containsKey(ymd)) {
+          continue;
+        }
+        final meals = _decodeListOfMaps(prefs.getString(key));
+        final entries = _entriesFromMealBuckets(meals);
+        if (entries.isEmpty) continue;
+        final totals = _sumEntries(entries);
+        final k = totals['k'] ?? 0.0;
+        final p = totals['p'] ?? 0.0;
+        final c = totals['c'] ?? 0.0;
+        final f = totals['f'] ?? 0.0;
+        if (k <= 0 && p <= 0 && c <= 0 && f <= 0) continue;
+        byDate[ymd] = {
+          'date': ymd,
+          'calories': k,
+          'protein': p,
+          'carb': c,
+          'fat': f,
+        };
       }
     }
 

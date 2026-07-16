@@ -10,6 +10,7 @@ import 'package:flutter/widgets.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/data/wazen_daily_store.dart';
 import '../data/app_repository.dart';
 import '../shared/session_manager.dart';
 
@@ -210,10 +211,11 @@ class DailyCloudBackupService with WidgetsBindingObserver {
     final steps = (activity['steps'] as num?)?.toInt() ?? 0;
     final burned = (activity['burned'] as num?)?.toInt() ?? 0;
 
-    // الوجبات الحالية: نضيفها فقط إذا اللقطة لليوم الحالي لأنها ليست مؤرشفة لكل يوم.
+    // الوجبات أصبحت مؤرشفة محليًا لكل تاريخ، لذلك يمكن رفع اليوم السابق
+    // حتى لو كان التطبيق مغلقًا وقت منتصف الليل.
     final today = _ymd(DateTime.now());
-    List<Map<String, dynamic>> meals = <Map<String, dynamic>>[];
-    if (ymd == today) {
+    List<Map<String, dynamic>> meals = await WazenDailyStore.readMeals(ymd);
+    if (meals.isEmpty && ymd == today) {
       final storageKey = await SessionManager.currentStorageKey();
       meals = _decodeListOfMaps(prefs.getString('meals_$storageKey'));
     }

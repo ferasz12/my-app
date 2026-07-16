@@ -202,8 +202,8 @@ class MealAnalysisResult {
 /// Service (Auto: Proxy or Functions)
 /// ==========================
 class MealAnalysisService {
-  static const Duration _timeout = Duration(seconds: 25);
-  static const Duration _fastTextTimeout = Duration(seconds: 30);
+  static const Duration _timeout = Duration(seconds: 120);
+  static const Duration _fastTextTimeout = Duration(seconds: 125);
   static const int _maxRetries = 1;
 
   // نحدّد هل نستخدم البروكسي أم الفنكشن تلقائيًا
@@ -523,55 +523,65 @@ class MealAnalysisService {
           'clarificationAnswers': clarificationAnswers,
       };
       final fns = FirebaseFunctions.instanceFor(region: 'europe-west1');
+      final callable = fns.httpsCallable(
+        'analyzeMealTextV2',
+        options: HttpsCallableOptions(timeout: _fastTextTimeout),
+      );
 
-      try {
-        final callable = fns.httpsCallable(
-          'analyzeMealTextV2',
-          options: HttpsCallableOptions(timeout: _fastTextTimeout),
-        );
-        final res = await callable.call(payload);
-        final data = (res.data is Map<String, dynamic>)
-            ? res.data as Map<String, dynamic>
-            : Map<String, dynamic>.from(res.data as Map);
-        final v2 = MealAnalysisResult.fromJson(data);
+      FirebaseFunctionsException? lastFunctionsError;
+      Object? lastOtherError;
 
-        // إذا رجع V2 سؤال توضيحي، نعرضه للمستخدم.
-        if (v2.raw?['needs_user_answers'] == true) return v2;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final res = await callable.call(payload);
+          final data = (res.data is Map<String, dynamic>)
+              ? res.data as Map<String, dynamic>
+              : Map<String, dynamic>.from(res.data as Map);
+          final v2 = MealAnalysisResult.fromJson(data);
 
-        // إذا رجع V2 أصفار/نتيجة سيئة، لا نوقف التحليل؛ ننزل تلقائيًا للنسخة القديمة.
-        if (v2.ok && !_looksBad(v2, description)) return v2;
-      } on FirebaseFunctionsException catch (e) {
-        final code = e.code.toLowerCase();
-        final msg = (e.message ?? '').toLowerCase();
-        final isMissingV2 = code.contains('not-found') || msg.contains('not found');
-        // أي خطأ غير not-found من V2 لا نخليه يكسر التحليل النصي.
-        // نجرّب analyzeMealText القديمة لأنها أبطأ لكنها أثبت.
-        if (!isMissingV2 && kDebugMode) {
-          // ignore: avoid_print
-          print('analyzeMealTextV2 failed, falling back to legacy: ${e.code} ${e.message}');
-        }
-      } on TimeoutException {
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print('analyzeMealTextV2 timeout, falling back to legacy');
+          if (v2.raw?['needs_user_answers'] == true) return v2;
+          if (v2.ok && !_looksBad(v2, description)) return v2;
+
+          if (attempt == 0) continue;
+          return v2.ok
+              ? MealAnalysisResult.error(
+                  'تعذّر استخراج سعرات/ماكروز دقيقة من النص. حاول مرة أخرى.',
+                  raw: v2.raw,
+                )
+              : v2;
+        } on FirebaseFunctionsException catch (e) {
+          lastFunctionsError = e;
+          final code = e.code.toLowerCase();
+          final message = (e.message ?? '').toLowerCase();
+          final transient = code.contains('deadline-exceeded') ||
+              code.contains('unavailable') ||
+              code.contains('resource-exhausted') ||
+              code.contains('internal') ||
+              message.contains('timeout') ||
+              message.contains('deadline') ||
+              message.contains('temporarily');
+          if (!transient || attempt == 1) rethrow;
+        } on TimeoutException catch (e) {
+          lastOtherError = e;
+          if (attempt == 1) rethrow;
+        } catch (e) {
+          lastOtherError = e;
+          if (attempt == 1) rethrow;
         }
       }
 
-      // fallback آمن للنسخ التي لم تنشر analyzeMealTextV2 أو إذا فشل V2.
-      final legacyCallable = fns.httpsCallable(
-        'analyzeMealText',
-        options: HttpsCallableOptions(timeout: _timeout),
-      );
-      final legacyRes = await legacyCallable.call(payload);
-      final legacyData = (legacyRes.data is Map<String, dynamic>)
-          ? legacyRes.data as Map<String, dynamic>
-          : Map<String, dynamic>.from(legacyRes.data as Map);
-      return MealAnalysisResult.fromJson(legacyData);
+      if (lastFunctionsError != null) throw lastFunctionsError;
+      if (lastOtherError != null) throw lastOtherError;
+      return MealAnalysisResult.error('تعذّر تحليل النص حاليًا. حاول مرة أخرى.');
     } on FirebaseFunctionsException catch (e) {
       return MealAnalysisResult.error(
         e.message?.trim().isNotEmpty == true
             ? e.message!.trim()
             : FriendlyErrors.message(e),
+      );
+    } on TimeoutException {
+      return MealAnalysisResult.error(
+        'تحليل النص لم يكتمل بسبب انقطاع مؤقت. حاول مرة أخرى.',
       );
     } catch (e, st) {
       if (kDebugMode) {

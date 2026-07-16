@@ -537,8 +537,11 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     await _loadStreakFromLocalCache();
     await _migrateLegacyMacrosToPerUser();
     await refreshTargets();
-    await _ensureTodaySnapshot();
+    // رحّل وجبات اليوم السابق أولًا قبل أن نكتب تاريخ لقطة اليوم الجديد.
+    // الترتيب القديم كان يضيّع مرجع تاريخ أمس عند بعض المستخدمين بعد تحديث التطبيق
+    // أو تغيّر مفتاح الهوية، فتُقرأ وجبات أمس على أنها وجبات اليوم.
     await _rollToNewDayIfNeeded();
+    await _ensureTodaySnapshot();
     await _loadTodayWater();
     await _loadCachedActivity();
     await loadMeals();
@@ -628,6 +631,20 @@ Future<void> _maybeAwardDailyBonusesNow() async {
   }
 
 
+  Future<void> _resumeAfterDayChanged() async {
+    // يجب أن يكون الترحيل متسلسلًا: أرشف أمس أولًا، ثم أنشئ لقطة اليوم.
+    // تشغيلهما بالتوازي كان يسمح أحيانًا بتغيير تاريخ اللقطة قبل قراءة تاريخ الوجبات.
+    await _rollToNewDayIfNeeded();
+    await _ensureTodaySnapshot();
+    await _loadTodayWater();
+    await _loadCachedActivity();
+    await loadMeals();
+    unawaited(fetchHealthData(force: true));
+    _startHealthLiveUpdates();
+    _persistHomeSnapshotDebounced();
+    _runHomeDeferredWork(delay: const Duration(milliseconds: 650));
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
@@ -639,8 +656,10 @@ Future<void> _maybeAwardDailyBonusesNow() async {
 
     if (today != _lastSeenDate) {
       _lastSeenDate = today;
+      _lastHomeResumeWorkAt = now;
       _attachTodayPointsListener();
-      unawaited(_rollToNewDayIfNeeded());
+      unawaited(_resumeAfterDayChanged());
+      return;
     }
 
     if (shouldThrottle) return;
@@ -1123,11 +1142,30 @@ Future<void> _maybeAwardDailyBonusesNow() async {
     return total;
   }
 
-  Future<List<Map<String, dynamic>>> _readStoredMealsSnapshot() async {
-    final prefs = await SharedPreferences.getInstance();
-    final storageKey = await SessionManager.currentStorageKey();
-    final raw = prefs.getString('meals_$storageKey') ?? prefs.getString('meals');
-    if (raw == null || raw.trim().isEmpty) return _emptyMealBuckets();
+  Future<List<String>> _mealStorageAliases(SharedPreferences prefs) async {
+    final identity = await WazenIdentityStore.currentIdentity();
+    final user = FirebaseAuth.instance.currentUser;
+    String sessionKey = '';
+    try {
+      sessionKey = await SessionManager.currentStorageKey();
+    } catch (_) {}
+
+    final aliases = <String>{
+      sessionKey,
+      identity.storageKey,
+      identity.emailKey,
+      ...identity.aliases,
+      prefs.getString('currentEmail') ?? '',
+      prefs.getString('currentUid') ?? '',
+      user?.uid ?? '',
+      user?.email?.trim().toLowerCase() ?? '',
+    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+
+    return aliases.toList(growable: false);
+  }
+
+  List<Map<String, dynamic>>? _decodeStoredMeals(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
     try {
       final decoded = json.decode(raw);
       if (decoded is List) {
@@ -1137,74 +1175,209 @@ Future<void> _maybeAwardDailyBonusesNow() async {
             .toList(growable: true);
       }
     } catch (_) {}
-    return _emptyMealBuckets();
+    return null;
+  }
+
+  Future<String?> _resolveStoredMealsDate(
+    SharedPreferences prefs,
+    List<String> aliases,
+  ) async {
+    for (final prefix in const [
+      'activeMealsDate_',
+      'mealsLastSavedDate_',
+      'lastSnapshotDate_',
+    ]) {
+      final dates = <String>{};
+      for (final alias in aliases) {
+        final raw = prefs.getString('$prefix$alias');
+        if (raw == null || raw.trim().isEmpty) continue;
+        final normalized = TrackerStore.normalizeYmd(raw);
+        if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(normalized)) {
+          dates.add(normalized);
+        }
+      }
+      if (dates.isNotEmpty) {
+        final ordered = dates.toList()..sort((a, b) => b.compareTo(a));
+        return ordered.first;
+      }
+    }
+
+    // إذا فُقدت مفاتيح تاريخ الوجبات في إصدار قديم، استخدم آخر تاريخ
+    // موجود في سجل أهداف التغذية قبل إنشاء لقطة اليوم الجديد.
+    String? newestHistoryDate;
+    for (final alias in aliases) {
+      final raw = prefs.getString('dailyNutritionHistory_$alias');
+      if (raw == null || raw.trim().isEmpty) continue;
+      try {
+        final decoded = json.decode(raw);
+        if (decoded is! Map) continue;
+        for (final key in decoded.keys.map((e) => e.toString())) {
+          if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(key)) continue;
+          if (newestHistoryDate == null || key.compareTo(newestHistoryDate) > 0) {
+            newestHistoryDate = key;
+          }
+        }
+      } catch (_) {}
+    }
+    if (newestHistoryDate != null) return newestHistoryDate;
+
+    // استرجاع إضافي: ابحث عن أحدث نسخة وجبات مؤرخة محفوظة محليًا.
+    String? newest;
+    for (final alias in aliases) {
+      final prefix = 'meals_${alias}_';
+      for (final key in prefs.getKeys().where((k) => k.startsWith(prefix))) {
+        final suffix = key.substring(prefix.length);
+        if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(suffix)) continue;
+        if (newest == null || suffix.compareTo(newest) > 0) newest = suffix;
+      }
+    }
+    return newest;
+  }
+
+  Future<List<Map<String, dynamic>>> _readStoredMealsSnapshot({
+    String? date,
+    bool allowUndatedFallback = true,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final aliases = await _mealStorageAliases(prefs);
+    final normalizedDate = date == null ? null : TrackerStore.normalizeYmd(date);
+    List<Map<String, dynamic>>? best;
+    double bestCalories = -1;
+    int bestItems = -1;
+
+    void consider(List<Map<String, dynamic>>? candidate) {
+      if (candidate == null) return;
+      final calories = _mealsCaloriesSum(candidate);
+      var items = 0;
+      for (final meal in candidate) {
+        final rawItems = meal['items'];
+        if (rawItems is List) items += rawItems.length;
+      }
+      if (best == null || calories > bestCalories ||
+          (calories == bestCalories && items > bestItems)) {
+        best = candidate;
+        bestCalories = calories;
+        bestItems = items;
+      }
+    }
+
+    if (normalizedDate != null) {
+      for (final alias in aliases) {
+        consider(_decodeStoredMeals(
+          prefs.getString('meals_${alias}_$normalizedDate'),
+        ));
+      }
+    }
+
+    if (allowUndatedFallback) {
+      for (final alias in aliases) {
+        consider(_decodeStoredMeals(prefs.getString('meals_$alias')));
+      }
+      consider(_decodeStoredMeals(prefs.getString('meals')));
+    }
+
+    return best ?? _emptyMealBuckets();
+  }
+
+  Future<void> _writeMealsSnapshotForDate(
+    String ymd,
+    List<Map<String, dynamic>> sourceMeals, {
+    required bool setAsActive,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final aliases = await _mealStorageAliases(prefs);
+    final date = TrackerStore.normalizeYmd(ymd);
+    final raw = json.encode(sourceMeals);
+
+    for (final alias in aliases) {
+      // النسخة المؤرخة هي المصدر الآمن الذي لا يتبدل عند منتصف الليل.
+      await prefs.setString('meals_${alias}_$date', raw);
+      await prefs.setString('mealsLastSavedDate_$alias', date);
+      if (setAsActive) {
+        await prefs.setString('meals_$alias', raw);
+        await prefs.setString('activeMealsDate_$alias', date);
+      }
+    }
+
+    await WazenDailyStore.writeMeals(date, sourceMeals);
+    if (setAsActive) _activeMealsStoredDate = date;
+
+    // المفتاح القديم قد يخلط بيانات أكثر من حساب، لذلك يزال بعد نسخه.
+    if (prefs.containsKey('meals')) await prefs.remove('meals');
   }
 
   // ====== لفّ اليوم + توليد مكافآت أمس ======
   Future<void> _rollToNewDayIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
-    final identity = await WazenIdentityStore.currentIdentity();
-    final email = prefs.getString('currentEmail') ??
-        FirebaseAuth.instance.currentUser?.email ??
-        identity.storageKey;
-    final aliases = <String>{
-      email,
-      identity.storageKey,
-      identity.emailKey,
-      ...identity.aliases,
-      FirebaseAuth.instance.currentUser?.uid ?? '',
-      FirebaseAuth.instance.currentUser?.email ?? '',
-    }..removeWhere((e) => e.trim().isEmpty || e == 'unknown_user');
+    final aliases = await _mealStorageAliases(prefs);
     final today = DateTime.now().toIso8601String().split('T').first;
-
-    String? lastMealsDate;
-    for (final alias in aliases) {
-      lastMealsDate ??= prefs.getString('activeMealsDate_$alias');
-    }
+    final lastMealsDate = await _resolveStoredMealsDate(prefs, aliases);
 
     if (lastMealsDate == null) {
-      for (final alias in aliases) {
-        await prefs.setString('activeMealsDate_$alias', today);
-      }
+      // أول تشغيل حقيقي: اعتبر الوجبات الحالية لليوم، واحفظ نسخة مؤرخة مباشرة.
+      final currentMeals = await _readStoredMealsSnapshot(
+        date: today,
+        allowUndatedFallback: true,
+      );
+      await _writeMealsSnapshotForDate(today, currentMeals, setAsActive: true);
       _activeMealsStoredDate = today;
       return;
     }
 
     if (lastMealsDate != today) {
-      // مهم جدًا: عند فتح التطبيق في يوم جديد، حالة meals في الذاكرة تكون غالبًا
-      // فاضية قبل loadMeals(). لذلك نقرأ نسخة الوجبات المحفوظة أولًا، ثم نثبت
-      // أمس في سجل السعرات. هذا يمنع اختفاء أيام كاملة من السجل بعد منتصف الليل.
-      final storedMeals = await _readStoredMealsSnapshot();
-      final sourceMeals = _mealsCaloriesSum(storedMeals) > _mealsCaloriesSum(meals)
+      // اقرأ وجبات التاريخ السابق من النسخة المؤرخة أولًا. وفي الإصدارات القديمة
+      // التي لم تكن تحفظ نسخة مؤرخة، استخدم المفتاح العام كترحيل لمرة واحدة.
+      final storedMeals = await _readStoredMealsSnapshot(
+        date: lastMealsDate,
+        allowUndatedFallback: true,
+      );
+      final sourceMeals = _mealsCaloriesSum(storedMeals) >= _mealsCaloriesSum(meals)
           ? storedMeals
           : meals;
 
+      // ثبّت اليوم السابق في سجل السعرات قبل أي تصفير أو كتابة لليوم الجديد.
+      await _writeMealsSnapshotForDate(
+        lastMealsDate,
+        sourceMeals,
+        setAsActive: false,
+      );
       await _syncEntriesAndTotalsForDate(lastMealsDate, sourceMeals);
-
-      // قبل ما نصفر، قوّم مكافآت اليوم السابق
       await _queueEndOfDayRewardsFor(lastMealsDate);
 
-      setState(() {
-        meals = _emptyMealBuckets();
+      final emptyMeals = _emptyMealBuckets();
+      if (mounted) {
+        setState(() {
+          meals = emptyMeals;
+          totalCalories = 0.0;
+          totalProtein = 0.0;
+          totalCarbs = 0.0;
+          totalFat = 0.0;
+        });
+      } else {
+        meals = emptyMeals;
         totalCalories = 0.0;
         totalProtein = 0.0;
         totalCarbs = 0.0;
         totalFat = 0.0;
-      });
-
-      await saveMeals();
-      for (final alias in aliases) {
-        await prefs.setString('activeMealsDate_$alias', today);
       }
+
+      // افتح اليوم الجديد بنسخة مستقلة وفارغة، ولا تعِد استخدام مفتاح أمس.
+      await _writeMealsSnapshotForDate(today, emptyMeals, setAsActive: true);
       _activeMealsStoredDate = today;
 
-      await _ensureTodaySnapshot();
       await _syncTodayEntriesAndTotals();
-      _attachTodayPointsListener(); // اليوم تغيّر
+      _attachTodayPointsListener();
       await _checkAndUpdateDailyStreak(showSnack: true);
-    } else {
-      _activeMealsStoredDate = today;
+      return;
     }
+
+    // وحّد مفاتيح الهوية الحالية حتى لا يختفي التاريخ بعد تسجيل الدخول بطريقة أخرى.
+    final currentMeals = await _readStoredMealsSnapshot(
+      date: today,
+      allowUndatedFallback: true,
+    );
+    await _writeMealsSnapshotForDate(today, currentMeals, setAsActive: true);
+    _activeMealsStoredDate = today;
   }
 
   // ====== حساب قرب الماكروز ======
@@ -1684,43 +1857,34 @@ Future<void> _claimPendingNowFromHome(int pendingNow, String ymd) async {
 
   // ====== حفظ/تحميل الوجبات ======
   Future<void> saveMeals() async {
-    final prefs = await SharedPreferences.getInstance();
-    final storageKey = await SessionManager.currentStorageKey();
-    await prefs.setString('meals_$storageKey', json.encode(meals));
+    final today = DateTime.now().toIso8601String().split('T').first;
+    await _writeMealsSnapshotForDate(today, meals, setAsActive: true);
 
     // لا نكتب Firestore عند كل تغيير في الهوم.
-    // النسخ السحابي صار نهاية اليوم/خلفية من خدمة منفصلة حتى تبقى الصفحة سلسة.
+    // كل تغيير يُحفظ محليًا بنسخة تحمل تاريخ اليوم، لذلك لا تضيع عند منتصف الليل.
   }
 
   Future<void> loadMeals() async {
     final prefs = await SharedPreferences.getInstance();
-    final storageKey = await SessionManager.currentStorageKey();
+    final aliases = await _mealStorageAliases(prefs);
+    final today = DateTime.now().toIso8601String().split('T').first;
+    final activeDate = await _resolveStoredMealsDate(prefs, aliases);
 
-    final legacy = prefs.getString('meals');
-    final savedMeals = prefs.getString('meals_$storageKey') ?? legacy;
+    // لا تستخدم المفتاح العام إذا كان يعود ليوم سابق؛ هذا هو الخلل الذي كان
+    // ينقل وجبات أمس لليوم الجديد ويمنع ظهور أمس في سجل السعرات.
+    final savedMeals = await _readStoredMealsSnapshot(
+      date: today,
+      allowUndatedFallback: activeDate == null || activeDate == today,
+    );
 
-    if (savedMeals == null) {
+    if (!mounted) return;
+    setState(() {
+      meals = savedMeals;
       calculateTotals();
-      if (mounted) setState(() {});
-      return;
-    }
+    });
 
-    if (legacy != null && prefs.getString('meals_$storageKey') == null) {
-      await prefs.setString('meals_$storageKey', legacy);
-      await prefs.remove('meals');
-    }
-
-    try {
-      final decoded = json.decode(savedMeals) as List;
-      if (!mounted) return;
-      setState(() {
-        meals = List<Map<String, dynamic>>.from(decoded);
-        calculateTotals();
-      });
-      _persistHomeSnapshotDebounced();
-    } catch (e) {
-      debugPrint('[HomeScreen] loadMeals failed: $e');
-    }
+    await _writeMealsSnapshotForDate(today, savedMeals, setAsActive: true);
+    _persistHomeSnapshotDebounced();
   }
 
   // ====== حساب المجاميع ======
